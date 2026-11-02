@@ -21,9 +21,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: pnpm
 
-      - run: pnpm install
+      # Файла pnpm-lock.yaml пока нет — разрешаем pnpm создать его в CI.
+      - run: pnpm install --no-frozen-lockfile
 
       - run: pnpm test
 
