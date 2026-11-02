@@ -16,6 +16,8 @@ type FrameSource = HTMLVideoElement | HTMLCanvasElement;
 const base = import.meta.env.BASE_URL;
 /** WASM и модели раздаются с нашего сервера (см. scripts/). */
 export const WASM_PATH = `${base}wasm`;
+/** Запасной адрес WASM той же версии, что и библиотека. */
+export const WASM_FALLBACK_PATH = `https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${__MEDIAPIPE_VERSION__}/wasm`;
 export const modelPath = (v: ModelVariant): string => `${base}models/pose_landmarker_${v}.task`;
 /** Запасной адрес: официальное хранилище моделей MediaPipe (если своей копии на сервере нет). */
 export const modelFallbackPath = (v: ModelVariant): string =>
@@ -24,7 +26,10 @@ export const modelFallbackPath = (v: ModelVariant): string =>
 /** Ошибки MediaPipe иногда приходят как Event — достаём из них читаемый текст. */
 function describe(e: unknown): string {
   if (e instanceof Error) return e.message;
-  if (typeof Event !== 'undefined' && e instanceof Event) return `ошибка загрузки (${e.type})`;
+  if (typeof Event !== 'undefined' && e instanceof Event) {
+    const src = (e.target as { src?: string } | null)?.src;
+    return `ошибка загрузки${src ? ` ${src}` : ''} (${e.type})`;
+  }
   return String(e);
 }
 
@@ -55,15 +60,21 @@ export class PoseEngine {
   }
 
   static async create(model: ModelVariant = 'lite'): Promise<PoseEngine> {
-    let fileset: Fileset;
-    try {
-      fileset = await FilesetResolver.forVisionTasks(WASM_PATH);
-    } catch (e) {
-      throw new PoseEngineError('wasm', `Не удалось загрузить WASM MediaPipe из ${WASM_PATH}: ${describe(e)}`);
+    const local = await PoseEngine.hasLocal(`${WASM_PATH}/vision_wasm_internal.js`);
+    const wasmPaths = local ? [WASM_PATH, WASM_FALLBACK_PATH] : [WASM_FALLBACK_PATH];
+    let lastError: unknown = null;
+    for (const wasm of wasmPaths) {
+      try {
+        const fileset = await FilesetResolver.forVisionTasks(wasm);
+        const engine = new PoseEngine(fileset, { model, delegate: 'GPU', inputScale: 1 });
+        await engine.load(model);
+        return engine;
+      } catch (e) {
+        lastError = e;
+      }
     }
-    const engine = new PoseEngine(fileset, { model, delegate: 'GPU', inputScale: 1 });
-    await engine.load(model);
-    return engine;
+    if (lastError instanceof PoseEngineError) throw lastError;
+    throw new PoseEngineError('wasm', `Не удалось загрузить WASM MediaPipe (${wasmPaths.join(' или ')}): ${describe(lastError)}`);
   }
 
   get info(): PoseEngineInfo {

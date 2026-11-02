@@ -7,7 +7,7 @@
     "postinstall": "node scripts/copy-mediapipe-assets.mjs",
     "models": "node scripts/fetch-models.mjs",
     "dev": "vite --host",
-    "build": "node scripts/fetch-models.mjs && tsc -p tsconfig.json && vite build",
+    "build": "node scripts/copy-mediapipe-assets.mjs && node scripts/fetch-models.mjs && tsc -p tsconfig.json && vite build",
     "preview": "vite preview --host",
     "test": "vitest run",
     "test:watch": "vitest",
