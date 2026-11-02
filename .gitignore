@@ -1,0 +1,11 @@
+node_modules
+dist
+*.local
+.DS_Store
+
+# Модели и WASM MediaPipe скачиваются/копируются скриптами и не хранятся в git
+apps/web/public/models/*.task
+apps/web/public/wasm/
+
+# Локальные записи и видео для замера точности
+recordings/
