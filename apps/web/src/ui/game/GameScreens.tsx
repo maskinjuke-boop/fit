@@ -8,8 +8,8 @@ import type { GameState } from '../../game/state';
 import { useI18n, type I18nKey } from '../../i18n';
 import type { ExerciseId } from '../../tracking/exercise';
 import { AppearanceEditor } from './AppearanceEditor';
-import { Avatar } from './Avatar';
 import { Hero3D } from './Hero3D';
+import { HeroPortrait } from './Renders';
 import { InventorySection } from './Shop';
 import { exName, objectiveText, questName, taskText } from './text';
 
@@ -30,7 +30,7 @@ export function HeroHeader({ state }: { state: GameState }) {
   const c = state.character;
   return (
     <header className="hero-header">
-      <Avatar color={c.color} appearance={c.appearance} equipped={state.equipped} size={56} />
+      <HeroPortrait color={c.color} appearance={c.appearance} equipped={state.equipped} size={56} />
       <div className="hero-header-main">
         <div className="hero-name">
           {c.name} <span className="lvl-chip">{info.level}</span>

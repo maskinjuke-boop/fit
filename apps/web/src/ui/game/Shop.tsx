@@ -5,8 +5,8 @@ import { ITEMS, RARITY_COLOR, SLOTS, itemById, type ItemDef, type Slot } from '.
 import { levelOf } from '../../game/levels';
 import type { GameState } from '../../game/state';
 import { useI18n, type I18nKey } from '../../i18n';
-import { ItemIcon } from './Avatar';
 import { Hero3D } from './Hero3D';
+import { ItemImage } from './Renders';
 
 const itemName = (t: (k: I18nKey) => string, id: string): string => t(`item.${id}` as I18nKey);
 
@@ -31,7 +31,7 @@ function ItemSheet({ state, item, onClose }: { state: GameState; item: ItemDef; 
           {tryOn ? (
             <Hero3D color={state.character.color} appearance={state.character.appearance} equipped={preview} height={280} />
           ) : (
-            <ItemIcon itemId={item.id} color={state.character.color} size={168} />
+            <ItemImage itemId={item.id} color={state.character.color} figure={state.character.appearance.figure} size={180} />
           )}
         </div>
         <div className="seg">
@@ -88,7 +88,7 @@ function ItemCard({ state, item, onOpen }: { state: GameState; item: ItemDef; on
     <li>
       <button className={`item-card ${locked ? 'locked' : ''} ${isEquipped ? 'equipped' : ''}`} style={{ borderColor: isEquipped ? undefined : RARITY_COLOR[item.rarity] + '55' }} onClick={onOpen}>
         <span className="item-art" style={{ background: `radial-gradient(circle at 50% 40%, ${RARITY_COLOR[item.rarity]}26, transparent 70%)` }}>
-          <ItemIcon itemId={item.id} color={state.character.color} size={84} />
+          <ItemImage itemId={item.id} color={state.character.color} figure={state.character.appearance.figure} size={92} />
         </span>
         <b>{itemName(t, item.id)}</b>
         <BonusLabel item={item} />
@@ -136,6 +136,7 @@ export function InventorySection({ state }: { state: GameState }) {
   const openItem = open ? itemById(open) : undefined;
   const bonus = Math.round(equipmentBonus(state) * 100);
   const color = state.character.color;
+  const figure = state.character.appearance.figure;
   const equippedIds = Object.values(state.equipped);
   return (
     <section className="card">
@@ -150,7 +151,7 @@ export function InventorySection({ state }: { state: GameState }) {
           return (
             <li key={slot}>
               <button className={`slot-tile ${id ? '' : 'empty'}`} disabled={!id} onClick={() => id && setOpen(id)} style={def ? { borderColor: RARITY_COLOR[def.rarity] + '66' } : undefined}>
-                <span className="slot-art">{id ? <ItemIcon itemId={id} color={color} size={52} /> : <span className="slot-empty-mark">—</span>}</span>
+                <span className="slot-art">{id ? <ItemImage itemId={id} color={color} figure={figure} size={52} /> : <span className="slot-empty-mark">—</span>}</span>
                 <span className="slot-text">
                   <span className="muted small">{t(`slot.${slot}` as I18nKey)}</span>
                   <span className="slot-name">{id ? itemName(t, id) : t('emptySlot')}</span>
@@ -169,7 +170,7 @@ export function InventorySection({ state }: { state: GameState }) {
               return (
                 <li key={id}>
                   <button className={`bag-cell ${equippedIds.includes(id) ? 'on' : ''}`} onClick={() => setOpen(id)} title={itemName(t, id)} aria-label={itemName(t, id)} style={def ? { borderColor: RARITY_COLOR[def.rarity] + '66' } : undefined}>
-                    <ItemIcon itemId={id} color={color} size={48} />
+                    <ItemImage itemId={id} color={color} figure={figure} size={52} />
                     {equippedIds.includes(id) && <span className="bag-check">✓</span>}
                   </button>
                 </li>

@@ -10,4 +10,4 @@ export const SKIN_TONES = [
 ] as const;
 
 export const HAIR_COLORS = ['#1f1612', '#4a2f1f', '#8a5a2b', '#d6ab62', '#a8392a', '#a3a8b0'] as const;
-export const HAIR_STYLES: readonly HairStyle[] = ['short', 'buzz', 'long', 'bun', 'curly'];
+export const HAIR_STYLES: readonly HairStyle[] = ['short', 'buzz', 'long', 'ponytail', 'bob', 'bun', 'curly'];

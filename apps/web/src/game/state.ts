@@ -2,10 +2,13 @@ import type { ExerciseId } from '../tracking/exercise';
 import type { Archetype, FitnessLevel, MuscleGroup, StatId } from './config';
 import type { Slot } from './items';
 
-export type HairStyle = 'short' | 'long' | 'bun' | 'buzz' | 'curly';
+export type HairStyle = 'short' | 'long' | 'bun' | 'buzz' | 'curly' | 'ponytail' | 'bob';
+export type Figure = 'male' | 'female';
 
-/** Внешность портрета. */
+/** Внешность персонажа. */
 export interface Appearance {
+  /** Телосложение: мужское или женское. */
+  figure: Figure;
   /** Индекс в палитре оттенков кожи. */
   skin: number;
   hair: HairStyle;
@@ -13,7 +16,14 @@ export interface Appearance {
   beard: boolean;
 }
 
-export const DEFAULT_APPEARANCE: Appearance = { skin: 1, hair: 'short', hairColor: 1, beard: false };
+export const DEFAULT_APPEARANCE: Appearance = { figure: 'male', skin: 1, hair: 'short', hairColor: 1, beard: false };
+
+/** Смена телосложения с разумной подстройкой причёски и бороды. */
+export function withFigure(a: Appearance, figure: Figure): Appearance {
+  if (figure === a.figure) return a;
+  if (figure === 'female') return { ...a, figure, beard: false, hair: a.hair === 'short' || a.hair === 'buzz' ? 'long' : a.hair };
+  return { ...a, figure, hair: a.hair === 'ponytail' || a.hair === 'bob' ? 'short' : a.hair };
+}
 
 export interface Character {
   id: string;

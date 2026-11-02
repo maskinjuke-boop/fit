@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { GameEvent } from '../game/engine';
 import { useGame } from '../game/GameContext';
+import { ITEMS } from '../game/items';
 import { useI18n } from '../i18n';
 import { PoseEngine, PoseEngineError } from '../pose/poseEngine';
 import type { ExerciseDef, ExerciseId } from '../tracking/exercise';
@@ -10,6 +11,7 @@ import { ExercisePicker } from './ExercisePicker';
 import { BottomNav, HeroHeader, HeroTab, HomeTab, QuestsTab, type Tab } from './game/GameScreens';
 import { AdminPanel } from './game/AdminPanel';
 import { Onboarding } from './game/Onboarding';
+import { preloadItemImages } from './game/Renders';
 import { ShopTab } from './game/Shop';
 import { SessionSummary, type Session } from './game/SessionSummary';
 import { eventText } from './game/text';
@@ -52,6 +54,15 @@ export function App() {
   useEffect(() => {
     if (hasHero && engine.status === 'idle') void loadEngine();
   }, [loadEngine, hasHero, engine.status]);
+
+  // Иконки предметов рисуются из 3D-моделей заранее, пока игрок на главной.
+  const heroColor = game.state?.character.color;
+  const heroFigure = game.state?.character.appearance.figure;
+  useEffect(() => {
+    if (!heroColor || !heroFigure) return;
+    const id = setTimeout(() => preloadItemImages(ITEMS.map((i) => i.id), heroColor, heroFigure), 1500);
+    return () => clearTimeout(id);
+  }, [heroColor, heroFigure]);
 
   // Сообщение о переходе дня (сгоревшая серия, заморозка).
   useEffect(() => {

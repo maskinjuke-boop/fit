@@ -4,7 +4,6 @@ import { useGame } from '../../game/GameContext';
 import { DEFAULT_APPEARANCE, type Appearance } from '../../game/state';
 import { useI18n, type I18nKey } from '../../i18n';
 import { AppearanceEditor } from './AppearanceEditor';
-import { Avatar } from './Avatar';
 import { Hero3D } from './Hero3D';
 
 /** Стартовый предмет пути — показываем его на портрете сразу при выборе. */
@@ -40,8 +39,15 @@ export function Onboarding() {
     <main className="onboarding">
       {step === 'welcome' && (
         <section className="ob-step">
-          <div className="ob-hero-art">
-            <Avatar color={COLORS[0]} appearance={DEFAULT_APPEARANCE} equipped={{ offhand: 'wooden_shield', weapon: 'wooden_club' }} size={160} />
+          <div className="ob-hero-art pair">
+            <Hero3D color={COLORS[0]} appearance={DEFAULT_APPEARANCE} equipped={{ head: 'headband', body: 'leather_vest', offhand: 'wooden_shield', weapon: 'wooden_club' }} height={230} interactive={false} />
+            <Hero3D
+              color={COLORS[1]}
+              appearance={{ ...DEFAULT_APPEARANCE, figure: 'female', hair: 'ponytail', hairColor: 3, skin: 2 }}
+              equipped={{ body: 'tracksuit', weapon: 'jump_rope', offhand: 'shaker' }}
+              height={230}
+              interactive={false}
+            />
           </div>
           <h1>{t('ob.welcomeTitle')}</h1>
           <p>{t('ob.welcomeText')}</p>

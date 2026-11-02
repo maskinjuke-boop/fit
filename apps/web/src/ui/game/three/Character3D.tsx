@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import { Avatar } from '../Avatar';
 import type { Hero3DProps } from '../Hero3D';
 import { buildCharacter, disposeObject, type CharacterParts } from './buildCharacter';
+import { createStudio, enableShadows, setupRenderer } from './studio';
 
 /** Мягкая тень под ногами — текстура с радиальным градиентом вместо теневых карт (дёшево для телефонов). */
 function groundShadow(): THREE.Mesh {
@@ -24,47 +25,11 @@ function groundShadow(): THREE.Mesh {
   return m;
 }
 
-/**
- * Простое окружение для отражений металла (без внешних HDR-файлов):
- * градиентная «комната» и пара светлых панелей, запечённые в PMREM-текстуру.
- */
-function studioEnvironment(renderer: THREE.WebGLRenderer): THREE.Texture {
-  const env = new THREE.Scene();
-  const geo = new THREE.SphereGeometry(10, 32, 16);
-  const pos = geo.getAttribute('position');
-  const colors: number[] = [];
-  const top = new THREE.Color('#c9d6f0');
-  const mid = new THREE.Color('#4a5266');
-  const bottom = new THREE.Color('#15171c');
-  const c = new THREE.Color();
-  for (let i = 0; i < pos.count; i += 1) {
-    const y = pos.getY(i) / 10;
-    if (y > 0) c.copy(mid).lerp(top, y);
-    else c.copy(mid).lerp(bottom, -y);
-    colors.push(c.r, c.g, c.b);
-  }
-  geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
-  env.add(new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.BackSide })));
-  const panel = (x: number, y: number, z: number, w: number, h: number, k: number): void => {
-    const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshBasicMaterial({ color: new THREE.Color(k, k, k), side: THREE.DoubleSide }));
-    m.position.set(x, y, z);
-    m.lookAt(0, 0, 0);
-    env.add(m);
-  };
-  panel(5, 5, 6, 5, 3, 3);
-  panel(-7, 2, -4, 3, 5, 1.6);
-  panel(0, 8, 0, 6, 6, 1.5);
-  const pmrem = new THREE.PMREMGenerator(renderer);
-  const tex = pmrem.fromScene(env, 0.04).texture;
-  pmrem.dispose();
-  disposeObject(env);
-  return tex;
-}
-
 function pedestal(color: string): THREE.Group {
   const g = new THREE.Group();
-  const disk = new THREE.Mesh(new THREE.CylinderGeometry(0.78, 0.84, 0.08, 48), new THREE.MeshStandardMaterial({ color: '#232a3a', roughness: 0.6, metalness: 0.2 }));
+  const disk = new THREE.Mesh(new THREE.CylinderGeometry(0.78, 0.84, 0.08, 64), new THREE.MeshStandardMaterial({ color: '#232a3a', roughness: 0.55, metalness: 0.25 }));
   disk.position.y = -0.04;
+  disk.receiveShadow = true;
   const ring = new THREE.Mesh(new THREE.TorusGeometry(0.8, 0.012, 8, 64), new THREE.MeshBasicMaterial({ color }));
   ring.rotation.x = Math.PI / 2;
   ring.position.y = 0.002;
@@ -93,28 +58,17 @@ export default function Character3D({ color, appearance, equipped, height = 260,
       return;
     }
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
-    renderer.toneMapping = THREE.NeutralToneMapping;
-    renderer.toneMappingExposure = 1.0;
+    setupRenderer(renderer, true);
     const canvas = renderer.domElement;
     canvas.className = 'hero3d-canvas';
     el.appendChild(canvas);
 
-    const scene = new THREE.Scene();
-    scene.environment = studioEnvironment(renderer);
-    scene.environmentIntensity = 0.55;
+    const studio = createStudio(renderer, true);
+    const { scene, rim } = studio;
     const camera = new THREE.PerspectiveCamera(28, 1, 0.1, 50);
-    const target = new THREE.Vector3(0, 1.22, 0);
-    camera.position.set(0, 1.55, 6.1);
+    const target = new THREE.Vector3(0, 1.3, 0);
+    camera.position.set(0, 1.6, 6.4);
     camera.lookAt(target);
-
-    scene.add(new THREE.HemisphereLight('#e4ecff', '#3a2f45', 0.7));
-    const key = new THREE.DirectionalLight('#fff6ec', 1.9);
-    key.position.set(2.5, 4, 4);
-    const rim = new THREE.DirectionalLight('#ffffff', 2.2);
-    rim.position.set(-3, 2.5, -3.5);
-    const fill = new THREE.DirectionalLight('#b8c8ff', 0.55);
-    fill.position.set(-3, 1, 2);
-    scene.add(key, rim, fill);
 
     const stage = new THREE.Group();
     scene.add(stage);
@@ -129,6 +83,7 @@ export default function Character3D({ color, appearance, equipped, height = 260,
           disposeObject(parts.root);
         }
         parts = c;
+        enableShadows(c.root);
         stage.add(c.root);
         rim.color.set(col);
         stage.remove(base);
@@ -145,8 +100,8 @@ export default function Character3D({ color, appearance, equipped, height = 260,
       renderer.setSize(w, h, false);
       camera.aspect = w / h;
       // В узком контейнере отодвигаем камеру, чтобы персонаж влезал целиком.
-      const dist = 6.1 * Math.max(1, 0.62 / camera.aspect);
-      camera.position.set(0, 1.55, dist);
+      const dist = 6.4 * Math.max(1, 0.62 / camera.aspect);
+      camera.position.set(0, 1.6, dist);
       camera.lookAt(target);
       camera.updateProjectionMatrix();
     };
@@ -201,6 +156,10 @@ export default function Character3D({ color, appearance, equipped, height = 260,
     let raf = 0;
     let prev = performance.now();
     let sway = 0;
+    // Если телефон не успевает, отключаем тени и снижаем чёткость (проверяем первые ~90 кадров).
+    let perfFrames = 0;
+    let perfTime = 0;
+    let tuned = false;
     const tick = (now: number): void => {
       raf = requestAnimationFrame(tick);
       const dt = Math.min(0.05, (now - prev) / 1000);
@@ -217,14 +176,37 @@ export default function Character3D({ color, appearance, equipped, height = 260,
         stage.rotation.y = angle;
       }
       if (parts) {
-        const b = Math.sin(now / 1000 * 1.9);
+        const t = now / 1000;
+        const b = Math.sin(t * 1.9);
         parts.torso.position.y = b * 0.006;
         parts.torso.scale.x = 1 + b * 0.008;
         parts.head.position.y = Number(parts.head.userData.baseY ?? 0) + b * 0.009;
-        parts.leftArm.position.y = b * 0.007;
-        parts.rightArm.position.y = b * 0.007;
+        parts.head.rotation.y = Math.sin(t * 0.7) * 0.06;
+        parts.head.rotation.z = Math.sin(t * 0.5) * 0.025;
+        // Руки чуть покачиваются в такт дыханию.
+        parts.rightArm.rotation.z = -0.015 - b * 0.02;
+        parts.leftArm.rotation.z = 0.015 + b * 0.02;
+        parts.rightArm.rotation.x = Math.sin(t * 0.9) * 0.025;
+        parts.leftArm.rotation.x = -Math.sin(t * 0.9) * 0.025;
+        // Моргание раз в несколько секунд.
+        const cycle = t % 4.2;
+        const blink = cycle < 0.14 ? Math.abs(Math.cos((cycle / 0.14) * Math.PI)) : 1;
+        for (const e of parts.eyes) e.scale.y = Math.max(0.08, blink);
+        for (const f of parts.anim) f(t);
       }
       renderer.render(scene, camera);
+      if (!tuned) {
+        perfFrames += 1;
+        perfTime += dt;
+        if (perfFrames >= 90) {
+          tuned = true;
+          if (perfTime / perfFrames > 1 / 38) {
+            studio.key.castShadow = false;
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.25));
+            resize();
+          }
+        }
+      }
     };
     raf = requestAnimationFrame(tick);
 
@@ -238,8 +220,7 @@ export default function Character3D({ color, appearance, equipped, height = 260,
       canvas.removeEventListener('pointercancel', onUp);
       canvas.removeEventListener('webglcontextlost', onLost);
       api.current = null;
-      scene.environment?.dispose();
-      disposeObject(scene);
+      studio.dispose();
       renderer.dispose();
       renderer.forceContextLoss();
       canvas.remove();

@@ -3,7 +3,7 @@ import { completeDailies, simulateReps, unlockAllItems } from '../src/game/admin
 import { applyRep, buyItem, canBuy, completeActiveQuests, equipItem, equipmentBonus, grant, newCharacterState, setLevel, unequipSlot } from '../src/game/engine';
 import { ITEMS, MAX_EQUIPMENT_BONUS } from '../src/game/items';
 import { levelOf } from '../src/game/levels';
-import { createState, DEFAULT_APPEARANCE, migrate, type GameState } from '../src/game/state';
+import { createState, DEFAULT_APPEARANCE, migrate, withFigure, type GameState } from '../src/game/state';
 
 const now = new Date(2026, 10, 2, 10);
 const hero = (): GameState =>
@@ -107,5 +107,22 @@ describe('Миграция сохранений', () => {
     expect(m.inventory).toEqual([]);
     expect(m.equipped).toEqual({});
     expect(m.character.appearance).toEqual(DEFAULT_APPEARANCE);
+  });
+
+  it('сохранение без фигуры получает мужскую, остальная внешность не меняется', () => {
+    const legacy = JSON.parse(JSON.stringify(hero())) as GameState;
+    const app = { skin: 3, hair: 'curly', hairColor: 2, beard: true } as unknown as GameState['character']['appearance'];
+    legacy.character.appearance = app;
+    const m = migrate(legacy);
+    expect(m.character.appearance).toEqual({ figure: 'male', skin: 3, hair: 'curly', hairColor: 2, beard: true });
+  });
+
+  it('смена фигуры убирает бороду и подбирает причёску', () => {
+    const f = withFigure({ ...DEFAULT_APPEARANCE, beard: true }, 'female');
+    expect(f.figure).toBe('female');
+    expect(f.beard).toBe(false);
+    expect(f.hair).toBe('long');
+    expect(withFigure({ ...f, hair: 'ponytail' }, 'male').hair).toBe('short');
+    expect(withFigure({ ...f, hair: 'curly' }, 'male').hair).toBe('curly');
   });
 });
