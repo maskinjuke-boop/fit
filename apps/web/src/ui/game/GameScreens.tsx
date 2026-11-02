@@ -1,4 +1,5 @@
 import { useState, type ChangeEvent, type ReactNode } from 'react';
+import { ACHIEVEMENTS, titleText, unlockedTitles } from '../../game/achievements';
 import { STATS } from '../../game/config';
 import { taskProgress } from '../../game/dailies';
 import { useGame } from '../../game/GameContext';
@@ -13,7 +14,7 @@ import { HeroPortrait } from './Renders';
 import { InventorySection } from './Shop';
 import { exName, objectiveText, questName, taskText } from './text';
 
-export type Tab = 'home' | 'train' | 'quests' | 'shop' | 'hero';
+export type Tab = 'home' | 'train' | 'story' | 'quests' | 'shop' | 'hero';
 
 function Bar({ value, color }: { value: number; color?: string }) {
   return (
@@ -25,7 +26,7 @@ function Bar({ value, color }: { value: number; color?: string }) {
 
 /** Шапка: аватар, уровень, золото, серия. */
 export function HeroHeader({ state }: { state: GameState }) {
-  const { t } = useI18n();
+  const { t, lang } = useI18n();
   const info = levelInfo(state.totalXp);
   const c = state.character;
   return (
@@ -34,6 +35,7 @@ export function HeroHeader({ state }: { state: GameState }) {
       <div className="hero-header-main">
         <div className="hero-name">
           {c.name} <span className="lvl-chip">{info.level}</span>
+          {state.title && <span className="hero-title">{titleText(state.title)?.[lang]}</span>}
         </div>
         <Bar value={info.progress} color={c.color} />
         <div className="muted small">
@@ -53,6 +55,7 @@ export function BottomNav({ tab, onTab }: { tab: Tab; onTab(t: Tab): void }) {
   const items: Array<[Tab, string, I18nKey]> = [
     ['home', '⌂', 'tab.home'],
     ['train', '▶', 'tab.train'],
+    ['story', '📜', 'tab.story'],
     ['quests', '✦', 'tab.quests'],
     ['shop', '◈', 'tab.shop'],
     ['hero', '☺', 'tab.hero'],
@@ -225,7 +228,7 @@ export function QuestsTab({ state }: { state: GameState }) {
 
 export function HeroTab({ state, onAccuracy }: { state: GameState; onAccuracy(): void }) {
   const { t, lang, setLang } = useI18n();
-  const { setHasBar, setAppearance, reset } = useGame();
+  const { setHasBar, setAppearance, reset, setTitle } = useGame();
   const [confirm, setConfirm] = useState(false);
   const [editing, setEditing] = useState<{ appearance: GameState['character']['appearance']; color: string } | null>(null);
   const c = state.character;
@@ -235,12 +238,13 @@ export function HeroTab({ state, onAccuracy }: { state: GameState; onAccuracy():
     <div className="tab-body">
       <section className="card hero-card">
         <div className="hero-stage">
-          <Hero3D color={c.color} appearance={c.appearance} equipped={state.equipped} height={320} />
+          <Hero3D color={c.color} appearance={c.appearance} equipped={state.equipped} height={340} zoomable />
           <span className="hero-stage-level">{info.level}</span>
           <span className="hero-stage-hint muted small">⟲ {t('rotateHint')}</span>
         </div>
         <div className="hero-card-info">
           <h2>{c.name}</h2>
+          {state.title && <p className="hero-title big">«{titleText(state.title)?.[lang]}»</p>}
           <p className="muted">
             {t(`arch.${c.archetype}` as I18nKey)} · {t(`fit.${c.fitness}` as I18nKey)}
           </p>
@@ -254,12 +258,13 @@ export function HeroTab({ state, onAccuracy }: { state: GameState; onAccuracy():
       </section>
 
       <InventorySection state={state} />
+      <AchievementsSection state={state} onTitle={setTitle} />
       {editing && (
         <div className="overlay">
           <div className="sheet wide-sheet">
             <h2>{t('appearance')}</h2>
             <div className="ob-hero-art">
-              <Hero3D color={editing.color} appearance={editing.appearance} equipped={state.equipped} height={240} />
+              <Hero3D color={editing.color} appearance={editing.appearance} equipped={state.equipped} height={260} zoomable />
             </div>
             <AppearanceEditor appearance={editing.appearance} color={editing.color} onChange={(a, col) => setEditing({ appearance: a, color: col })} />
             <div className="row">
@@ -345,5 +350,65 @@ export function HeroTab({ state, onAccuracy }: { state: GameState; onAccuracy():
         )}
       </Section>
     </div>
+  );
+}
+
+/** Достижения и выбор титула. */
+function AchievementsSection({ state, onTitle }: { state: GameState; onTitle(id: string | undefined): void }) {
+  const { t, tf, lang } = useI18n();
+  const [all, setAll] = useState(false);
+  const titles = unlockedTitles(state);
+  const done = ACHIEVEMENTS.filter((a) => state.achievements[a.id]).length;
+  // Сначала открытые, затем ближайшие к выполнению.
+  const sorted = [...ACHIEVEMENTS].sort((a, b) => {
+    const ua = state.achievements[a.id] ? 1 : 0;
+    const ub = state.achievements[b.id] ? 1 : 0;
+    if (ua !== ub) return ub - ua;
+    const [ca, ga] = a.progress(state);
+    const [cb, gb] = b.progress(state);
+    return cb / gb - ca / ga;
+  });
+  const shown = all ? sorted : sorted.slice(0, 6);
+  return (
+    <Section title={t('achievements')} aside={<span className="muted small">{tf('achievementsCount', { n: done, m: ACHIEVEMENTS.length })}</span>}>
+      <ul className="ach-list">
+        {shown.map((a) => {
+          const unlocked = Boolean(state.achievements[a.id]);
+          const [cur, goal] = a.progress(state);
+          return (
+            <li key={a.id} className={unlocked ? 'on' : ''}>
+              <span className="ach-icon">{a.icon}</span>
+              <div className="ach-main">
+                <b>{a.name[lang]}</b>
+                <span className="muted small">{a.desc[lang]}</span>
+                {!unlocked && <Bar value={cur / goal} />}
+              </div>
+              <span className="ach-reward">
+                {unlocked ? '✓' : `${Math.min(cur, goal)}/${goal}`}
+                {a.title && <span className="tiny">🏷️</span>}
+              </span>
+            </li>
+          );
+        })}
+      </ul>
+      <button className="link" onClick={() => setAll((v) => !v)}>
+        {all ? '▲' : `▼ ${ACHIEVEMENTS.length - shown.length}`}
+      </button>
+      <p className="field-label">{t('titles')}</p>
+      {titles.length === 0 ? (
+        <p className="muted small">{t('titleHint')}</p>
+      ) : (
+        <div className="chips">
+          <button className={`chip ${!state.title ? 'on' : ''}`} onClick={() => onTitle(undefined)}>
+            {t('noTitle')}
+          </button>
+          {titles.map((id) => (
+            <button key={id} className={`chip ${state.title === id ? 'on' : ''}`} onClick={() => onTitle(id)}>
+              🏷️ {titleText(id)?.[lang] ?? id}
+            </button>
+          ))}
+        </div>
+      )}
+    </Section>
   );
 }

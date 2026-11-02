@@ -9,12 +9,12 @@ export interface Session {
   events: GameEvent[];
 }
 
-const SHOWN: ReadonlyArray<GameEvent['kind']> = ['levelUp', 'statLevelUp', 'questDone', 'dailyDone', 'dailyBonus', 'streak'];
+const SHOWN: ReadonlyArray<GameEvent['kind']> = ['levelUp', 'statLevelUp', 'questDone', 'dailyDone', 'dailyBonus', 'streak', 'storyTrialDone', 'achievement'];
 
 /** Итог тренировки: повторы, опыт, золото и что произошло (уровни, квесты, задания). */
 export function SessionSummary({ session, onClose }: { session: Session; onClose(): void }) {
-  const { t, tf } = useI18n();
-  const lines = session.events.filter((e) => SHOWN.includes(e.kind)).map((e) => eventText(t, tf, e)).filter((x): x is string => !!x);
+  const { t, tf, lang } = useI18n();
+  const lines = session.events.filter((e) => SHOWN.includes(e.kind)).map((e) => eventText(t, tf, e, lang)).filter((x): x is string => !!x);
   return (
     <div className="overlay">
       <div className="sheet">

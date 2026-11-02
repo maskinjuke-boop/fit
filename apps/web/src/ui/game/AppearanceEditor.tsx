@@ -1,7 +1,7 @@
 import { COLORS } from '../../game/config';
 import { withFigure, type Appearance, type Figure } from '../../game/state';
 import { useI18n, type I18nKey } from '../../i18n';
-import { HAIR_COLORS, HAIR_STYLES, SKIN_TONES } from './palette';
+import { EYE_COLORS, HAIR_COLORS, HAIR_STYLES, SKIN_TONES } from './palette';
 
 /** Выбор внешности: фигура, кожа, причёска, цвет волос, борода, цвет одежды и рамки. */
 export function AppearanceEditor({
@@ -43,6 +43,12 @@ export function AppearanceEditor({
       <div className="swatches">
         {HAIR_COLORS.map((c, i) => (
           <button key={c} className={`swatch ${appearance.hairColor === i ? 'on' : ''}`} style={{ background: c }} aria-label={`${t('hairColor')} ${i + 1}`} onClick={() => set({ hairColor: i })} />
+        ))}
+      </div>
+      <p className="field-label">{t('eyeColor')}</p>
+      <div className="swatches">
+        {EYE_COLORS.map((c, i) => (
+          <button key={c} className={`swatch eye ${(appearance.eyes ?? 0) === i ? 'on' : ''}`} style={{ background: `radial-gradient(circle, #0c0907 0 22%, ${c} 24% 70%, #f2ede6 72%)` }} aria-label={`${t('eyeColor')} ${i + 1}`} onClick={() => set({ eyes: i })} />
         ))}
       </div>
       {appearance.figure === 'male' && (

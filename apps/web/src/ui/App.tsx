@@ -4,6 +4,7 @@ import { useGame } from '../game/GameContext';
 import { ITEMS } from '../game/items';
 import { useI18n } from '../i18n';
 import { PoseEngine, PoseEngineError } from '../pose/poseEngine';
+import { getExercise } from '../tracking/exercises';
 import type { ExerciseDef, ExerciseId } from '../tracking/exercise';
 import type { Metrics } from '../tracking/types';
 import { AccuracyPanel } from './AccuracyPanel';
@@ -13,6 +14,7 @@ import { AdminPanel } from './game/AdminPanel';
 import { Onboarding } from './game/Onboarding';
 import { preloadItemImages } from './game/Renders';
 import { ShopTab } from './game/Shop';
+import { StoryTab } from './game/StoryTab';
 import { SessionSummary, type Session } from './game/SessionSummary';
 import { eventText } from './game/text';
 import { TrackingScreen } from './TrackingScreen';
@@ -20,9 +22,11 @@ import { TrackingScreen } from './TrackingScreen';
 type EngineState = { status: 'idle' } | { status: 'loading' } | { status: 'ready'; engine: PoseEngine } | { status: 'error'; code: 'wasm' | 'model'; detail: string };
 
 export function App() {
-  const { t, tf } = useI18n();
+  const { t, tf, lang } = useI18n();
   const game = useGame();
   const [tab, setTab] = useState<Tab>('home');
+  /** Куда вернуться после тренировки (из истории — обратно в историю). */
+  const [returnTab, setReturnTab] = useState<Tab>('home');
   const [exercise, setExercise] = useState<ExerciseDef<Metrics> | null>(null);
   const [engine, setEngine] = useState<EngineState>({ status: 'idle' });
   const [showAccuracy, setShowAccuracy] = useState(false);
@@ -67,11 +71,12 @@ export function App() {
   // Сообщение о переходе дня (сгоревшая серия, заморозка).
   useEffect(() => {
     const e = game.dayEvents.find((x) => x.kind === 'streakLost' || x.kind === 'freezeUsed');
-    if (e) setDayBanner(eventText(t, tf, e));
-  }, [game.dayEvents, t, tf]);
+    if (e) setDayBanner(eventText(t, tf, e, lang));
+  }, [game.dayEvents, t, tf, lang]);
 
-  const startExercise = (def: ExerciseDef<Metrics>): void => {
+  const startExercise = (def: ExerciseDef<Metrics>, from: Tab = 'home'): void => {
     session.current = { reps: 0, xp: 0, gold: 0, events: [] };
+    setReturnTab(from);
     setExercise(def);
   };
 
@@ -92,7 +97,7 @@ export function App() {
 
   const finishExercise = (): void => {
     setExercise(null);
-    setTab('home');
+    setTab(returnTab);
     if (session.current.reps > 0) setSummary({ ...session.current });
   };
 
@@ -100,7 +105,10 @@ export function App() {
   const state = game.state;
 
   if (exercise && engine.status === 'ready') {
-    return <TrackingScreen exercise={exercise} engine={engine.engine} onBack={finishExercise} onRep={onRep} />;
+    const trial = state.story.status === 'trial' ? state.story.trial : null;
+    const family = (id: string): string => (id === 'pullup_negative' ? 'pullup' : id);
+    const storyTrial = trial && family(trial.exercise) === family(exercise.id) ? { progress: trial.progress, target: trial.target } : null;
+    return <TrackingScreen exercise={exercise} engine={engine.engine} onBack={finishExercise} onRep={onRep} storyTrial={storyTrial} />;
   }
 
   return (
@@ -113,7 +121,8 @@ export function App() {
       )}
       <div className="shell-body">
         {tab === 'home' && <HomeTab state={state} onTrain={() => setTab('train')} />}
-        {tab === 'train' && <ExercisePicker embedded onPick={startExercise} />}
+        {tab === 'train' && <ExercisePicker embedded onPick={(def) => startExercise(def)} />}
+        {tab === 'story' && <StoryTab state={state} onTrain={(id) => startExercise(getExercise(id), 'story')} />}
         {tab === 'quests' && <QuestsTab state={state} />}
         {tab === 'shop' && <ShopTab state={state} />}
         {tab === 'hero' && <HeroTab state={state} onAccuracy={() => setShowAccuracy(true)} />}

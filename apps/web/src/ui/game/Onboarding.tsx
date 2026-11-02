@@ -103,7 +103,7 @@ export function Onboarding() {
         <section className="ob-step">
           <h1>{t('ob.heroTitle')}</h1>
           <div className="ob-hero-art">
-            <Hero3D color={color} appearance={appearance} equipped={preview} height={250} />
+            <Hero3D color={color} appearance={appearance} equipped={preview} height={270} zoomable />
           </div>
           <label className="field">
             <span>{t('ob.name')}</span>

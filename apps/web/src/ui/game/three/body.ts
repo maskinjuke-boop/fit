@@ -2,22 +2,30 @@ import * as THREE from 'three';
 import type { Figure } from '../../../game/state';
 import { mesh, ring, type Mat } from './kit';
 
-/** Размеры фигуры. Персонаж смотрит на +Z, ноги на y = 0, рост ≈ 2,2. */
-export const TORSO_Y = 0.98;
+/**
+ * Размеры фигуры. Персонаж смотрит на +Z, ноги на y = 0, рост ≈ 2,3.
+ * Пропорции близки к человеческим (около 5 голов): длинные ноги, руки до середины бедра.
+ */
+export const TORSO_Y = 1.16;
 export const TORSO_DEPTH = 0.68;
+/** Голова строится в собственных координатах вокруг HEAD_Y и крепится к шее в точке NECK_Y. */
 export const HEAD_Y = 1.9;
 export const HEAD_R = 0.27;
 export const HEAD_SCALE = new THREE.Vector3(0.93, 1.05, 0.98);
 export const NECK_Y = 1.68;
-/** Голова чуть крупнее реальной — так персонаж выразительнее на маленьком экране. */
-export const HEAD_GROW = 1.14;
+/** Масштаб головы относительно тела. */
+export const HEAD_GROW = 0.86;
+/** Где на теле находится шарнир шеи. */
+export const NECK_WORLD = TORSO_Y + 0.71;
+/** Центр головы в координатах сцены (для камеры портрета). */
+export const HEAD_CENTER_WORLD = NECK_WORLD + (HEAD_Y - NECK_Y) * HEAD_GROW;
 
 export interface BodyShape {
   figure: Figure;
   /** Профиль корпуса: (радиус, высота от талии). */
   torso: Array<[number, number]>;
   pelvis: Array<[number, number]>;
-  /** Плечо, локоть и запястье правой для зрителя руки (x > 0); левая — зеркально. */
+  /** Плечо, локоть и запястье руки с x > 0; вторая — зеркально. */
   shoulder: THREE.Vector3;
   elbow: THREE.Vector3;
   wrist: THREE.Vector3;
@@ -29,20 +37,23 @@ export interface BodyShape {
   calfR: number;
   neckR: number;
   foot: number;
+  /** Объём груди: амплитуда, высота центра, ширина. */
+  chest: { amp: number; y: number; up: number; down: number; lobe: number; spread: number };
 }
 
 const MALE: BodyShape = {
   figure: 'male',
   torso: [
     [0, -0.02],
-    [0.26, 0],
-    [0.28, 0.12],
-    [0.3, 0.28],
-    [0.34, 0.44],
-    [0.35, 0.52],
-    [0.3, 0.58],
-    [0.16, 0.63],
-    [0, 0.64],
+    [0.255, 0],
+    [0.27, 0.1],
+    [0.29, 0.24],
+    [0.33, 0.4],
+    [0.345, 0.5],
+    [0.32, 0.56],
+    [0.2, 0.62],
+    [0.09, 0.645],
+    [0, 0.65],
   ],
   pelvis: [
     [0, 0.04],
@@ -52,52 +63,55 @@ const MALE: BodyShape = {
     [0.2, -0.16],
     [0, -0.18],
   ],
-  shoulder: new THREE.Vector3(0.38, 1.5, 0),
-  elbow: new THREE.Vector3(0.5, 1.14, 0.03),
-  wrist: new THREE.Vector3(0.56, 0.84, 0.1),
-  upperR: 0.09,
-  foreR: 0.072,
+  shoulder: new THREE.Vector3(0.37, TORSO_Y + 0.52, 0),
+  elbow: new THREE.Vector3(0.45, TORSO_Y + 0.13, -0.03),
+  wrist: new THREE.Vector3(0.5, TORSO_Y - 0.24, 0.05),
+  upperR: 0.092,
+  foreR: 0.073,
   hand: 1,
-  legX: 0.155,
-  thighR: 0.105,
-  calfR: 0.09,
-  neckR: 0.085,
+  legX: 0.15,
+  thighR: 0.11,
+  calfR: 0.085,
+  neckR: 0.082,
   foot: 1,
+  chest: { amp: 0.06, y: 0.43, up: 0.08, down: 0.06, lobe: 0.45, spread: 0.42 },
 };
 
 const FEMALE: BodyShape = {
   figure: 'female',
   torso: [
     [0, -0.02],
-    [0.275, 0],
-    [0.25, 0.1],
-    [0.243, 0.2],
-    [0.27, 0.34],
-    [0.29, 0.45],
-    [0.29, 0.52],
-    [0.25, 0.575],
-    [0.14, 0.62],
-    [0, 0.63],
+    [0.27, 0],
+    [0.235, 0.11],
+    [0.235, 0.2],
+    [0.26, 0.33],
+    [0.28, 0.44],
+    [0.285, 0.51],
+    [0.26, 0.56],
+    [0.16, 0.61],
+    [0.075, 0.63],
+    [0, 0.64],
   ],
   pelvis: [
     [0, 0.04],
-    [0.278, 0.03],
-    [0.302, -0.04],
-    [0.292, -0.11],
-    [0.222, -0.17],
+    [0.272, 0.03],
+    [0.292, -0.04],
+    [0.286, -0.11],
+    [0.225, -0.17],
     [0, -0.19],
   ],
-  shoulder: new THREE.Vector3(0.325, 1.49, 0),
-  elbow: new THREE.Vector3(0.43, 1.14, 0.03),
-  wrist: new THREE.Vector3(0.49, 0.85, 0.1),
+  shoulder: new THREE.Vector3(0.315, TORSO_Y + 0.505, 0),
+  elbow: new THREE.Vector3(0.39, TORSO_Y + 0.14, -0.03),
+  wrist: new THREE.Vector3(0.44, TORSO_Y - 0.22, 0.05),
   upperR: 0.074,
-  foreR: 0.06,
-  hand: 0.88,
-  legX: 0.15,
-  thighR: 0.11,
-  calfR: 0.082,
-  neckR: 0.07,
-  foot: 0.9,
+  foreR: 0.058,
+  hand: 0.86,
+  legX: 0.152,
+  thighR: 0.124,
+  calfR: 0.08,
+  neckR: 0.066,
+  foot: 0.88,
+  chest: { amp: 0.3, y: 0.385, up: 0.1, down: 0.066, lobe: 0.46, spread: 0.33 },
 };
 
 export const bodyShape = (figure: Figure): BodyShape => (figure === 'female' ? FEMALE : MALE);
@@ -127,11 +141,13 @@ export function torsoRadius(shape: BodyShape, y: number): number {
   return 0;
 }
 
-/** Объём груди у женской фигуры: относительная прибавка радиуса на высоте y и угле a (0 — спереди). */
+/** Рельеф груди (у мужской фигуры — грудные мышцы): относительная прибавка радиуса на высоте y и угле a (0 — спереди). */
 function bust(shape: BodyShape, y: number, a: number): number {
-  if (shape.figure !== 'female') return 0;
-  const lobe = (c: number): number => Math.exp(-(((a - c) / 0.34) ** 2));
-  return 0.16 * Math.exp(-(((y - 0.4) / 0.08) ** 2)) * Math.min(1, lobe(0.42) + lobe(-0.42));
+  const c = shape.chest;
+  const lobe = (center: number): number => Math.exp(-(((a - center) / c.spread) ** 2));
+  const dy = y - c.y;
+  const vert = Math.exp(-((dy / (dy > 0 ? c.up : c.down)) ** 2));
+  return c.amp * vert * (lobe(c.lobe) + lobe(-c.lobe));
 }
 
 /** Точка на передней поверхности корпуса. */
@@ -148,8 +164,8 @@ export function onTorso(shape: BodyShape, x: number, worldY: number, grow = 1, l
 /** Оболочка корпуса (рубашка, жилет, доспех): grow > 1 — поверх предыдущего слоя. Шов — на спине. */
 export function torsoShell(shape: BodyShape, m: Mat, grow = 1, phiStart = Math.PI, phiLength = Math.PI * 2): THREE.Group {
   const g = new THREE.Group();
-  const geo = new THREE.LatheGeometry(smoothTorso(shape), 48, phiStart, phiLength);
-  if (shape.figure === 'female') {
+  const geo = new THREE.LatheGeometry(smoothTorso(shape), 56, phiStart, phiLength);
+  {
     const pos = geo.getAttribute('position');
     for (let i = 0; i < pos.count; i += 1) {
       const x = pos.getX(i);

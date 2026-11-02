@@ -48,6 +48,42 @@ export function cone(a: THREE.Vector3, b: THREE.Vector3, ra: number, rb: number,
   return me;
 }
 
+/**
+ * «Живая» конечность: тело вращения вдоль отрезка a→b с профилем радиуса
+ * (t от 0 до 1 вдоль отрезка). Даёт бицепс, икру, сужение к запястью и т. п.
+ * from/to — часть профиля (для рукавов), grow — прибавка к радиусу, flat — сплющивание сечения.
+ */
+export function organ(a: THREE.Vector3, b: THREE.Vector3, profile: Array<[number, number]>, m: THREE.Material, opts: { from?: number; to?: number; grow?: number; flat?: number; radial?: number; caps?: boolean } = {}): THREE.Mesh {
+  const { from = 0, to = 1, grow = 0, flat = 1, radial = 20, caps = true } = opts;
+  const dir = new THREE.Vector3().subVectors(b, a);
+  const len = dir.length();
+  const radius = (t: number): number => {
+    for (let i = 1; i < profile.length; i += 1) {
+      const [t0, r0] = profile[i - 1]!;
+      const [t1, r1] = profile[i]!;
+      if (t <= t1) {
+        const k = t1 === t0 ? 0 : (t - t0) / (t1 - t0);
+        const e = k * k * (3 - 2 * k);
+        return r0 + (r1 - r0) * e;
+      }
+    }
+    return profile[profile.length - 1]![1];
+  };
+  const pts: THREE.Vector2[] = [];
+  const n = 16;
+  if (caps) pts.push(new THREE.Vector2(0, from * len));
+  for (let i = 0; i <= n; i += 1) {
+    const t = from + ((to - from) * i) / n;
+    pts.push(new THREE.Vector2(radius(t) + grow, t * len));
+  }
+  if (caps) pts.push(new THREE.Vector2(0, to * len));
+  const me = new THREE.Mesh(new THREE.LatheGeometry(pts, radial), m);
+  me.position.copy(a);
+  me.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.normalize());
+  me.scale.set(1, 1, flat);
+  return me;
+}
+
 /** Трубка вдоль кривой с плавным сужением от r0 до r1 (рога, хвост волос, верёвка). */
 export function taperTube(curve: THREE.Curve<THREE.Vector3>, r0: number, r1: number, seg = 24, radial = 10): THREE.BufferGeometry {
   const g = new THREE.TubeGeometry(curve, seg, 1, radial, false);
@@ -69,7 +105,7 @@ export function taperTube(curve: THREE.Curve<THREE.Vector3>, r0: number, r1: num
 
 // ─── Процедурные текстуры ───────────────────────────────────────────────
 
-type TexKind = 'fabric' | 'leather' | 'wood' | 'mail' | 'scales' | 'brushed' | 'hair' | 'planks';
+type TexKind = 'fabric' | 'leather' | 'wood' | 'mail' | 'scales' | 'brushed' | 'hair' | 'planks' | 'iris';
 
 /** Детерминированный генератор случайных чисел — текстуры одинаковы при каждом запуске. */
 function rand(seed: number): () => number {
@@ -191,13 +227,26 @@ function draw(kind: TexKind): HTMLCanvasElement | null {
       const lines = Array.from({ length: S }, () => r());
       return paint(S, (x, y) => 0.75 + ((lines[y] ?? 0.5) - 0.5) * 0.35 + (r() - 0.5) * 0.08 + Math.sin((x / S) * Math.PI * 2 * 3) * 0.03);
     }
+    case 'iris': {
+      // Радужка в полярных координатах: верх текстуры — центр (зрачок), низ — край радужки.
+      const S = 128;
+      const streak = Array.from({ length: S }, () => r());
+      return paint(S, (x, y) => {
+        const rr = y / S;
+        if (rr < 0.36) return 0.02;
+        const s = (streak[x] ?? 0.5) * 0.5 + (streak[(x + 3) % S] ?? 0.5) * 0.5;
+        const collar = rr < 0.5 ? 0.75 : 1;
+        const limbal = rr > 0.86 ? 0.35 : 1;
+        return (0.55 + s * 0.45) * collar * limbal;
+      });
+    }
     case 'hair': {
       const S = 256;
       const strands = Array.from({ length: S }, () => r());
       const t = tile(S, 1);
       return paint(S, (x) => {
         const s = strands[x] ?? 0.5;
-        return 0.62 + (s - 0.5) * 0.55 + Math.sin(t(x) * 24) * 0.06;
+        return 0.72 + (s - 0.5) * 0.3 + Math.sin(t(x) * 24) * 0.04;
       });
     }
   }
@@ -254,7 +303,7 @@ const withMaps = (p: Params, maps: Partial<Record<'map' | 'bumpMap' | 'roughness
 export const M = {
   skin: (color: THREE.ColorRepresentation): Mat => mat(color, 0.62, 0, { envMapIntensity: 0.6 }),
   cloth: (color: THREE.ColorRepresentation, rep = 6, rough = 0.92): Mat => mat(color, rough, 0, withMaps({}, { bumpMap: tex('fabric', rep) }, 1.2)),
-  hair: (color: THREE.ColorRepresentation, rep = 3): Mat => mat(color, 0.55, 0, withMaps({}, { map: tex('hair', rep, 1, true), bumpMap: tex('hair', rep, 1) }, 2)),
+  hair: (color: THREE.ColorRepresentation, rep = 3): Mat => mat(color, 0.6, 0, withMaps({ envMapIntensity: 0.7 }, { map: tex('hair', rep, 1, true), bumpMap: tex('hair', rep, 1) }, 1)),
   leather: (color: THREE.ColorRepresentation = '#7a4e2d', rep = 2): Mat => mat(color, 0.7, 0, withMaps({}, { map: tex('leather', rep, rep, true), bumpMap: tex('leather', rep) }, 1.5)),
   wood: (color: THREE.ColorRepresentation = '#9a6538', rx = 1, ry = 3): Mat => mat(color, 0.78, 0, withMaps({}, { map: tex('wood', rx, ry, true), bumpMap: tex('wood', rx, ry) }, 1.2)),
   planks: (color: THREE.ColorRepresentation = '#9a6538'): Mat => mat(color, 0.8, 0, withMaps({}, { map: tex('planks', 1, 1, true), bumpMap: tex('planks', 1) }, 2)),

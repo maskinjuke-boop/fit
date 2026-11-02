@@ -62,6 +62,23 @@ export const QUESTS: readonly QuestDef[] = [
   { id: 'ch1_strong', kind: 'story', requires: { quests: ['ch1_core'] }, objectives: [{ type: 'stat_level', stat: 'strength', level: 8 }], reward: { xp: 400, gold: 150 } },
   { id: 'ch1_level10', kind: 'story', requires: { quests: ['ch1_strong'] }, objectives: [{ type: 'reach_level', level: 10 }], reward: { xp: 500, gold: 200 } },
 
+  // Глава 2
+  { id: 'ch2_legs', kind: 'story', requires: { quests: ['ch1_level10'], level: 10 }, objectives: [{ type: 'reps', exercise: 'squat', count: 60 }], reward: { xp: 500, gold: 200 } },
+  { id: 'ch2_push', kind: 'story', requires: { quests: ['ch2_legs'] }, objectives: [{ type: 'reps', exercise: 'pushup', count: 50 }], reward: { xp: 550, gold: 220 } },
+  {
+    id: 'ch2_bar',
+    kind: 'story',
+    requires: { quests: ['ch2_push'] },
+    objectives: [{ type: 'reps', exercise: 'pullup', count: 10, alt: { exercise: 'pullup_australian', count: 30 } }],
+    reward: { xp: 650, gold: 260 },
+  },
+  { id: 'ch2_core', kind: 'story', requires: { quests: ['ch2_bar'] }, objectives: [{ type: 'reps', exercise: 'situp', count: 60 }], reward: { xp: 500, gold: 200 } },
+  { id: 'ch2_cardio', kind: 'story', requires: { quests: ['ch2_core'] }, objectives: [{ type: 'reps', exercise: 'jumping_jack', count: 200 }], reward: { xp: 450, gold: 180 } },
+  { id: 'ch2_form', kind: 'story', requires: { quests: ['ch2_cardio'] }, objectives: [{ type: 'reps', exercise: 'lunge', count: 30, minQuality: 85 }], reward: { xp: 600, gold: 240 } },
+  { id: 'ch2_streak', kind: 'story', requires: { quests: ['ch2_form'] }, objectives: [{ type: 'streak', days: 7 }], reward: { xp: 700, gold: 300 } },
+  { id: 'ch2_endurance', kind: 'story', requires: { quests: ['ch2_streak'] }, objectives: [{ type: 'stat_level', stat: 'endurance', level: 8 }], reward: { xp: 700, gold: 300 } },
+  { id: 'ch2_level15', kind: 'story', requires: { quests: ['ch2_endurance'] }, objectives: [{ type: 'reach_level', level: 15 }], reward: { xp: 1000, gold: 400 } },
+
   // Еженедельные испытания техники (по одному на упражнение)
   ...(
     [

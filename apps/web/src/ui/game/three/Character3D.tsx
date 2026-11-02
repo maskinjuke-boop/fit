@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
+import { useI18n } from '../../../i18n';
 import * as THREE from 'three';
 import { Avatar } from '../Avatar';
 import type { Hero3DProps } from '../Hero3D';
+import { HEAD_CENTER_WORLD } from './body';
 import { buildCharacter, disposeObject, type CharacterParts } from './buildCharacter';
 import { createStudio, enableShadows, setupRenderer } from './studio';
 
@@ -41,8 +43,12 @@ function pedestal(color: string): THREE.Group {
  * 3D-персонаж на three.js: вращается пальцем, слегка покачивается и «дышит».
  * Если WebGL недоступен, показывает 2D-портрет.
  */
-export default function Character3D({ color, appearance, equipped, height = 260, interactive = true }: Hero3DProps) {
+export default function Character3D({ color, appearance, equipped, height = 260, interactive = true, zoomable = false }: Hero3DProps) {
+  const { t } = useI18n();
   const host = useRef<HTMLDivElement | null>(null);
+  const [close, setClose] = useState(false);
+  const closeRef = useRef(false);
+  closeRef.current = close;
   const api = useRef<{ setCharacter(c: CharacterParts, color: string): void } | null>(null);
   const [failed, setFailed] = useState(false);
 
@@ -66,8 +72,8 @@ export default function Character3D({ color, appearance, equipped, height = 260,
     const studio = createStudio(renderer, true);
     const { scene, rim } = studio;
     const camera = new THREE.PerspectiveCamera(28, 1, 0.1, 50);
-    const target = new THREE.Vector3(0, 1.3, 0);
-    camera.position.set(0, 1.6, 6.4);
+    const target = new THREE.Vector3(0, 1.36, 0);
+    camera.position.set(0, 1.66, 6.9);
     camera.lookAt(target);
 
     const stage = new THREE.Group();
@@ -94,15 +100,23 @@ export default function Character3D({ color, appearance, equipped, height = 260,
     };
 
     // Размер холста следует за контейнером.
+    // Камера плавно переходит между «во весь рост» и «крупный план лица».
+    let zoom = closeRef.current ? 1 : 0;
+    const place = (): void => {
+      const narrow = Math.max(1, 0.62 / camera.aspect);
+      const far = { y: 1.66, ty: 1.36, d: 6.9 * narrow };
+      const near = { y: HEAD_CENTER_WORLD + 0.02, ty: HEAD_CENTER_WORLD - 0.04, d: 1.7 * Math.max(1, 0.8 / camera.aspect) };
+      const k = zoom * zoom * (3 - 2 * zoom);
+      target.set(0, far.ty + (near.ty - far.ty) * k, 0);
+      camera.position.set(0, far.y + (near.y - far.y) * k, far.d + (near.d - far.d) * k);
+      camera.lookAt(target);
+    };
     const resize = (): void => {
       const w = el.clientWidth || 1;
       const h = el.clientHeight || 1;
       renderer.setSize(w, h, false);
       camera.aspect = w / h;
-      // В узком контейнере отодвигаем камеру, чтобы персонаж влезал целиком.
-      const dist = 6.4 * Math.max(1, 0.62 / camera.aspect);
-      camera.position.set(0, 1.6, dist);
-      camera.lookAt(target);
+      place();
       camera.updateProjectionMatrix();
     };
     const ro = new ResizeObserver(resize);
@@ -165,6 +179,11 @@ export default function Character3D({ color, appearance, equipped, height = 260,
       const dt = Math.min(0.05, (now - prev) / 1000);
       prev = now;
       if (!visible || document.visibilityState === 'hidden') return;
+      const goal = closeRef.current ? 1 : 0;
+      if (zoom !== goal) {
+        zoom = goal > zoom ? Math.min(goal, zoom + dt * 2.2) : Math.max(goal, zoom - dt * 2.2);
+        place();
+      }
       if (!dragging) {
         angle += velocity * dt;
         velocity *= Math.pow(0.04, dt);
@@ -188,10 +207,10 @@ export default function Character3D({ color, appearance, equipped, height = 260,
         parts.leftArm.rotation.z = 0.015 + b * 0.02;
         parts.rightArm.rotation.x = Math.sin(t * 0.9) * 0.025;
         parts.leftArm.rotation.x = -Math.sin(t * 0.9) * 0.025;
-        // Моргание раз в несколько секунд.
+        // Моргание раз в несколько секунд: веко опускается и поднимается.
         const cycle = t % 4.2;
-        const blink = cycle < 0.14 ? Math.abs(Math.cos((cycle / 0.14) * Math.PI)) : 1;
-        for (const e of parts.eyes) e.scale.y = Math.max(0.08, blink);
+        const shut = cycle < 0.16 ? Math.sin((cycle / 0.16) * Math.PI) : 0;
+        for (const l of parts.lids) l.obj.rotation.x = l.open + (l.closed - l.open) * shut;
         for (const f of parts.anim) f(t);
       }
       renderer.render(scene, camera);
@@ -240,5 +259,14 @@ export default function Character3D({ color, appearance, equipped, height = 260,
       </div>
     );
   }
-  return <div ref={host} className={`hero3d ${interactive ? 'grab' : ''}`} style={{ height }} />;
+  return (
+    <div className="hero3d-wrap" style={{ height }}>
+      <div ref={host} className={`hero3d ${interactive ? 'grab' : ''}`} style={{ height }} />
+      {zoomable && (
+        <button className="zoom-btn" onClick={() => setClose((c) => !c)}>
+          {close ? `⤢ ${t('zoomOut')}` : `🔍 ${t('zoomFace')}`}
+        </button>
+      )}
+    </div>
+  );
 }

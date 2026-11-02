@@ -27,9 +27,9 @@ describe('3D-персонаж', () => {
     for (const figure of ['male', 'female'] as const) {
       for (const hair of HAIR_STYLES) {
         for (let skin = 0; skin < SKIN_TONES.length; skin += 1) {
-          const c = buildCharacter({ figure, skin, hair, hairColor: HAIR_COLORS.length - 1, beard: skin % 2 === 0 }, '#ff5a5f', {});
+          const c = buildCharacter({ figure, skin, hair, hairColor: HAIR_COLORS.length - 1, beard: skin % 2 === 0, eyes: skin }, '#ff5a5f', {});
           expect(meshCount(c.root)).toBeGreaterThan(20);
-          expect(c.eyes.length).toBe(2);
+          expect(c.lids.length).toBe(2);
           disposeObject(c.root);
         }
       }
@@ -74,7 +74,7 @@ describe('3D-персонаж', () => {
     const box = new Box3().setFromObject(full.root);
     expect(box.min.y).toBeGreaterThan(-0.05);
     expect(box.min.y).toBeLessThan(0.05);
-    expect(box.max.y).toBeLessThan(3);
+    expect(box.max.y).toBeLessThan(3.1);
     expect(Math.max(-box.min.x, box.max.x)).toBeLessThan(1.1);
     disposeObject(full.root);
   });

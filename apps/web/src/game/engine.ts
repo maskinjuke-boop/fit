@@ -19,6 +19,9 @@ import { addDays, dayKey, daysBetween, weekKey } from './dates';
 import { MAX_EQUIPMENT_BONUS, itemById, type Slot } from './items';
 import { levelOf, xpForLevel } from './levels';
 import { QUESTS, effectiveObjective, objectiveTarget, questById, type QuestDef } from './quests';
+import { checkAchievements } from './achievements';
+import { addXp, grantReward } from './progress';
+import { storyNewDay, storyOnRep } from './story';
 import { emptyDay, type Character, type DayStats, type GameState } from './state';
 
 export type GameEvent =
@@ -32,7 +35,10 @@ export type GameEvent =
   | { kind: 'dailyBonus'; xp: number; gold: number }
   | { kind: 'streak'; count: number }
   | { kind: 'freezeUsed'; days: number }
-  | { kind: 'streakLost' };
+  | { kind: 'streakLost' }
+  | { kind: 'storyEnergy'; energy: number }
+  | { kind: 'storyTrialDone'; event: string }
+  | { kind: 'achievement'; id: string; xp: number; gold: number };
 
 export type ShopError = 'owned' | 'level' | 'gold' | 'unknown';
 
@@ -56,29 +62,6 @@ function todayStats(s: GameState): DayStats {
     s.days[s.today] = d;
   }
   return d;
-}
-
-// ─── Опыт и награды ────────────────────────────────────────────────────
-
-function addXp(s: GameState, amount: number, stat: StatId | null, events: GameEvent[]): void {
-  const before = levelOf(s.totalXp);
-  s.totalXp += amount;
-  const after = levelOf(s.totalXp);
-  if (after > before) events.push({ kind: 'levelUp', level: after });
-  if (stat) {
-    const sb = levelOf(s.statXp[stat]);
-    s.statXp[stat] += amount;
-    const sa = levelOf(s.statXp[stat]);
-    if (sa > sb) events.push({ kind: 'statLevelUp', stat, level: sa });
-  }
-}
-
-/** Золото с бонусом стрика (+5% за каждые 7 дней, до +25%). */
-function grantReward(s: GameState, reward: { xp: number; gold: number }, events: GameEvent[]): { xp: number; gold: number } {
-  const gold = Math.round(reward.gold * (1 + streakGoldBonus(s.streak.count)));
-  s.gold += gold;
-  addXp(s, reward.xp, null, events);
-  return { xp: reward.xp, gold };
 }
 
 // ─── Квесты ────────────────────────────────────────────────────────────
@@ -223,7 +206,9 @@ export function ensureDay(state: GameState, now: Date): Result {
 
   for (const day of Object.keys(s.days)) if (daysBetween(day, today) > HISTORY_DAYS) delete s.days[day];
   todayStats(s);
+  storyNewDay(s, today);
   settleQuests(s, events);
+  checkAchievements(s, events);
   return { state: s, events };
 }
 
@@ -271,9 +256,11 @@ export function applyRep(state: GameState, rep: { exercise: ExerciseId; quality:
   events.push({ kind: 'xp', amount: xp, stat: info.stat, overLimit });
   addXp(s, xp, info.stat, events);
   questRepProgress(s, rep.exercise, rep.quality);
+  storyOnRep(s, rep.exercise, xp, events);
   settleDailies(s, events);
   settleStreak(s, events);
   settleQuests(s, events);
+  checkAchievements(s, events);
   return { state: s, events };
 }
 
@@ -303,6 +290,7 @@ export function buyItem(state: GameState, id: string): { state: GameState; error
   s.gold -= item.price;
   s.inventory.push(id);
   s.equipped[item.slot] = id;
+  checkAchievements(s, []);
   return { state: s, error: null };
 }
 
@@ -345,6 +333,14 @@ export function newCharacterState(character: Omit<Character, 'id' | 'createdDay'
 }
 
 export { STATS };
+
+/** После действий в истории: достижения (s уже скопировано). */
+export function settleAfterStory(state: GameState, events: GameEvent[]): Result {
+  const s = structuredClone(state);
+  settleQuests(s, events);
+  checkAchievements(s, events);
+  return { state: s, events };
+}
 
 // ─── Для режима администратора ─────────────────────────────────────────
 

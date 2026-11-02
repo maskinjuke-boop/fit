@@ -1,6 +1,8 @@
 import type { ExerciseId } from '../tracking/exercise';
 import type { Archetype, FitnessLevel, MuscleGroup, StatId } from './config';
 import type { Slot } from './items';
+import { migrateStory, newStory } from './story';
+import type { StoryState } from './storyTypes';
 
 export type HairStyle = 'short' | 'long' | 'bun' | 'buzz' | 'curly' | 'ponytail' | 'bob';
 export type Figure = 'male' | 'female';
@@ -14,9 +16,11 @@ export interface Appearance {
   hair: HairStyle;
   hairColor: number;
   beard: boolean;
+  /** Индекс в палитре цветов глаз. */
+  eyes: number;
 }
 
-export const DEFAULT_APPEARANCE: Appearance = { figure: 'male', skin: 1, hair: 'short', hairColor: 1, beard: false };
+export const DEFAULT_APPEARANCE: Appearance = { figure: 'male', skin: 1, hair: 'short', hairColor: 1, beard: false, eyes: 0 };
 
 /** Смена телосложения с разумной подстройкой причёски и бороды. */
 export function withFigure(a: Appearance, figure: Figure): Appearance {
@@ -107,6 +111,12 @@ export interface GameState {
   equipped: Partial<Record<Slot, string>>;
   /** Состояние меняли через режим администратора (для будущих рейтингов). */
   adminTouched?: boolean;
+  /** Режим истории. */
+  story: StoryState;
+  /** Открытые достижения: id → день открытия. */
+  achievements: Record<string, string>;
+  /** Выбранный титул под именем героя. */
+  title?: string;
 }
 
 export const emptyDay = (): DayStats => ({ reps: {}, goodReps: {}, cameraXp: 0, dailiesDone: 0 });
@@ -127,16 +137,20 @@ export function createState(character: Character): GameState {
     today: '',
     inventory: [],
     equipped: {},
+    story: newStory(),
+    achievements: {},
   };
 }
 
 /** Приводит старое сохранение к текущей схеме (новые поля — значения по умолчанию). */
 export function migrate(raw: GameState): GameState {
-  const s = raw as GameState & Partial<Pick<GameState, 'inventory' | 'equipped'>>;
+  const s = raw as GameState & Partial<Pick<GameState, 'inventory' | 'equipped' | 'story' | 'achievements'>>;
   return {
     ...s,
     character: { ...s.character, appearance: { ...DEFAULT_APPEARANCE, ...(s.character.appearance ?? {}) } },
     inventory: s.inventory ?? [],
     equipped: s.equipped ?? {},
+    story: migrateStory(s.story),
+    achievements: s.achievements ?? {},
   };
 }

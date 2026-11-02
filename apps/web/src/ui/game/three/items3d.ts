@@ -196,8 +196,8 @@ export function buildHeadItem(id: string, ctx: ItemCtx): THREE.Group {
       g.add(mesh(new THREE.SphereGeometry(0.025, 12, 10), cm, [0, HEAD_Y + 0.33, -0.01]));
       const visorM = M.cloth(shade(color, 0.7), 6, 0.8);
       visorM.side = THREE.DoubleSide;
-      const visor = mesh(new THREE.CylinderGeometry(0.2, 0.2, 0.016, 32, 1, false, -Math.PI / 2, Math.PI), visorM, [0, HEAD_Y + 0.135, 0.19], [1.05, 1, 1.45]);
-      visor.rotation.x = 0.28;
+      const visor = mesh(new THREE.CylinderGeometry(0.17, 0.17, 0.014, 32, 1, false, -Math.PI / 2, Math.PI), visorM, [0, HEAD_Y + 0.12, 0.2], [1.05, 1, 1.25]);
+      visor.rotation.x = 0.34;
       g.add(visor);
       const logo = onHead(mesh(new THREE.CircleGeometry(0.042, 24), M.cloth('#f4f4f4', 2)), 0.19, 0, 0.036);
       logo.rotation.x = -0.72;
@@ -302,7 +302,7 @@ function cape(m: Mat, shape: BodyShape): THREE.Mesh {
     pos.setXYZ(i, x * f, y, z * f);
   }
   c.geometry.computeVertexNormals();
-  c.position.set(0, 0.93, -0.05);
+  c.position.set(0, TORSO_Y - 0.06, -0.05);
   c.scale.z = 0.72;
   return c;
 }
@@ -355,11 +355,11 @@ export function buildBodyItem(id: string, ctx: ItemCtx): Outfit {
       const m = M.cloth('#3f6b48', 5);
       g.add(cape(m, shape));
       const mantle = new THREE.Mesh(new THREE.TorusGeometry(0.29, 0.1, 12, 40), M.cloth('#3f6b48', 5));
-      mantle.position.y = 1.56;
+      mantle.position.y = TORSO_Y + 0.58;
       mantle.rotation.x = Math.PI / 2;
       mantle.scale.set(1.15, 0.8, 1);
       g.add(mantle);
-      g.add(mesh(new THREE.SphereGeometry(0.045, 14, 10), M.gold(), [0, 1.53, 0.25]), mesh(new THREE.OctahedronGeometry(0.024), M.gem(color), [0, 1.53, 0.292]));
+      g.add(mesh(new THREE.SphereGeometry(0.045, 14, 10), M.gold(), [0, TORSO_Y + 0.55, 0.25]), mesh(new THREE.OctahedronGeometry(0.024), M.gem(color), [0, TORSO_Y + 0.55, 0.292]));
       break;
     }
     case 'chainmail':
@@ -372,8 +372,8 @@ export function buildBodyItem(id: string, ctx: ItemCtx): Outfit {
     case 'mystic_robe': {
       const robe = M.cloth('#43337d', 6);
       g.add(torsoShell(shape, robe, 1.05));
-      g.add(skirt(shape, robe, [[0.27, 0.03], [0.31, -0.15], [0.37, -0.4], [0.43, -0.6], [0, -0.6]], 1.03));
-      g.add(ring(0.43 * (shape.figure === 'female' ? 1.08 : 1), 0.02, M.gold(), TORSO_Y - 0.6, 1.03, TORSO_DEPTH * 1.07));
+      g.add(skirt(shape, robe, [[0.27, 0.03], [0.31, -0.15], [0.37, -0.45], [0.42, -0.7], [0.46, -0.84], [0, -0.84]], 1.03));
+      g.add(ring(0.46 * (shape.figure === 'female' ? 1.08 : 1), 0.02, M.gold(), TORSO_Y - 0.84, 1.03, TORSO_DEPTH * 1.07));
       g.add(band(shape, TORSO_Y + 0.05, 0.03, M.gold(), 1.06));
       for (const sx of [-1, 1]) g.add(seam(shape, [[0.13 * sx, top], [0.05 * sx, TORSO_Y + 0.42], [0, TORSO_Y + 0.33]], 0.016, M.gold(), 1.05));
       g.add(mesh(new THREE.OctahedronGeometry(0.03), M.gem('#7fe3ff', 0.8), [0, TORSO_Y + 0.33, onTorso(shape, 0, TORSO_Y + 0.33, 1.05).z + 0.02]));

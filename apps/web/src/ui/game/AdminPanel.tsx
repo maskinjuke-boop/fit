@@ -91,6 +91,9 @@ export function AdminPanel({ onClose }: { onClose(): void }) {
           <button className="btn" onClick={() => admin.resetReroll()}>
             {t('adminReroll')}
           </button>
+          <button className="btn" onClick={() => admin.refillStory()}>
+            {t('adminStoryRefill')}
+          </button>
           <button className="btn" onClick={() => admin.unlockAll()}>
             {t('adminUnlock')}
           </button>

@@ -49,11 +49,11 @@ describe('Магазин', () => {
   });
 
   it('экипировка увеличивает опыт, но не больше 25%', () => {
-    const base = applyRep(hero(), { exercise: 'pushup', quality: 100 }, now).state.totalXp;
-    let s = buyItem(rich(500), 'leather_vest').state;
-    const before = s.totalXp;
-    s = applyRep(s, { exercise: 'pushup', quality: 100 }, now).state;
-    expect(s.totalXp - before).toBeCloseTo(base * 1.02, 6);
+    // Опыт за сам повтор (без наград за достижения, которые тоже могут прийти).
+    const repXp = (r: { events: Array<{ kind: string; amount?: number }> }): number => r.events.find((e) => e.kind === 'xp')?.amount ?? 0;
+    const base = repXp(applyRep(hero(), { exercise: 'pushup', quality: 100 }, now));
+    const s = buyItem(rich(500), 'leather_vest').state;
+    expect(repXp(applyRep(s, { exercise: 'pushup', quality: 100 }, now))).toBeCloseTo(base * 1.02, 6);
 
     let all = unlockAllItems(hero());
     for (const id of ['champion_crown', 'champion_armor', 'steel_sword', 'iron_shield']) all = equipItem(all, id);
@@ -114,7 +114,7 @@ describe('Миграция сохранений', () => {
     const app = { skin: 3, hair: 'curly', hairColor: 2, beard: true } as unknown as GameState['character']['appearance'];
     legacy.character.appearance = app;
     const m = migrate(legacy);
-    expect(m.character.appearance).toEqual({ figure: 'male', skin: 3, hair: 'curly', hairColor: 2, beard: true });
+    expect(m.character.appearance).toEqual({ figure: 'male', skin: 3, hair: 'curly', hairColor: 2, beard: true, eyes: 0 });
   });
 
   it('смена фигуры убирает бороду и подбирает причёску', () => {

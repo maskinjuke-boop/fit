@@ -1,7 +1,8 @@
+import { ACHIEVEMENTS } from '../../game/achievements';
 import type { GameEvent } from '../../game/engine';
 import { effectiveObjective, type Objective } from '../../game/quests';
 import type { Character, DailyTask } from '../../game/state';
-import type { I18nKey } from '../../i18n';
+import type { I18nKey, Lang } from '../../i18n';
 
 type T = (k: I18nKey) => string;
 type TF = (k: I18nKey, vars: Record<string, string | number>) => string;
@@ -42,7 +43,7 @@ export function objectiveText(t: T, tf: TF, raw: Objective, character: Character
 }
 
 /** Текст баннера для игрового события; null — событие без баннера (опыт показывается отдельно). */
-export function eventText(t: T, tf: TF, e: GameEvent): string | null {
+export function eventText(t: T, tf: TF, e: GameEvent, lang: Lang = 'ru'): string | null {
   switch (e.kind) {
     case 'levelUp':
       return tf('ev.levelUp', { n: e.level });
@@ -64,6 +65,14 @@ export function eventText(t: T, tf: TF, e: GameEvent): string | null {
       return t('ev.freezeUsed');
     case 'streakLost':
       return t('ev.streakLost');
+    case 'storyEnergy':
+      return tf('ev.storyEnergy', { n: e.energy });
+    case 'storyTrialDone':
+      return t('ev.storyTrialDone');
+    case 'achievement': {
+      const a = ACHIEVEMENTS.find((x) => x.id === e.id);
+      return tf('ev.achievement', { name: a ? a.name[lang] : e.id });
+    }
     case 'xp':
       return null;
   }

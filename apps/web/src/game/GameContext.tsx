@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { ExerciseId } from '../tracking/exercise';
-import { completeDailies, markTouched, resetReroll, simulateReps, unlockAllItems } from './admin';
+import { completeDailies, markTouched, refillStory, resetReroll, simulateReps, unlockAllItems } from './admin';
 import {
   applyRep,
   buyItem,
@@ -11,6 +11,7 @@ import {
   newCharacterState,
   reroll,
   setLevel,
+  settleAfterStory,
   unequipSlot,
   type GameEvent,
   type Result,
@@ -19,6 +20,7 @@ import {
 import type { Slot } from './items';
 import { createState, type Appearance, type Character, type GameState } from './state';
 import { clearGame, loadGame, saveGame } from './storage';
+import { abandonTrial, camp, choose, proceed, startJourney, travel, type StoryResult } from './story';
 
 /** Действия режима администратора. */
 export interface AdminActions {
@@ -29,11 +31,22 @@ export interface AdminActions {
   completeQuests(): GameEvent[];
   unlockAll(): void;
   resetReroll(): void;
+  refillStory(): void;
   /** Перемотка игрового времени на n суток (может быть отрицательной). */
   shiftDays(n: number): GameEvent[];
   resetClock(): void;
   dayOffset: number;
   setEnabled(v: boolean): void;
+}
+
+/** Действия режима истории. */
+export interface StoryActions {
+  start(): GameEvent[];
+  travel(): GameEvent[];
+  camp(): GameEvent[];
+  choose(choiceId: string): GameEvent[];
+  abandon(): GameEvent[];
+  proceed(): GameEvent[];
 }
 
 interface Game {
@@ -50,6 +63,9 @@ interface Game {
   equip(id: string): void;
   unequip(slot: Slot): void;
   reset(): void;
+  story: StoryActions;
+  /** Выбрать титул под именем (undefined — без титула). */
+  setTitle(id: string | undefined): void;
   /** Режим администратора включён (открыть сайт с ?admin). */
   adminEnabled: boolean;
   admin: AdminActions;
@@ -160,6 +176,9 @@ export function GameProvider({ children }: { children: ReactNode }) {
       resetReroll: () => {
         if (ref.current) commit(resetReroll(ref.current));
       },
+      refillStory: () => {
+        if (ref.current) commit(refillStory(ref.current));
+      },
       shiftDays: (n) => {
         const next = offsetRef.current + n;
         offsetRef.current = next;
@@ -180,9 +199,33 @@ export function GameProvider({ children }: { children: ReactNode }) {
         setAdminEnabled(v);
       },
     };
+    // Действия истории + проверка достижений после них.
+    const storyRun = (fn: (s: GameState) => StoryResult): GameEvent[] =>
+      run((s) => {
+        const r = fn(s);
+        if (r.state === s) return { state: s, events: r.events };
+        return settleAfterStory(r.state, r.events);
+      });
+    const story: StoryActions = {
+      start: () => storyRun(startJourney),
+      travel: () => storyRun(travel),
+      camp: () => storyRun(camp),
+      choose: (id) => storyRun((s) => choose(s, id)),
+      abandon: () => storyRun(abandonTrial),
+      proceed: () => storyRun(proceed),
+    };
     return {
       state,
       dayEvents,
+      story,
+      setTitle: (id) => {
+        const cur = ref.current;
+        if (!cur) return;
+        const s = structuredClone(cur);
+        if (id) s.title = id;
+        else delete s.title;
+        commit(s);
+      },
       createCharacter: (c) => commit(newCharacterState(c, now(), createState)),
       recordRep: (exercise, quality) => run((s) => applyRep(s, { exercise, quality }, now())),
       rerollDaily: (index) => {

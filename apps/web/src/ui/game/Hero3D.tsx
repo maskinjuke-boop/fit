@@ -11,6 +11,8 @@ export interface Hero3DProps {
   height?: number;
   /** Можно ли вращать персонажа пальцем. */
   interactive?: boolean;
+  /** Кнопка «крупный план лица». */
+  zoomable?: boolean;
 }
 
 function Flat({ color, appearance, equipped, height = 260 }: Hero3DProps) {

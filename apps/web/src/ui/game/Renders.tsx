@@ -67,7 +67,7 @@ const itemKey = (id: string, color: string, figure: Figure): string => {
 
 /** Иконка предмета, отрисованная из его 3D-модели. */
 export function ItemImage({ itemId, color, figure, size = 72 }: { itemId: string; color: string; figure: Figure; size?: number }) {
-  const url = useSnapshot(itemKey(itemId, color, figure), (m) => m.renderItem(itemId, color, figure, Math.min(256, Math.round(size * 2.4))));
+  const url = useSnapshot(itemKey(itemId, color, figure), (m) => m.renderItem(itemId, color, figure, Math.min(256, Math.round(size * 2.4)), 1));
   if (!url) return <ItemIcon itemId={itemId} color={color} size={size} />;
   return <img className="item-render" src={url} width={size} height={size} alt="" draggable={false} />;
 }

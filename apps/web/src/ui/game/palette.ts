@@ -11,3 +11,6 @@ export const SKIN_TONES = [
 
 export const HAIR_COLORS = ['#1f1612', '#4a2f1f', '#8a5a2b', '#d6ab62', '#a8392a', '#a3a8b0'] as const;
 export const HAIR_STYLES: readonly HairStyle[] = ['short', 'buzz', 'long', 'ponytail', 'bob', 'bun', 'curly'];
+
+/** Цвета глаз: карий, голубой, зелёный, серый, ореховый, тёмный. */
+export const EYE_COLORS = ['#6b4228', '#4f86c6', '#4f8a4a', '#8a97a5', '#a07a34', '#2e1d14'] as const;

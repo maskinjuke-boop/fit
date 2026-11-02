@@ -1,7 +1,7 @@
 import { useId, type ReactNode } from 'react';
 import { itemById, type Slot } from '../../game/items';
 import { DEFAULT_APPEARANCE, type Appearance, type HairStyle } from '../../game/state';
-import { HAIR_COLORS, SKIN_TONES } from './palette';
+import { EYE_COLORS, HAIR_COLORS, SKIN_TONES } from './palette';
 
 /**
  * Портрет персонажа: человек по пояс в круглой рамке. Внешность (кожа, волосы, борода)
@@ -118,7 +118,7 @@ export function Avatar({ color, appearance = DEFAULT_APPEARANCE, equipped = {}, 
           }
           fill={url('skin')}
         />
-        <Face skinShade={skin.shade} hair={hair} female={female} />
+        <Face skinShade={skin.shade} hair={hair} female={female} iris={EYE_COLORS[appearance.eyes ?? 0] ?? EYE_COLORS[0]} />
         {appearance.beard && !female && <Beard hair={hair} />}
 
         {/* ── Волосы и головной убор ────────────────── */}
@@ -277,13 +277,13 @@ export function ItemIcon({ itemId, color, size = 72 }: { itemId: string; color: 
   );
 }
 
-function Face({ skinShade, hair, female }: { skinShade: string; hair: string; female: boolean }) {
+function Face({ skinShade, hair, female, iris }: { skinShade: string; hair: string; female: boolean; iris: string }) {
   const brow = tone(hair, 0.85);
-  if (female) return <FemaleFace skinShade={skinShade} brow={brow} />;
+  if (female) return <FemaleFace skinShade={skinShade} brow={brow} iris={iris} />;
   const eye = (cx: number): ReactNode => (
     <g>
       <ellipse cx={cx} cy="89" rx="6.4" ry="4.1" fill="#fbfaf8" />
-      <circle cx={cx + 0.6} cy="89.4" r="3.3" fill="#4a3426" />
+      <circle cx={cx + 0.6} cy="89.4" r="3.3" fill={iris} />
       <circle cx={cx + 0.6} cy="89.4" r="1.6" fill="#120c09" />
       <circle cx={cx + 1.7} cy="88.2" r="1" fill="#ffffff" />
     </g>
@@ -308,11 +308,11 @@ function Face({ skinShade, hair, female }: { skinShade: string; hair: string; fe
   );
 }
 
-function FemaleFace({ skinShade, brow }: { skinShade: string; brow: string }) {
+function FemaleFace({ skinShade, brow, iris }: { skinShade: string; brow: string; iris: string }) {
   const eye = (cx: number, side: number): ReactNode => (
     <g>
       <ellipse cx={cx} cy="89" rx="6.8" ry="4.4" fill="#fbfaf8" />
-      <circle cx={cx + 0.6} cy="89.4" r="3.5" fill="#5a3a26" />
+      <circle cx={cx + 0.6} cy="89.4" r="3.5" fill={iris} />
       <circle cx={cx + 0.6} cy="89.4" r="1.7" fill="#120c09" />
       <circle cx={cx + 1.7} cy="88.1" r="1.1" fill="#ffffff" />
       <path d={`M${cx - 7} 88 Q${cx} 82 ${cx + 7} 88`} fill="none" stroke="#1a1210" strokeWidth="2.2" strokeLinecap="round" />

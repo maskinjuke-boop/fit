@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { itemById, type Slot } from '../../../game/items';
 import type { Appearance, Figure } from '../../../game/state';
+import { HEAD_CENTER_WORLD, HEAD_GROW } from './body';
 import { buildCharacter, buildItemModel, disposeObject } from './buildCharacter';
 import { createStudio, enableShadows, setupRenderer, type Studio } from './studio';
 
@@ -35,24 +36,43 @@ function ensure(): { renderer: THREE.WebGLRenderer; studio: Studio } {
   return { renderer, studio };
 }
 
-let queue: Promise<unknown> = Promise.resolve();
+interface Job {
+  priority: number;
+  run(): void;
+}
+const jobs: Job[] = [];
+let busy = false;
 
-/** Ставит задание в очередь; между заданиями отдаём управление браузеру. */
-function enqueue<T>(job: () => T): Promise<T> {
-  const run = queue.then(
-    () =>
-      new Promise<T>((resolve, reject) => {
-        setTimeout(() => {
-          try {
-            resolve(job());
-          } catch (e) {
-            reject(e);
-          }
-        }, 0);
-      }),
-  );
-  queue = run.catch(() => undefined);
-  return run;
+function pump(): void {
+  if (busy) return;
+  const job = jobs.shift();
+  if (!job) return;
+  busy = true;
+  setTimeout(() => {
+    job.run();
+    busy = false;
+    pump();
+  }, 0);
+}
+
+/** Ставит задание в очередь по приоритету; между заданиями отдаём управление браузеру. */
+function enqueue<T>(job: () => T, priority = 0): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const entry: Job = {
+      priority,
+      run: () => {
+        try {
+          resolve(job());
+        } catch (e) {
+          reject(e);
+        }
+      },
+    };
+    const i = jobs.findIndex((j) => j.priority < priority);
+    if (i < 0) jobs.push(entry);
+    else jobs.splice(i, 0, entry);
+    pump();
+  });
 }
 
 /**
@@ -117,7 +137,7 @@ const VIEW: Record<Slot, THREE.Vector3> = {
 };
 
 /** Иконка предмета: прозрачный фон, модель с трёхчетвертной точки зрения. */
-export function renderItem(id: string, color: string, figure: Figure, size = 192): Promise<string> {
+export function renderItem(id: string, color: string, figure: Figure, size = 192, priority = 0): Promise<string> {
   return enqueue(() => {
     const { studio: st } = ensure();
     const item = itemById(id);
@@ -136,7 +156,7 @@ export function renderItem(id: string, color: string, figure: Figure, size = 192
       st.scene.remove(object);
       disposeObject(object);
     }
-  });
+  }, priority);
 }
 
 /** Портрет героя по пояс для шапки и списков. */
@@ -152,15 +172,15 @@ export function renderPortrait(appearance: Appearance, color: string, equipped: 
     try {
       parts.root.rotation.y = 0.32;
       parts.root.updateMatrixWorld(true);
-      const target = new THREE.Vector3(0, 1.88, 0);
+      const target = new THREE.Vector3(0, HEAD_CENTER_WORLD - 0.06 * HEAD_GROW, 0);
       const cam = new THREE.PerspectiveCamera(30, 1, 0.05, 50);
-      cam.position.set(0, 1.96, 2.2);
+      cam.position.set(0, HEAD_CENTER_WORLD + 0.04, 1.95 * HEAD_GROW);
       cam.lookAt(target);
       return shoot(st.scene, cam, size, target);
     } finally {
       st.scene.remove(parts.root);
       disposeObject(parts.root);
     }
-  });
+  }, 2);
 }
 
