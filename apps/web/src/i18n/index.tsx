@@ -21,6 +21,8 @@ interface I18n {
   lang: Lang;
   setLang(l: Lang): void;
   t(key: I18nKey): string;
+  /** Текст с подстановками: tf('ev.levelUp', { n: 5 }). */
+  tf(key: I18nKey, vars: Record<string, string | number>): string;
 }
 
 const Ctx = createContext<I18n | null>(null);
@@ -36,7 +38,15 @@ export function I18nProvider({ children }: { children: ReactNode }) {
     }
     document.documentElement.lang = l;
   }, []);
-  const value = useMemo<I18n>(() => ({ lang, setLang, t: (k) => DICTS[lang][k] }), [lang, setLang]);
+  const value = useMemo<I18n>(
+    () => ({
+      lang,
+      setLang,
+      t: (k) => DICTS[lang][k],
+      tf: (k, vars) => DICTS[lang][k].replace(/\{(\w+)\}/g, (_, name: string) => String(vars[name] ?? '')),
+    }),
+    [lang, setLang],
+  );
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
 

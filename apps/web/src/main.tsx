@@ -1,5 +1,6 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
+import { GameProvider } from './game/GameContext';
 import { I18nProvider } from './i18n';
 import { App } from './ui/App';
 import './ui/styles.css';
@@ -10,7 +11,9 @@ if (!root) throw new Error('#root not found');
 createRoot(root).render(
   <StrictMode>
     <I18nProvider>
-      <App />
+      <GameProvider>
+        <App />
+      </GameProvider>
     </I18nProvider>
   </StrictMode>,
 );

@@ -10,10 +10,11 @@ const VIEW_ICON: Record<ExerciseDef['view'], string> = {
   frontOrBack: '◉',
 };
 
-export function ExercisePicker({ onPick, onAccuracy }: { onPick(def: ExerciseDef<Metrics>): void; onAccuracy(): void }) {
+export function ExercisePicker({ onPick, onAccuracy, embedded = false }: { onPick(def: ExerciseDef<Metrics>): void; onAccuracy?(): void; embedded?: boolean }) {
   const { t, lang, setLang } = useI18n();
   return (
-    <main className="picker">
+    <main className={`picker ${embedded ? 'embedded' : ''}`}>
+      {!embedded && (
       <header className="picker-head">
         <div>
           <h1>{t('appTitle')}</h1>
@@ -23,6 +24,7 @@ export function ExercisePicker({ onPick, onAccuracy }: { onPick(def: ExerciseDef
           {lang === 'ru' ? 'EN' : 'RU'}
         </button>
       </header>
+      )}
 
       <p className="privacy">{t('privacy')}</p>
       <h2>{t('chooseExercise')}</h2>
@@ -46,9 +48,11 @@ export function ExercisePicker({ onPick, onAccuracy }: { onPick(def: ExerciseDef
         ))}
       </ul>
 
-      <button className="btn wide" onClick={onAccuracy}>
-        {t('accuracyTitle')}
-      </button>
+      {onAccuracy && (
+        <button className="btn wide" onClick={onAccuracy}>
+          {t('accuracyTitle')}
+        </button>
+      )}
     </main>
   );
 }

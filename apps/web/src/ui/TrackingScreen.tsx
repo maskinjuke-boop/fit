@@ -6,11 +6,13 @@ import type { PoseEngine, PoseEngineInfo } from '../pose/poseEngine';
 import { drawSkeleton } from '../render/skeleton';
 import { loadRuns, saveRuns } from '../tools/accuracy';
 import { Recorder } from '../tools/recording';
-import type { ExerciseDef } from '../tracking/exercise';
+import type { GameEvent } from '../game/engine';
+import type { ExerciseDef, ExerciseId } from '../tracking/exercise';
 import { RepCounter, type RepCounterStats } from '../tracking/repCounter';
 import type { Phase } from '../tracking/repStateMachine';
 import type { FeedbackKey, FrameHint, Metrics } from '../tracking/types';
 import { buzz, downloadJson, speak } from './feedback';
+import { eventText } from './game/text';
 
 type Source = 'camera' | 'video';
 
@@ -29,8 +31,18 @@ const ACCENT = '#ffb020';
 const HINT_DELAY_MS = 600;
 const FEEDBACK_MS = 1600;
 
-export function TrackingScreen({ exercise, engine, onBack }: { exercise: ExerciseDef<Metrics>; engine: PoseEngine; onBack(): void }) {
-  const { t, lang } = useI18n();
+export interface TrackingScreenProps {
+  exercise: ExerciseDef<Metrics>;
+  engine: PoseEngine;
+  onBack(): void;
+  /** Засчитанный повтор передаётся в игру; она возвращает события (опыт, уровни, квесты). */
+  onRep?(exercise: ExerciseId, quality: number): GameEvent[];
+}
+
+const BANNER_MS = 2200;
+
+export function TrackingScreen({ exercise, engine, onBack, onRep }: TrackingScreenProps) {
+  const { t, tf, lang } = useI18n();
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const counterRef = useRef(new RepCounter(exercise));
@@ -40,6 +52,10 @@ export function TrackingScreen({ exercise, engine, onBack }: { exercise: Exercis
   const langRef = useRef(lang);
   langRef.current = lang;
   const tRef = useRef(t);
+  const tfRef = useRef(tf);
+  tfRef.current = tf;
+  const onRepRef = useRef(onRep);
+  onRepRef.current = onRep;
   tRef.current = t;
 
   const [source, setSource] = useState<Source>('camera');
@@ -52,6 +68,8 @@ export function TrackingScreen({ exercise, engine, onBack }: { exercise: Exercis
   const [hint, setHint] = useState<FrameHint | null>(null);
   const [feedback, setFeedback] = useState<{ key: FeedbackKey; id: number } | null>(null);
   const [pulse, setPulse] = useState(0);
+  const [xpGain, setXpGain] = useState<{ amount: number; over: boolean; id: number } | null>(null);
+  const [banners, setBanners] = useState<Array<{ id: number; text: string; big: boolean }>>([]);
   const [showDebug, setShowDebug] = useState(false);
   const [debug, setDebug] = useState<DebugInfo | null>(null);
   const [voice, setVoice] = useState(false);
@@ -137,6 +155,23 @@ export function TrackingScreen({ exercise, engine, onBack }: { exercise: Exercis
       handle = rvfc ? rvfc(step) : requestAnimationFrame(step);
     };
 
+    const handleGameEvents = (events: GameEvent[], now: number): void => {
+      let xp = 0;
+      let over = false;
+      const fresh: Array<{ id: number; text: string; big: boolean }> = [];
+      events.forEach((ev, i) => {
+        if (ev.kind === 'xp') {
+          xp += ev.amount;
+          over = over || ev.overLimit;
+          return;
+        }
+        const text = eventText(tRef.current, tfRef.current, ev);
+        if (text) fresh.push({ id: now + i, text, big: ev.kind === 'levelUp' || ev.kind === 'questDone' || ev.kind === 'dailyBonus' });
+      });
+      if (xp > 0) setXpGain({ amount: xp, over, id: now });
+      if (fresh.length > 0) setBanners((b) => [...b, ...fresh].slice(-3));
+    };
+
     const step = (): void => {
       if (stopped) return;
       if (video.readyState >= 2 && video.videoWidth > 0 && !video.paused && video.currentTime !== lastVideoTime) {
@@ -168,6 +203,8 @@ export function TrackingScreen({ exercise, engine, onBack }: { exercise: Exercis
           for (const e of res.events) {
             if (e.kind === 'rep') {
               setPulse((p) => p + 1);
+              const game = onRepRef.current?.(exercise.id, e.quality) ?? [];
+              handleGameEvents(game, now);
               buzz();
               if (voiceRef.current) speak(String(counter.snapshot.count), langRef.current);
             } else {
@@ -212,6 +249,13 @@ export function TrackingScreen({ exercise, engine, onBack }: { exercise: Exercis
     const id = setTimeout(() => setFeedback(null), FEEDBACK_MS);
     return () => clearTimeout(id);
   }, [feedback]);
+
+  // Игровые баннеры гаснут по одному.
+  useEffect(() => {
+    if (banners.length === 0) return;
+    const id = setTimeout(() => setBanners((b) => b.slice(1)), BANNER_MS);
+    return () => clearTimeout(id);
+  }, [banners]);
 
   // ── Действия ─────────────────────────────────────────────────────────
   const reset = useCallback(() => {
@@ -297,6 +341,11 @@ export function TrackingScreen({ exercise, engine, onBack }: { exercise: Exercis
           {stats.count}
         </div>
         <div className="count-label">{t('reps')}</div>
+        {xpGain && (
+          <div key={xpGain.id} className={`xp-float ${xpGain.over ? 'over' : ''}`}>
+            +{xpGain.amount < 1 ? xpGain.amount.toFixed(1) : Math.round(xpGain.amount)} XP
+          </div>
+        )}
         <div className="stats">
           {stats.lastQuality !== null && (
             <span>
@@ -315,6 +364,16 @@ export function TrackingScreen({ exercise, engine, onBack }: { exercise: Exercis
           )}
         </div>
       </section>
+
+      {banners.length > 0 && (
+        <div className="banners">
+          {banners.map((b) => (
+            <div key={b.id} className={`banner ${b.big ? 'big' : ''}`}>
+              {b.text}
+            </div>
+          ))}
+        </div>
+      )}
 
       <div className="toasts">
         {feedbackText && (

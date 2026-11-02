@@ -1,8 +1,10 @@
+import { gameEn } from './game';
 import type { Dict } from './ru';
 
 export const en: Dict = {
+  ...gameEn,
   appTitle: 'Exercise tracking',
-  appSubtitle: 'Stage 0 · rep counting prototype',
+  appSubtitle: 'Fitness RPG',
   privacy: 'Video is processed on your phone and never leaves it.',
   chooseExercise: 'Choose an exercise',
   lite: 'easier variant',

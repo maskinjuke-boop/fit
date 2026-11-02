@@ -1,6 +1,9 @@
+import { gameRu } from './game';
+
 export const ru = {
+  ...gameRu,
   appTitle: 'Трекинг упражнений',
-  appSubtitle: 'Этап 0 · прототип подсчёта повторов',
+  appSubtitle: 'Фитнес-RPG',
   privacy: 'Видео обрабатывается на телефоне и никуда не отправляется.',
   chooseExercise: 'Выберите упражнение',
   lite: 'облегчённый вариант',

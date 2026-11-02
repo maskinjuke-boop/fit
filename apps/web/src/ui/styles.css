@@ -463,3 +463,476 @@ button {
     animation: none;
   }
 }
+
+/* ═══ Игровой слой ═══════════════════════════════════════ */
+.btn.grow {
+  flex: 1;
+}
+.btn.danger {
+  border-color: rgba(255, 90, 95, 0.5);
+  color: var(--bad);
+}
+.btn.big-cta {
+  min-height: 56px;
+  font-size: 18px;
+}
+.link {
+  background: none;
+  border: none;
+  color: var(--accent);
+  cursor: pointer;
+  padding: 4px 0;
+  font-size: 13px;
+}
+.row.left {
+  justify-content: flex-start;
+  margin: 12px 0;
+}
+.right {
+  text-align: right;
+}
+.notice {
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 176, 32, 0.4);
+  background: rgba(255, 176, 32, 0.08);
+  font-size: 14px;
+}
+.notice p {
+  margin: 0 0 8px;
+}
+.check {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  margin: 14px 0;
+  font-size: 15px;
+}
+.check input {
+  width: 22px;
+  height: 22px;
+  accent-color: var(--accent);
+}
+
+/* Онбординг */
+.onboarding {
+  max-width: 520px;
+  margin: 0 auto;
+  min-height: 100%;
+  padding: max(24px, env(safe-area-inset-top)) 18px max(24px, env(safe-area-inset-bottom));
+  display: flex;
+}
+.ob-step {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+}
+.ob-step h1 {
+  margin: 8px 0 0;
+  font-size: 26px;
+  letter-spacing: -0.02em;
+}
+.ob-step p {
+  margin: 0;
+  line-height: 1.5;
+}
+.ob-hero-art {
+  display: flex;
+  justify-content: center;
+  padding: 8px 0;
+}
+.ob-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: auto;
+  padding-top: 16px;
+}
+.ob-question {
+  display: grid;
+  gap: 8px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--line);
+}
+.segmented {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.segmented button {
+  flex: 1;
+  min-height: 44px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  cursor: pointer;
+}
+.segmented button.on {
+  border-color: var(--accent);
+  background: rgba(255, 176, 32, 0.12);
+  color: var(--accent);
+  font-weight: 600;
+}
+.segmented button:disabled {
+  opacity: 0.4;
+}
+.field {
+  display: grid;
+  gap: 6px;
+}
+.field span,
+.field-label {
+  color: var(--muted);
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-top: 6px !important;
+}
+.field input {
+  padding: 12px 14px;
+  font-size: 17px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--text);
+}
+.choice-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+.choice {
+  display: grid;
+  justify-items: center;
+  gap: 4px;
+  padding: 10px 6px;
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  cursor: pointer;
+  text-align: center;
+}
+.choice.on {
+  border-color: var(--accent);
+  background: rgba(255, 176, 32, 0.08);
+}
+.swatches {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.swatch {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: 3px solid transparent;
+  cursor: pointer;
+}
+.swatch.on {
+  border-color: var(--text);
+}
+
+/* Оболочка с вкладками */
+.shell {
+  min-height: 100%;
+  max-width: 560px;
+  margin: 0 auto;
+  padding-bottom: calc(72px + env(safe-area-inset-bottom));
+}
+.hero-header {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  padding: max(10px, env(safe-area-inset-top)) 14px 10px;
+  background: rgba(15, 17, 20, 0.92);
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--line);
+}
+.hero-header-main {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+.hero-name {
+  font-weight: 700;
+  font-size: 17px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.hero-header-side {
+  display: grid;
+  gap: 4px;
+  text-align: right;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.day-banner {
+  display: block;
+  width: calc(100% - 28px);
+  margin: 10px 14px 0;
+  padding: 10px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--accent);
+  background: rgba(255, 176, 32, 0.1);
+  color: var(--accent);
+  text-align: left;
+  cursor: pointer;
+}
+.shell-body .picker.embedded {
+  padding-top: 4px;
+}
+.tab-body {
+  padding: 12px 14px 20px;
+  display: grid;
+  gap: 12px;
+}
+.card {
+  padding: 14px;
+  border-radius: var(--radius);
+  background: var(--surface);
+  border: 1px solid var(--line);
+}
+.card-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.card h2 {
+  margin: 0;
+  font-size: 16px;
+}
+.streak-card {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.big {
+  font-size: 30px;
+  font-weight: 800;
+}
+.bar {
+  height: 8px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  overflow: hidden;
+}
+.bar-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--accent);
+  transition: width 0.3s ease;
+}
+.task-list,
+.quest-list,
+.stat-list,
+.lifetime,
+.summary-events {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 10px;
+}
+.task,
+.quest {
+  display: grid;
+  gap: 6px;
+  padding: 12px;
+  border-radius: 12px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+}
+.task.done,
+.quest.done {
+  opacity: 0.6;
+}
+.task.done .bar-fill {
+  background: var(--good);
+}
+.task-top {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+}
+.task-check {
+  color: var(--accent);
+  font-weight: 700;
+}
+.task.done .task-check {
+  color: var(--good);
+}
+.task-bottom {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+.reward {
+  font-size: 12px;
+  color: var(--accent);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.quest-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  align-items: baseline;
+}
+.quest.challenge {
+  border-color: rgba(77, 163, 255, 0.4);
+}
+.quest.story {
+  border-color: rgba(181, 123, 255, 0.4);
+}
+.objective {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 4px 10px;
+  align-items: center;
+  font-size: 14px;
+}
+.objective .bar {
+  grid-column: 1 / -1;
+  grid-row: 2;
+}
+.hero-card {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+}
+.hero-card h2 {
+  font-size: 22px;
+}
+.hero-card p {
+  margin: 4px 0 0;
+}
+.stat-list li {
+  display: grid;
+  gap: 6px;
+}
+.stat-head {
+  display: flex;
+  justify-content: space-between;
+}
+.lifetime li {
+  display: flex;
+  justify-content: space-between;
+  font-variant-numeric: tabular-nums;
+}
+.bottom-nav {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 6;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  padding: 6px 6px max(6px, env(safe-area-inset-bottom));
+  background: rgba(15, 17, 20, 0.96);
+  border-top: 1px solid var(--line);
+}
+.bottom-nav button {
+  display: grid;
+  justify-items: center;
+  gap: 2px;
+  padding: 6px 0;
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-size: 12px;
+  cursor: pointer;
+}
+.bottom-nav button.on {
+  color: var(--accent);
+}
+.nav-icon {
+  font-size: 20px;
+  line-height: 1;
+}
+
+/* Экран тренировки: опыт и баннеры */
+.xp-float {
+  margin-top: 6px;
+  font-size: 22px;
+  font-weight: 800;
+  color: var(--accent);
+  animation: float-up 0.9s ease-out forwards;
+}
+.xp-float.over {
+  color: var(--muted);
+}
+@keyframes float-up {
+  0% {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  20% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-18px);
+  }
+}
+.banners {
+  position: absolute;
+  left: 16px;
+  right: 16px;
+  top: calc(max(10px, env(safe-area-inset-top)) + 250px);
+  display: grid;
+  gap: 6px;
+  justify-items: center;
+  pointer-events: none;
+}
+.banner {
+  padding: 8px 14px;
+  border-radius: 12px;
+  background: rgba(20, 22, 26, 0.9);
+  border: 1px solid var(--line);
+  font-size: 14px;
+  font-weight: 600;
+  animation: fade-in 0.2s ease-out;
+}
+.banner.big {
+  border-color: var(--accent);
+  color: var(--accent);
+  font-size: 18px;
+  padding: 10px 18px;
+}
+.summary-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin: 14px 0;
+  text-align: center;
+}
+.summary-grid div {
+  display: grid;
+  gap: 2px;
+  padding: 12px 6px;
+  border-radius: 12px;
+  background: var(--bg);
+}
+.summary-grid b {
+  font-size: 24px;
+}
+.summary-events li {
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: rgba(255, 176, 32, 0.08);
+  font-size: 14px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .xp-float,
+  .banner {
+    animation: none;
+  }
+}
