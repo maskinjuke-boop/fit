@@ -1,0 +1,44 @@
+# Собирает приложение со всеми файлами (JS, движок MediaPipe, модели)
+# и выкладывает архив в GitHub Releases: Releases → build-latest → fit-build.zip
+name: Build
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install
+
+      - run: pnpm test
+
+      - run: pnpm build
+
+      - name: Pack the build
+        run: |
+          cd apps/web/dist
+          zip -r ../../../fit-build.zip .
+
+      - name: Publish release build-latest
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete build-latest --yes --cleanup-tag || true
+          gh release create build-latest fit-build.zip \
+            --title "Последняя сборка" \
+            --notes "Готовое приложение из коммита ${GITHUB_SHA::7}. Распакуйте и выложите на любой хостинг с HTTPS."
