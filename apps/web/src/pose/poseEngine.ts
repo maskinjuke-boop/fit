@@ -17,6 +17,16 @@ const base = import.meta.env.BASE_URL;
 /** WASM и модели раздаются с нашего сервера (см. scripts/). */
 export const WASM_PATH = `${base}wasm`;
 export const modelPath = (v: ModelVariant): string => `${base}models/pose_landmarker_${v}.task`;
+/** Запасной адрес: официальное хранилище моделей MediaPipe (если своей копии на сервере нет). */
+export const modelFallbackPath = (v: ModelVariant): string =>
+  `https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_${v}/float16/latest/pose_landmarker_${v}.task`;
+
+/** Ошибки MediaPipe иногда приходят как Event — достаём из них читаемый текст. */
+function describe(e: unknown): string {
+  if (e instanceof Error) return e.message;
+  if (typeof Event !== 'undefined' && e instanceof Event) return `ошибка загрузки (${e.type})`;
+  return String(e);
+}
 
 export class PoseEngineError extends Error {
   constructor(
@@ -49,7 +59,7 @@ export class PoseEngine {
     try {
       fileset = await FilesetResolver.forVisionTasks(WASM_PATH);
     } catch (e) {
-      throw new PoseEngineError('wasm', `Не удалось загрузить WASM MediaPipe из ${WASM_PATH}: ${String(e)}`);
+      throw new PoseEngineError('wasm', `Не удалось загрузить WASM MediaPipe из ${WASM_PATH}: ${describe(e)}`);
     }
     const engine = new PoseEngine(fileset, { model, delegate: 'GPU', inputScale: 1 });
     await engine.load(model);
@@ -60,9 +70,9 @@ export class PoseEngine {
     return this._info;
   }
 
-  private async build(model: ModelVariant, delegate: Delegate): Promise<PoseLandmarker> {
+  private async build(path: string, delegate: Delegate): Promise<PoseLandmarker> {
     return PoseLandmarker.createFromOptions(this.fileset, {
-      baseOptions: { modelAssetPath: modelPath(model), delegate },
+      baseOptions: { modelAssetPath: path, delegate },
       runningMode: 'VIDEO',
       numPoses: 1,
       minPoseDetectionConfidence: 0.5,
@@ -72,24 +82,37 @@ export class PoseEngine {
     });
   }
 
-  /** Загружает модель: сначала на GPU, при ошибке — на CPU. */
-  async load(model: ModelVariant): Promise<void> {
-    let next: PoseLandmarker;
-    let delegate: Delegate = 'GPU';
+  /** Есть ли своя копия модели на сервере (иначе берём запасной адрес). */
+  private static async hasLocal(path: string): Promise<boolean> {
     try {
-      next = await this.build(model, 'GPU');
-    } catch (gpuError) {
-      delegate = 'CPU';
-      try {
-        next = await this.build(model, 'CPU');
-      } catch (cpuError) {
-        throw new PoseEngineError('model', `Не удалось загрузить модель ${modelPath(model)}: ${String(cpuError ?? gpuError)}`);
+      const res = await fetch(path, { method: 'HEAD' });
+      const type = res.headers.get('content-type') ?? '';
+      return res.ok && !type.includes('text/html');
+    } catch {
+      return false;
+    }
+  }
+
+  /** Загружает модель: своя копия или запасной адрес; сначала GPU, при ошибке — CPU. */
+  async load(model: ModelVariant): Promise<void> {
+    const local = modelPath(model);
+    const paths = (await PoseEngine.hasLocal(local)) ? [local, modelFallbackPath(model)] : [modelFallbackPath(model)];
+    let lastError: unknown = null;
+    for (const path of paths) {
+      for (const delegate of ['GPU', 'CPU'] as const) {
+        try {
+          const next = await this.build(path, delegate);
+          this.landmarker?.close();
+          this.landmarker = next;
+          this.lastTs = -1;
+          this._info = { ...this._info, model, delegate };
+          return;
+        } catch (e) {
+          lastError = e;
+        }
       }
     }
-    this.landmarker?.close();
-    this.landmarker = next;
-    this.lastTs = -1;
-    this._info = { ...this._info, model, delegate };
+    throw new PoseEngineError('model', `Не удалось загрузить модель ${paths.join(' или ')}: ${describe(lastError)}`);
   }
 
   setInputScale(scale: number): void {

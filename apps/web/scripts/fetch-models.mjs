@@ -25,10 +25,16 @@ for (const { file, url } of MODELS) {
     continue;
   }
   console.log(`[models] скачиваю ${file}…`);
-  const res = await fetch(url);
+  let res;
+  try {
+    res = await fetch(url);
+  } catch (e) {
+    console.warn(`[models] нет сети для ${url}: ${e}`);
+    continue;
+  }
   if (!res.ok || !res.body) {
-    console.error(`[models] не удалось скачать ${url}: HTTP ${res.status}`);
-    process.exitCode = 1;
+    // Сборку не роняем: приложение умеет загрузить модель напрямую из хранилища MediaPipe.
+    console.warn(`[models] не удалось скачать ${url}: HTTP ${res.status}`);
     continue;
   }
   await pipeline(Readable.fromWeb(res.body), createWriteStream(out));
