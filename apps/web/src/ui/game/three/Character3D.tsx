@@ -3,8 +3,9 @@ import { useI18n } from '../../../i18n';
 import * as THREE from 'three';
 import { Avatar } from '../Avatar';
 import type { Hero3DProps } from '../Hero3D';
-import { HEAD_CENTER_WORLD } from './body';
-import { buildCharacter, disposeObject, type CharacterParts } from './buildCharacter';
+import { isPrepared, prepare } from './anatomy';
+import { HEAD_CENTER_WORLD, HEAD_GROW } from './body';
+import { buildCharacter, disposeObject, garmentsFor, type CharacterParts } from './buildCharacter';
 import { createStudio, enableShadows, setupRenderer } from './studio';
 
 /** Мягкая тень под ногами — текстура с радиальным градиентом вместо теневых карт (дёшево для телефонов). */
@@ -51,6 +52,7 @@ export default function Character3D({ color, appearance, equipped, height = 260,
   closeRef.current = close;
   const api = useRef<{ setCharacter(c: CharacterParts, color: string): void } | null>(null);
   const [failed, setFailed] = useState(false);
+  const [sculpting, setSculpting] = useState(false);
 
   // Сцена, камера, рендер и цикл анимации создаются один раз.
   useEffect(() => {
@@ -105,7 +107,7 @@ export default function Character3D({ color, appearance, equipped, height = 260,
     const place = (): void => {
       const narrow = Math.max(1, 0.62 / camera.aspect);
       const far = { y: 1.66, ty: 1.36, d: 6.9 * narrow };
-      const near = { y: HEAD_CENTER_WORLD + 0.02, ty: HEAD_CENTER_WORLD - 0.04, d: 1.7 * Math.max(1, 0.8 / camera.aspect) };
+      const near = { y: HEAD_CENTER_WORLD + 0.02, ty: HEAD_CENTER_WORLD - 0.04, d: 2 * HEAD_GROW * Math.max(1, 0.8 / camera.aspect) };
       const k = zoom * zoom * (3 - 2 * zoom);
       target.set(0, far.ty + (near.ty - far.ty) * k, 0);
       camera.position.set(0, far.y + (near.y - far.y) * k, far.d + (near.d - far.d) * k);
@@ -197,16 +199,11 @@ export default function Character3D({ color, appearance, equipped, height = 260,
       if (parts) {
         const t = now / 1000;
         const b = Math.sin(t * 1.9);
-        parts.torso.position.y = b * 0.006;
-        parts.torso.scale.x = 1 + b * 0.008;
-        parts.head.position.y = Number(parts.head.userData.baseY ?? 0) + b * 0.009;
+        // Дыхание: грудь чуть расширяется (масштаб от земли — ноги остаются на месте).
+        parts.torso.scale.set(1 + b * 0.006, 1 + b * 0.0025, 1 + b * 0.012);
+        parts.head.position.y = Number(parts.head.userData.baseY ?? 0) * (1 + b * 0.0025);
         parts.head.rotation.y = Math.sin(t * 0.7) * 0.06;
         parts.head.rotation.z = Math.sin(t * 0.5) * 0.025;
-        // Руки чуть покачиваются в такт дыханию.
-        parts.rightArm.rotation.z = -0.015 - b * 0.02;
-        parts.leftArm.rotation.z = 0.015 + b * 0.02;
-        parts.rightArm.rotation.x = Math.sin(t * 0.9) * 0.025;
-        parts.leftArm.rotation.x = -Math.sin(t * 0.9) * 0.025;
         // Моргание раз в несколько секунд: веко опускается и поднимается.
         const cycle = t % 4.2;
         const shut = cycle < 0.16 ? Math.sin((cycle / 0.16) * Math.PI) : 0;
@@ -247,9 +244,29 @@ export default function Character3D({ color, appearance, equipped, height = 260,
   }, [interactive, failed]);
 
   // Персонаж пересобирается при смене внешности, цвета или снаряжения.
+  // Тело и одежда лепятся один раз за сессию — порциями, чтобы интерфейс не замирал.
   const sig = JSON.stringify([color, appearance, equipped]);
   useEffect(() => {
-    api.current?.setCharacter(buildCharacter(appearance, color, equipped), color);
+    if (failed) return;
+    let alive = true;
+    const garments = garmentsFor(appearance.figure, equipped.body, equipped.head);
+    const apply = (): void => {
+      if (alive) api.current?.setCharacter(buildCharacter(appearance, color, equipped), color);
+    };
+    if (isPrepared(appearance.figure, garments)) {
+      setSculpting(false);
+      apply();
+    } else {
+      setSculpting(true);
+      void prepare(appearance.figure, garments).then(() => {
+        if (!alive) return;
+        setSculpting(false);
+        apply();
+      });
+    }
+    return () => {
+      alive = false;
+    };
   }, [sig, failed]);
 
   if (failed) {
@@ -262,6 +279,12 @@ export default function Character3D({ color, appearance, equipped, height = 260,
   return (
     <div className="hero3d-wrap" style={{ height }}>
       <div ref={host} className={`hero3d ${interactive ? 'grab' : ''}`} style={{ height }} />
+      {sculpting && (
+        <div className="hero3d-busy" aria-live="polite">
+          <div className="spinner" />
+          <span>{t('sculpting')}</span>
+        </div>
+      )}
       {zoomable && (
         <button className="zoom-btn" onClick={() => setClose((c) => !c)}>
           {close ? `⤢ ${t('zoomOut')}` : `🔍 ${t('zoomFace')}`}

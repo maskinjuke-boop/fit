@@ -1,5 +1,7 @@
 import * as THREE from 'three';
-import { HEAD_R, HEAD_SCALE, HEAD_Y, TORSO_DEPTH, TORSO_Y, band, onTorso, skirt, torsoShell, type BodyShape } from './body';
+import type { Figure } from '../../../game/state';
+import { band, frontZ, onTorso, section, skirt, type GarmentId } from './anatomy';
+import { HEAD_R, HEAD_SCALE, HEAD_Y, TORSO_Y, type BodyShape } from './body';
 import { M, cone, limb, mat, mesh, ring, shade, taperTube, v, type Anim, type Mat } from './kit';
 
 /**
@@ -15,23 +17,83 @@ export interface ItemCtx {
   anim: Anim[];
 }
 
-/** Одежда: оболочка на корпусе и что она меняет на руках и ногах. */
+/** Какие слои одежды надеты: верх (null — без верха), низ и слои поверх. */
+export interface OutfitPlan {
+  top?: GarmentId | null;
+  bottom?: GarmentId;
+  layers?: GarmentId[];
+}
+
+/** Одежда героя: план слоёв, их материалы и детали поверх (пояса, наплечники, плащ). */
 export interface Outfit {
   group: THREE.Group;
-  /** Рукав на плече (иначе — короткий рукав футболки). */
-  upper?: Mat;
-  /** Рукав на предплечье (длинный рукав). */
-  fore?: Mat;
-  /** Расширенный манжет у кисти (мантия, кимоно). */
-  wideCuff?: Mat;
-  /** Узкий манжет у кисти. */
-  cuff?: Mat;
-  /** Наруч поверх предплечья. */
-  bracer?: Mat;
-  pants?: Mat;
-  /** Лампас по внешней стороне ноги. */
-  stripe?: Mat;
+  plan: OutfitPlan;
+  top?: Mat;
+  bottom?: Mat;
+  layers: Mat[];
 }
+
+/** Базовая одежда без предмета: футболка и брюки (у женской фигуры — облегающая футболка и леггинсы). */
+export const defaultPlan = (figure: Figure): { top: GarmentId; bottom: GarmentId } =>
+  figure === 'female' ? { top: 'tee_fitted', bottom: 'leggings' } : { top: 'tee', bottom: 'pants' };
+
+/** План одежды для предмета тела (без построения сетки — чтобы заранее подготовить нужные слои). */
+export function outfitPlan(id: string | undefined, figure: Figure): OutfitPlan {
+  const female = figure === 'female';
+  switch (id) {
+    case 'leather_vest':
+      return { layers: ['vest'] };
+    case 'chainmail':
+    case 'scale_mail':
+      return { layers: ['mail'] };
+    case 'mystic_robe':
+      return { top: 'robe_top' };
+    case 'plate_armor':
+    case 'champion_armor':
+      return { layers: ['cuirass', 'bracers'] };
+    case 'tracksuit':
+      return { top: 'tee_long', bottom: 'pants' };
+    case 'kimono':
+      return { top: 'robe_top', bottom: 'pants' };
+    case 'dragon_armor':
+      return { layers: ['mail', 'bracers'] };
+    case 'sport_set':
+      return { top: female ? 'sports_bra' : 'tank', bottom: 'shorts' };
+    case 'fitness_set':
+      return { top: female ? 'crop_top' : 'tee_fitted', bottom: 'leggings' };
+    case 'gladiator_armor':
+      return { top: female ? 'breastplate' : null, bottom: 'briefs', layers: ['greaves', 'bracers'] };
+    default:
+      return {};
+  }
+}
+
+/** Слои одежды самого предмета (для иконки магазина). */
+export function itemGarments(id: string, figure: Figure): GarmentId[] {
+  const plan = outfitPlan(id, figure);
+  return [plan.top, plan.bottom, ...(plan.layers ?? [])].filter((g): g is GarmentId => Boolean(g));
+}
+
+/** Головные уборы с частью, лежащей на плечах (капюшон с накидкой). */
+export const HEAD_GARMENTS: Record<string, GarmentId[]> = {
+  ranger_hood: ['mantle'],
+};
+
+/** Все слои, которые понадобятся для героя (тело + одежда + накидка головного убора). */
+export function garmentsFor(figure: Figure, bodyItem: string | undefined, headItem?: string): GarmentId[] {
+  const plan = outfitPlan(bodyItem, figure);
+  const def = defaultPlan(figure);
+  const top = plan.top === undefined ? def.top : plan.top;
+  const list: GarmentId[] = [];
+  if (top) list.push(top);
+  list.push(plan.bottom ?? def.bottom);
+  list.push(...(plan.layers ?? []));
+  if (headItem) list.push(...(HEAD_GARMENTS[headItem] ?? []));
+  return list;
+}
+
+/** Ткань накидки головного убора. */
+export const headGarmentMat = (id: string): Mat => (id === 'ranger_hood' ? M.cloth('#44704a', 5) : M.cloth('#666', 5));
 
 /** Что головной убор делает с причёской: шапка прячет макушку, шлем — всё, кроме длинных прядей. */
 export const HEAD_COVER: Record<string, 'hat' | 'helm'> = {
@@ -127,7 +189,7 @@ export function buildHeadItem(id: string, ctx: ItemCtx): THREE.Group {
         }
         g.add(new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 32, 0.024, 8), edgeM));
       }
-      g.add(mesh(new THREE.CylinderGeometry(0.27, 0.42, 0.26, 40, 1, true), m, [0, 1.56, 0], [1, 1, 0.82]));
+      // Накидка на плечах — отдельный слой одежды (см. HEAD_GARMENTS), здесь только сам капюшон.
       g.add(mesh(new THREE.ConeGeometry(0.06, 0.16, 12), m, [0, HEAD_Y + 0.12, -0.33], [1, 1, 0.6]).rotateX(-2.2));
       break;
     }
@@ -289,7 +351,7 @@ export function buildHeadItem(id: string, ctx: ItemCtx): THREE.Group {
 function cape(m: Mat, shape: BodyShape): THREE.Mesh {
   const w = shape.figure === 'female' ? 0.92 : 1;
   m.side = THREE.DoubleSide;
-  const c = new THREE.Mesh(new THREE.CylinderGeometry(0.34 * w, 0.58 * w, 1.3, 32, 6, true, Math.PI * 0.55, Math.PI * 0.9), m);
+  const c = new THREE.Mesh(new THREE.CylinderGeometry(0.34 * w, 0.6 * w, 1.3, 32, 6, true, Math.PI * 0.55, Math.PI * 0.9), m);
   // Лёгкие складки: волна по окружности, усиливающаяся книзу.
   const pos = c.geometry.getAttribute('position');
   for (let i = 0; i < pos.count; i += 1) {
@@ -302,168 +364,245 @@ function cape(m: Mat, shape: BodyShape): THREE.Mesh {
     pos.setXYZ(i, x * f, y, z * f);
   }
   c.geometry.computeVertexNormals();
-  c.position.set(0, TORSO_Y - 0.06, -0.05);
+  c.position.set(0, TORSO_Y - 0.06, -0.06);
   c.scale.z = 0.72;
   return c;
 }
 
-function pauldrons(shape: BodyShape, m: Mat, spikes?: Mat): THREE.Object3D[] {
+function pauldron(shape: BodyShape, sx: number, m: Mat, spikes?: Mat): THREE.Object3D[] {
   const out: THREE.Object3D[] = [];
-  const s = shape.figure === 'female' ? 0.86 : 1;
-  for (const sx of [-1, 1]) {
-    const p = shape.shoulder;
-    const pad = mesh(new THREE.SphereGeometry(0.17 * s, 28, 14, 0, Math.PI * 2, 0, Math.PI * 0.55), m, [p.x * sx * 1.02, p.y + 0.03, 0], [1.1, 0.85, 1]);
-    pad.rotation.z = -0.35 * sx;
-    out.push(pad);
-    const rim = new THREE.Mesh(new THREE.TorusGeometry(0.17 * s * 0.98, 0.012, 6, 28), m);
-    rim.position.copy(pad.position).add(v(0.05 * sx, -0.07, 0));
-    rim.rotation.set(Math.PI / 2, 0.35 * sx, 0);
-    rim.scale.set(1.1, 1, 1);
-    out.push(rim);
-    if (spikes) {
-      for (const k of [-1, 0, 1]) {
-        const c = mesh(new THREE.ConeGeometry(0.03, 0.14, 10), spikes, [p.x * sx * 1.08 + 0.02 * sx, p.y + 0.15, k * 0.08]);
-        c.rotation.z = -0.5 * sx;
-        out.push(c);
-      }
+  const s = shape.figure === 'female' ? 0.84 : 1;
+  const p = shape.shoulder;
+  const pad = mesh(new THREE.SphereGeometry(0.16 * s, 28, 14, 0, Math.PI * 2, 0, Math.PI * 0.55), m, [p.x * sx * 1.03, p.y + 0.02, 0], [1.1, 0.85, 1]);
+  pad.rotation.z = -0.35 * sx;
+  out.push(pad);
+  const rim = new THREE.Mesh(new THREE.TorusGeometry(0.16 * s * 0.98, 0.012, 6, 28), m);
+  rim.position.copy(pad.position).add(v(0.05 * sx, -0.065, 0));
+  rim.rotation.set(Math.PI / 2, 0.35 * sx, 0);
+  rim.scale.set(1.1, 1, 1);
+  out.push(rim);
+  if (spikes) {
+    for (const k of [-1, 0, 1]) {
+      const c = mesh(new THREE.ConeGeometry(0.028, 0.13, 10), spikes, [p.x * sx * 1.08 + 0.02 * sx, p.y + 0.13, k * 0.075]);
+      c.rotation.z = -0.5 * sx;
+      out.push(c);
     }
   }
   return out;
 }
 
-/** Строчка на передней поверхности корпуса по точкам (x, y). */
-function seam(shape: BodyShape, pts: Array<[number, number]>, r: number, m: Mat, grow: number): THREE.Mesh {
-  const curve = new THREE.CatmullRomCurve3(pts.map(([x, y]) => onTorso(shape, x, y, grow, r * 0.6)));
+const pauldrons = (shape: BodyShape, m: Mat, spikes?: Mat): THREE.Object3D[] => [...pauldron(shape, -1, m, spikes), ...pauldron(shape, 1, m, spikes)];
+
+/** Строчка/кант на передней поверхности одежды с отступом off. */
+function seam(shape: BodyShape, pts: Array<[number, number]>, r: number, m: Mat, off: number): THREE.Mesh {
+  const curve = new THREE.CatmullRomCurve3(pts.map(([x, y]) => onTorso(shape, x, y, off, r * 0.6)));
   return new THREE.Mesh(new THREE.TubeGeometry(curve, 40, r, 6), m);
+}
+
+/** Широкий манжет у кисти (мантия, кимоно). */
+function wideCuffs(shape: BodyShape, m: Mat, trim: Mat): THREE.Object3D[] {
+  const out: THREE.Object3D[] = [];
+  for (const sx of [-1, 1]) {
+    const e = v(shape.elbow.x * sx, shape.elbow.y, shape.elbow.z);
+    const w = v(shape.wrist.x * sx, shape.wrist.y, shape.wrist.z);
+    const dir = w.clone().sub(e).normalize();
+    const a = e.clone().lerp(w, 0.74);
+    const b = e.clone().lerp(w, 0.93);
+    const c = cone(a, b, shape.foreR + 0.015, shape.foreR + 0.07, m, 24, true);
+    (c.material as Mat).side = THREE.DoubleSide;
+    out.push(c);
+    const t = new THREE.Mesh(new THREE.TorusGeometry(shape.foreR + 0.068, 0.009, 6, 24), trim);
+    t.position.copy(b);
+    t.quaternion.setFromUnitVectors(v(0, 0, 1), dir);
+    out.push(t);
+  }
+  return out;
+}
+
+/** Ободок на запястье (манжета куртки). */
+function cuffs(shape: BodyShape, m: Mat): THREE.Object3D[] {
+  return [-1, 1].map((sx) => {
+    const e = v(shape.elbow.x * sx, shape.elbow.y, shape.elbow.z);
+    const w = v(shape.wrist.x * sx, shape.wrist.y, shape.wrist.z);
+    const c = new THREE.Mesh(new THREE.TorusGeometry(shape.foreR * 0.78 + 0.02, 0.012, 6, 20), m);
+    c.position.copy(e).lerp(w, 0.9);
+    c.quaternion.setFromUnitVectors(v(0, 0, 1), w.clone().sub(e).normalize());
+    return c;
+  });
+}
+
+/** Птеруги — кожаные полосы юбки гладиатора по кругу бёдер. */
+function pteruges(shape: BodyShape, m: Mat, stud: Mat): THREE.Object3D[] {
+  const out: THREE.Object3D[] = [];
+  const y = TORSO_Y - 0.1;
+  const s = section(shape.figure, y);
+  const zc = (s.zFront + s.zBack) / 2;
+  const rz = (s.zFront - s.zBack) / 2;
+  const n = 16;
+  for (let i = 0; i < n; i += 1) {
+    const a = (i / n) * Math.PI * 2;
+    const x = Math.sin(a) * (s.wx + 0.035);
+    const z = zc + Math.cos(a) * (rz + 0.035);
+    const strip = mesh(new THREE.BoxGeometry(0.075, 0.22, 0.012), m, [x, y - 0.06, z]);
+    strip.rotation.y = a;
+    strip.rotateX(-0.12);
+    out.push(strip);
+    out.push(mesh(new THREE.SphereGeometry(0.011, 8, 6), stud, [x * 1.03, y - 0.14, zc + (z - zc) * 1.08]));
+  }
+  return out;
 }
 
 export function buildBodyItem(id: string, ctx: ItemCtx): Outfit {
   const g = new THREE.Group();
   const { shape, color } = ctx;
-  const out: Outfit = { group: g };
-  const top = TORSO_Y + 0.6;
+  const female = shape.figure === 'female';
+  const plan = outfitPlan(id, shape.figure);
+  const out: Outfit = { group: g, plan, layers: [] };
+  const top = TORSO_Y + 0.58;
+  const buckle = (y: number, off: number, m: Mat): THREE.Mesh => mesh(new THREE.BoxGeometry(0.085, 0.07, 0.022), m, [0, y, frontZ(shape.figure, 0, y, off) + 0.012]);
   switch (id) {
     case 'leather_vest': {
-      const grow = shape.figure === 'female' ? 1.1 : 1.06;
-      g.add(torsoShell(shape, M.leather('#7a4e2d', 3), grow, 0.3, Math.PI * 2 - 0.6));
-      g.add(band(shape, TORSO_Y + 0.04, 0.035, M.leather('#4a2f1f', 4)));
-      g.add(mesh(new THREE.BoxGeometry(0.09, 0.07, 0.02), M.bronze(), [0, TORSO_Y + 0.04, 0.2]));
-      for (const sx of [-1, 1]) g.add(seam(shape, [[0.085 * sx, top - 0.06], [0.1 * sx, TORSO_Y + 0.3], [0.09 * sx, TORSO_Y + 0.08]], 0.006, mat('#d8b48a', 0.8), grow));
+      out.layers = [M.leather('#7a4e2d', 3)];
+      g.add(band(shape, TORSO_Y + 0.04, 0.034, M.leather('#4a2f1f', 4), 0.035));
+      g.add(buckle(TORSO_Y + 0.04, 0.05, M.bronze()));
+      for (const sx of [-1, 1]) g.add(seam(shape, [[0.07 * sx, top - 0.06], [0.06 * sx, TORSO_Y + 0.3], [0.05 * sx, TORSO_Y + 0.1]], 0.005, mat('#d8b48a', 0.8), 0.026));
       break;
     }
     case 'traveler_cloak': {
-      const m = M.cloth('#3f6b48', 5);
-      g.add(cape(m, shape));
-      const mantle = new THREE.Mesh(new THREE.TorusGeometry(0.29, 0.1, 12, 40), M.cloth('#3f6b48', 5));
-      mantle.position.y = TORSO_Y + 0.58;
+      g.add(cape(M.cloth('#3f6b48', 5), shape));
+      const mantle = new THREE.Mesh(new THREE.TorusGeometry(female ? 0.25 : 0.29, 0.1, 12, 40), M.cloth('#3f6b48', 5));
+      mantle.position.y = TORSO_Y + 0.6;
       mantle.rotation.x = Math.PI / 2;
       mantle.scale.set(1.15, 0.8, 1);
       g.add(mantle);
-      g.add(mesh(new THREE.SphereGeometry(0.045, 14, 10), M.gold(), [0, TORSO_Y + 0.55, 0.25]), mesh(new THREE.OctahedronGeometry(0.024), M.gem(color), [0, TORSO_Y + 0.55, 0.292]));
+      const cz = frontZ(shape.figure, 0, TORSO_Y + 0.56, 0.05);
+      g.add(mesh(new THREE.SphereGeometry(0.045, 14, 10), M.gold(), [0, TORSO_Y + 0.56, cz + 0.02]), mesh(new THREE.OctahedronGeometry(0.024), M.gem(color), [0, TORSO_Y + 0.56, cz + 0.06]));
       break;
     }
     case 'chainmail':
-      g.add(torsoShell(shape, M.mail(8), 1.05));
-      g.add(skirt(shape, M.mail(8), [[0.27, 0.02], [0.3, -0.12], [0.32, -0.26], [0, -0.26]], 1.02));
-      g.add(band(shape, TORSO_Y + 0.04, 0.035, M.leather('#5a3820', 4)));
-      g.add(mesh(new THREE.BoxGeometry(0.08, 0.07, 0.02), M.steel(), [0, TORSO_Y + 0.04, 0.2]));
-      out.upper = M.mail(4);
+      out.layers = [M.mail(8)];
+      g.add(band(shape, TORSO_Y + 0.04, 0.035, M.leather('#5a3820', 4), 0.04));
+      g.add(buckle(TORSO_Y + 0.04, 0.055, M.steel()));
+      break;
+    case 'scale_mail':
+      out.layers = [M.scales('#7f9aa3', 4, 0.75)];
+      g.add(...pauldrons(shape, M.scales('#6b858e', 2, 0.75)));
+      g.add(band(shape, TORSO_Y + 0.04, 0.038, M.leather('#3d2a1c', 4), 0.04));
+      g.add(buckle(TORSO_Y + 0.04, 0.06, M.gold()));
       break;
     case 'mystic_robe': {
       const robe = M.cloth('#43337d', 6);
-      g.add(torsoShell(shape, robe, 1.05));
-      g.add(skirt(shape, robe, [[0.27, 0.03], [0.31, -0.15], [0.37, -0.45], [0.42, -0.7], [0.46, -0.84], [0, -0.84]], 1.03));
-      g.add(ring(0.46 * (shape.figure === 'female' ? 1.08 : 1), 0.02, M.gold(), TORSO_Y - 0.84, 1.03, TORSO_DEPTH * 1.07));
-      g.add(band(shape, TORSO_Y + 0.05, 0.03, M.gold(), 1.06));
-      for (const sx of [-1, 1]) g.add(seam(shape, [[0.13 * sx, top], [0.05 * sx, TORSO_Y + 0.42], [0, TORSO_Y + 0.33]], 0.016, M.gold(), 1.05));
-      g.add(mesh(new THREE.OctahedronGeometry(0.03), M.gem('#7fe3ff', 0.8), [0, TORSO_Y + 0.33, onTorso(shape, 0, TORSO_Y + 0.33, 1.05).z + 0.02]));
-      out.upper = robe;
-      out.fore = robe;
-      out.wideCuff = M.gold();
+      out.top = robe;
+      g.add(skirt(shape, robe, [[0.27, 0.03], [0.31, -0.15], [0.37, -0.45], [0.42, -0.7], [0.46, -0.84], [0, -0.84]]));
+      g.add(band(shape, TORSO_Y + 0.05, 0.03, M.gold(), 0.035));
+      for (const sx of [-1, 1]) g.add(seam(shape, [[0.11 * sx, top], [0.045 * sx, TORSO_Y + 0.44], [0, TORSO_Y + 0.36]], 0.014, M.gold(), 0.022));
+      g.add(mesh(new THREE.OctahedronGeometry(0.03), M.gem('#7fe3ff', 0.8), [0, TORSO_Y + 0.36, frontZ(shape.figure, 0, TORSO_Y + 0.36, 0.022) + 0.025]));
+      g.add(...wideCuffs(shape, robe, M.gold()));
       break;
     }
     case 'plate_armor':
     case 'champion_armor': {
       const champ = id === 'champion_armor';
       const metal = champ ? M.gold() : M.steel();
+      out.layers = [metal, champ ? M.gold() : M.steel()];
       if (champ) g.add(cape(M.cloth('#8f1f2b', 5), shape));
-      g.add(torsoShell(shape, metal, 1.08));
       g.add(...pauldrons(shape, champ ? M.gold() : M.steel()));
-      g.add(skirt(shape, champ ? M.gold() : M.steel(), [[0.28, 0.02], [0.3, -0.08], [0.31, -0.2], [0, -0.2]], 1.05));
-      g.add(band(shape, TORSO_Y + 0.04, 0.04, champ ? M.cloth('#8f1f2b', 4) : M.darkSteel(), 1.08));
-      g.add(seam(shape, [[0, top - 0.02], [0, TORSO_Y + 0.1]], 0.01, champ ? M.gold() : M.darkSteel(), 1.08));
-      for (const sx of [-1, 1]) g.add(seam(shape, [[0.2 * sx, TORSO_Y + 0.32], [0.08 * sx, TORSO_Y + 0.26], [0, TORSO_Y + 0.25]], 0.009, champ ? M.gold() : M.darkSteel(), 1.08));
-      if (champ) g.add(mesh(new THREE.OctahedronGeometry(0.05), M.gem('#d23a4a', 0.5), [0, TORSO_Y + 0.4, onTorso(shape, 0, TORSO_Y + 0.4, 1.08).z + 0.02]));
-      out.bracer = champ ? M.gold() : M.steel();
+      g.add(skirt(shape, champ ? M.gold() : M.steel(), [[0.28, 0.02], [0.3, -0.08], [0.31, -0.2], [0, -0.2]]));
+      g.add(band(shape, TORSO_Y + 0.03, 0.04, champ ? M.cloth('#8f1f2b', 4) : M.darkSteel(), 0.045));
+      g.add(seam(shape, [[0, top - 0.03], [0, TORSO_Y + 0.12]], 0.009, champ ? M.gold() : M.darkSteel(), 0.034));
+      if (champ) g.add(mesh(new THREE.OctahedronGeometry(0.05), M.gem('#d23a4a', 0.5), [0, TORSO_Y + 0.46, frontZ(shape.figure, 0, TORSO_Y + 0.46, 0.034) + 0.03]));
       break;
     }
     case 'tracksuit': {
-      const jacket = M.cloth(color, 8, 0.75);
       const dark = shade(color, 0.45);
-      g.add(torsoShell(shape, jacket, 1.04));
-      g.add(seam(shape, [[0, top - 0.02], [0, TORSO_Y + 0.3], [0, TORSO_Y + 0.02]], 0.008, M.chrome(), 1.04));
-      g.add(band(shape, TORSO_Y + 0.03, 0.03, M.cloth(dark, 6), 1.05));
-      const collar = new THREE.Mesh(new THREE.CylinderGeometry(shape.neckR + 0.03, shape.neckR + 0.06, 0.09, 32, 1, true), M.cloth(dark, 6));
+      out.top = M.cloth(color, 8, 0.75);
+      out.bottom = M.cloth(dark, 8, 0.75);
+      g.add(seam(shape, [[0, top - 0.02], [0, TORSO_Y + 0.3], [0, TORSO_Y - 0.04]], 0.007, M.chrome(), 0.02));
+      g.add(band(shape, TORSO_Y - 0.04, 0.026, M.cloth(dark, 6), 0.028));
+      const collar = new THREE.Mesh(new THREE.CylinderGeometry(shape.neckR + 0.03, shape.neckR + 0.05, 0.09, 32, 1, true), M.cloth(dark, 6));
       collar.material.side = THREE.DoubleSide;
-      collar.position.y = top + 0.03;
+      collar.position.y = TORSO_Y + 0.66;
       g.add(collar);
-      for (const sx of [-1, 1]) g.add(seam(shape, [[0.2 * sx, top - 0.05], [0.24 * sx, TORSO_Y + 0.35], [0.25 * sx, TORSO_Y + 0.05]], 0.01, M.cloth('#f4f4f4', 4), 1.04));
-      out.upper = jacket;
-      out.fore = jacket;
-      out.cuff = M.cloth(dark, 6);
-      out.pants = M.cloth(dark, 8, 0.75);
-      out.stripe = M.cloth('#f4f4f4', 4);
+      for (const sx of [-1, 1]) g.add(seam(shape, [[0.17 * sx, top - 0.03], [0.2 * sx, TORSO_Y + 0.35], [0.19 * sx, TORSO_Y + 0.0]], 0.009, M.cloth('#f4f4f4', 4), 0.02));
+      g.add(...cuffs(shape, M.cloth(dark, 6)));
       break;
     }
     case 'kimono': {
       const gi = M.cloth('#f3f1ea', 10);
-      g.add(torsoShell(shape, gi, 1.06));
-      g.add(skirt(shape, gi, [[0.27, 0.02], [0.3, -0.14], [0.32, -0.3], [0, -0.3]], 1.04));
+      out.top = gi;
+      out.bottom = M.cloth('#f3f1ea', 10);
+      g.add(skirt(shape, gi, [[0.27, 0.02], [0.3, -0.14], [0.32, -0.3], [0, -0.3]]));
       // Запах кимоно: левая пола поверх правой.
-      g.add(seam(shape, [[-0.13, top - 0.01], [-0.02, TORSO_Y + 0.4], [0.13, TORSO_Y + 0.1]], 0.016, M.cloth('#d9d4c6', 6), 1.06));
-      g.add(seam(shape, [[0.13, top - 0.01], [0.05, TORSO_Y + 0.42]], 0.012, M.cloth('#d9d4c6', 6), 1.06));
+      g.add(seam(shape, [[-0.12, top - 0.01], [-0.02, TORSO_Y + 0.42], [0.12, TORSO_Y + 0.12]], 0.015, M.cloth('#d9d4c6', 6), 0.022));
+      g.add(seam(shape, [[0.12, top - 0.01], [0.04, TORSO_Y + 0.44]], 0.011, M.cloth('#d9d4c6', 6), 0.022));
       const belt = M.cloth('#1d1d22', 6);
-      g.add(band(shape, TORSO_Y + 0.05, 0.04, belt, 1.08));
-      const front = onTorso(shape, 0, TORSO_Y + 0.05, 1.08);
-      g.add(mesh(new THREE.SphereGeometry(0.04, 12, 10), belt, [0.04, front.y, front.z + 0.02], [1.3, 0.9, 0.8]));
-      g.add(limb(v(0.04, front.y - 0.02, front.z + 0.02), v(0.0, front.y - 0.2, front.z + 0.03), 0.022, belt), limb(v(0.05, front.y - 0.02, front.z + 0.02), v(0.11, front.y - 0.18, front.z + 0.02), 0.022, belt));
-      out.upper = gi;
-      out.fore = gi;
-      out.wideCuff = M.cloth('#e6e2d6', 6);
-      out.pants = M.cloth('#f3f1ea', 10);
-      break;
-    }
-    case 'scale_mail': {
-      const sc = M.scales('#7f9aa3', 4, 0.75);
-      g.add(torsoShell(shape, sc, 1.06));
-      g.add(skirt(shape, M.scales('#7f9aa3', 4, 0.75), [[0.27, 0.02], [0.3, -0.12], [0.32, -0.26], [0, -0.26]], 1.03));
-      g.add(...pauldrons(shape, M.scales('#6b858e', 2, 0.75)));
-      g.add(band(shape, TORSO_Y + 0.04, 0.038, M.leather('#3d2a1c', 4), 1.07));
-      g.add(mesh(new THREE.BoxGeometry(0.09, 0.075, 0.025), M.gold(), [0, TORSO_Y + 0.04, 0.215]));
-      out.upper = M.scales('#7f9aa3', 2, 0.75);
+      g.add(band(shape, TORSO_Y + 0.05, 0.04, belt, 0.04));
+      const fz = frontZ(shape.figure, 0, TORSO_Y + 0.05, 0.06);
+      g.add(mesh(new THREE.SphereGeometry(0.04, 12, 10), belt, [0.04, TORSO_Y + 0.05, fz], [1.3, 0.9, 0.8]));
+      g.add(limb(v(0.04, TORSO_Y + 0.03, fz), v(0.0, TORSO_Y - 0.15, fz + 0.01), 0.022, belt), limb(v(0.05, TORSO_Y + 0.03, fz), v(0.11, TORSO_Y - 0.13, fz), 0.022, belt));
+      g.add(...wideCuffs(shape, gi, M.cloth('#e6e2d6', 6)));
       break;
     }
     case 'dragon_armor': {
-      const sc = M.scales('#8a2324', 4, 0.55);
       const trim = M.gold();
+      out.layers = [M.scales('#8a2324', 4, 0.55), M.gold()];
       g.add(cape(M.cloth('#2a0f12', 5), shape));
-      g.add(torsoShell(shape, sc, 1.08));
-      g.add(skirt(shape, M.scales('#8a2324', 4, 0.55), [[0.28, 0.02], [0.31, -0.12], [0.34, -0.28], [0, -0.28]], 1.05));
       g.add(...pauldrons(shape, M.scales('#5e1517', 2, 0.6), M.gold()));
-      g.add(band(shape, TORSO_Y + 0.04, 0.04, trim, 1.09));
-      g.add(band(shape, top - 0.04, 0.03, trim, 1.12));
-      for (const sx of [-1, 1]) g.add(seam(shape, [[0.22 * sx, TORSO_Y + 0.5], [0.06 * sx, TORSO_Y + 0.32], [0, TORSO_Y + 0.2]], 0.014, M.gold(), 1.08));
-      const gemZ = onTorso(shape, 0, TORSO_Y + 0.33, 1.08).z + 0.03;
+      g.add(skirt(shape, M.scales('#8a2324', 4, 0.55), [[0.28, 0.02], [0.31, -0.12], [0.34, -0.28], [0, -0.28]]));
+      g.add(band(shape, TORSO_Y + 0.04, 0.04, trim, 0.045));
+      for (const sx of [-1, 1]) g.add(seam(shape, [[0.2 * sx, TORSO_Y + 0.52], [0.06 * sx, TORSO_Y + 0.34], [0, TORSO_Y + 0.22]], 0.013, M.gold(), 0.022));
       const core = M.gem('#ff7a1a', 1.2);
-      g.add(mesh(new THREE.OctahedronGeometry(0.055), core, [0, TORSO_Y + 0.33, gemZ], [1, 1.3, 0.6]));
+      g.add(mesh(new THREE.OctahedronGeometry(0.05), core, [0, TORSO_Y + 0.3, frontZ(shape.figure, 0, TORSO_Y + 0.3, 0.022) + 0.03], [1, 1.3, 0.6]));
       ctx.anim.push((t) => {
         core.emissiveIntensity = 1 + Math.sin(t * 2.4) * 0.5;
       });
-      out.upper = M.scales('#8a2324', 2, 0.55);
-      out.bracer = M.gold();
+      break;
+    }
+    case 'sport_set': {
+      out.top = M.cloth(color, 12, 0.6);
+      out.bottom = M.cloth(shade(color, 0.32), 12, 0.65);
+      // Резинка шорт и логотип.
+      g.add(band(shape, TORSO_Y + 0.0, 0.016, M.cloth('#f4f4f4', 4), 0.02));
+      if (female) g.add(seam(shape, [[-0.15, TORSO_Y + 0.295], [0, TORSO_Y + 0.285], [0.15, TORSO_Y + 0.295]], 0.008, M.cloth('#f4f4f4', 4), 0.02));
+      break;
+    }
+    case 'fitness_set': {
+      out.top = M.cloth(shade(color, 1.25), 12, 0.65);
+      out.bottom = M.cloth(shade(color, 0.42), 12, 0.6);
+      g.add(band(shape, TORSO_Y + 0.05, 0.02, M.cloth(color, 4), 0.016));
+      // Боковые полосы леггинсов.
+      break;
+    }
+    case 'gladiator_armor': {
+      const bronze = M.bronze();
+      const leather = M.leather('#5a3820', 3);
+      out.top = female ? bronze : undefined;
+      out.bottom = M.leather('#3d2a1c', 4);
+      out.layers = [M.bronze(), M.leather('#4a2f1f', 3)];
+      g.add(band(shape, TORSO_Y + 0.0, 0.05, M.leather('#4a2f1f', 3), 0.035));
+      g.add(buckle(TORSO_Y, 0.075, M.bronze()));
+      g.add(...pteruges(shape, leather, M.bronze()));
+      g.add(...pauldron(shape, 1, M.bronze()));
+      if (female) {
+        g.add(mesh(new THREE.SphereGeometry(0.022, 14, 10), M.bronze(), [0, TORSO_Y + 0.39, frontZ(shape.figure, 0, TORSO_Y + 0.39, 0.03) + 0.01]));
+      } else {
+        // Перевязь через грудь с бронзовой бляхой.
+        const strap = new THREE.CatmullRomCurve3(
+          [
+            [-0.2, top + 0.02],
+            [-0.08, TORSO_Y + 0.45],
+            [0.06, TORSO_Y + 0.25],
+            [0.17, TORSO_Y + 0.05],
+          ].map(([x, y]) => onTorso(shape, x!, y!, 0.004, 0.012)),
+        );
+        g.add(new THREE.Mesh(new THREE.TubeGeometry(strap, 40, 0.02, 6), M.leather('#4a2f1f', 3)));
+        const c = onTorso(shape, -0.02, TORSO_Y + 0.37, 0.004, 0.03);
+        g.add(mesh(new THREE.CylinderGeometry(0.04, 0.04, 0.012, 24), M.bronze(), [c.x, c.y, c.z]).rotateX(Math.PI / 2));
+      }
       break;
     }
   }
+  if (out.layers.length === 0 && plan.layers) out.layers = plan.layers.map(() => M.cloth(color, 6));
   return out;
 }
 

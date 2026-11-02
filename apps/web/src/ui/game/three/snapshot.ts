@@ -1,8 +1,10 @@
 import * as THREE from 'three';
 import { itemById, type Slot } from '../../../game/items';
 import type { Appearance, Figure } from '../../../game/state';
+import { prepare } from './anatomy';
 import { HEAD_CENTER_WORLD, HEAD_GROW } from './body';
-import { buildCharacter, buildItemModel, disposeObject } from './buildCharacter';
+import { buildCharacter, buildItemModel, disposeObject, garmentsFor } from './buildCharacter';
+import { HEAD_GARMENTS, itemGarments } from './items3d';
 import { createStudio, enableShadows, setupRenderer, type Studio } from './studio';
 
 /**
@@ -137,7 +139,11 @@ const VIEW: Record<Slot, THREE.Vector3> = {
 };
 
 /** Иконка предмета: прозрачный фон, модель с трёхчетвертной точки зрения. */
-export function renderItem(id: string, color: string, figure: Figure, size = 192, priority = 0): Promise<string> {
+export async function renderItem(id: string, color: string, figure: Figure, size = 192, priority = 0): Promise<string> {
+  // Одежда лепится заранее и порциями — очередь рендера не ждёт тяжёлых вычислений.
+  const slot = itemById(id)?.slot;
+  if (slot === 'body') await prepare(figure, itemGarments(id, figure), false);
+  if (slot === 'head' && HEAD_GARMENTS[id]) await prepare(figure, HEAD_GARMENTS[id], false);
   return enqueue(() => {
     const { studio: st } = ensure();
     const item = itemById(id);
@@ -160,7 +166,8 @@ export function renderItem(id: string, color: string, figure: Figure, size = 192
 }
 
 /** Портрет героя по пояс для шапки и списков. */
-export function renderPortrait(appearance: Appearance, color: string, equipped: Partial<Record<Slot, string>>, size = 160): Promise<string> {
+export async function renderPortrait(appearance: Appearance, color: string, equipped: Partial<Record<Slot, string>>, size = 160): Promise<string> {
+  await prepare(appearance.figure, garmentsFor(appearance.figure, equipped.body, equipped.head));
   return enqueue(() => {
     const { studio: st } = ensure();
     const parts = buildCharacter(appearance, color, equipped);

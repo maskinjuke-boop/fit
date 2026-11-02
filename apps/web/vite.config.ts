@@ -45,5 +45,7 @@ export default defineConfig({
   test: {
     environment: 'node',
     include: ['tests/**/*.test.ts'],
+    // Тесты 3D лепят тело и одежду из полей расстояний — на медленных CI-машинах это секунды.
+    testTimeout: 60_000,
   },
 });

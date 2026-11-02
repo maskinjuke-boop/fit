@@ -270,9 +270,20 @@ export function tex(kind: TexKind, rx = 1, ry = rx, color = false): THREE.Textur
   t.repeat.set(rx, ry);
   t.anisotropy = 4;
   t.colorSpace = color ? THREE.SRGBColorSpace : THREE.NoColorSpace;
+  t.userData = { kind, rx, ry, color };
   textures.set(key, t);
   return t;
 }
+
+/** Та же текстура с повтором, умноженным на k (общий экземпляр из кэша). */
+export function retile(t: THREE.Texture, k: number): THREE.Texture {
+  const u = t.userData as { kind?: TexKind; rx?: number; ry?: number; color?: boolean };
+  if (!u.kind || u.rx === undefined || u.ry === undefined) return t;
+  return tex(u.kind, u.rx * k, u.ry * k, u.color) ?? t;
+}
+
+/** Вид процедурной текстуры (кольчуга, чешуя, кожа…), если она из кэша. */
+export const texKind = (t: THREE.Texture | null | undefined): string | undefined => (t?.userData as { kind?: string } | undefined)?.kind;
 
 // ─── Материалы ──────────────────────────────────────────────────────────
 
@@ -300,10 +311,26 @@ const withMaps = (p: Params, maps: Partial<Record<'map' | 'bumpMap' | 'roughness
   return out;
 };
 
+/** Физический материал: бархатистый отлив (sheen), анизотропный блеск и лак (clearcoat). */
+export function phys(color: THREE.ColorRepresentation, roughness: number, extra: THREE.MeshPhysicalMaterialParameters = {}): Mat {
+  return new THREE.MeshPhysicalMaterial({ color, roughness, metalness: 0, ...extra });
+}
+
 export const M = {
-  skin: (color: THREE.ColorRepresentation): Mat => mat(color, 0.62, 0, { envMapIntensity: 0.6 }),
+  // Кожа: мягкий тёплый отлив по краям имитирует подповерхностное рассеяние.
+  skin: (color: THREE.ColorRepresentation): Mat =>
+    phys(color, 0.56, { envMapIntensity: 0.6, sheen: 0.32, sheenRoughness: 0.5, sheenColor: new THREE.Color(color).lerp(new THREE.Color('#ff7b62'), 0.5), specularIntensity: 0.7 }),
   cloth: (color: THREE.ColorRepresentation, rep = 6, rough = 0.92): Mat => mat(color, rough, 0, withMaps({}, { bumpMap: tex('fabric', rep) }, 1.2)),
-  hair: (color: THREE.ColorRepresentation, rep = 3): Mat => mat(color, 0.6, 0, withMaps({ envMapIntensity: 0.7 }, { map: tex('hair', rep, 1, true), bumpMap: tex('hair', rep, 1) }, 1)),
+  // Волосы: анизотропный блик поперёк прядей (штрихи текстуры идут вдоль v) и лёгкий отлив.
+  hair: (color: THREE.ColorRepresentation, rep = 3): Mat =>
+    phys(color, 0.5, {
+      ...withMaps({ envMapIntensity: 0.75 }, { map: tex('hair', rep, 1, true), bumpMap: tex('hair', rep, 1) }, 1),
+      anisotropy: 0.6,
+      anisotropyRotation: Math.PI / 2,
+      sheen: 0.18,
+      sheenRoughness: 0.45,
+      sheenColor: shade(color, 1.15),
+    }),
   leather: (color: THREE.ColorRepresentation = '#7a4e2d', rep = 2): Mat => mat(color, 0.7, 0, withMaps({}, { map: tex('leather', rep, rep, true), bumpMap: tex('leather', rep) }, 1.5)),
   wood: (color: THREE.ColorRepresentation = '#9a6538', rx = 1, ry = 3): Mat => mat(color, 0.78, 0, withMaps({}, { map: tex('wood', rx, ry, true), bumpMap: tex('wood', rx, ry) }, 1.2)),
   planks: (color: THREE.ColorRepresentation = '#9a6538'): Mat => mat(color, 0.8, 0, withMaps({}, { map: tex('planks', 1, 1, true), bumpMap: tex('planks', 1) }, 2)),
@@ -325,7 +352,8 @@ export const M = {
 export function disposeObject(obj: THREE.Object3D): void {
   obj.traverse((o) => {
     const m = o as THREE.Mesh;
-    if (m.geometry) m.geometry.dispose();
+    // Общие сетки тела и одежды живут в кэше и переиспользуются между героями.
+    if (m.geometry && !m.geometry.userData.shared) m.geometry.dispose();
     const material = m.material as THREE.Material | THREE.Material[] | undefined;
     if (Array.isArray(material)) material.forEach((x) => x.dispose());
     else material?.dispose();

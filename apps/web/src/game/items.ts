@@ -45,6 +45,9 @@ export const ITEMS: readonly ItemDef[] = [
   { id: 'scale_mail', slot: 'body', price: 1300, level: 7, xpBonus: 0.07, rarity: 'rare' },
   { id: 'champion_armor', slot: 'body', price: 3500, level: 12, xpBonus: 0.1, rarity: 'legendary' },
   { id: 'dragon_armor', slot: 'body', price: 5000, level: 15, xpBonus: 0.1, rarity: 'legendary' },
+  { id: 'sport_set', slot: 'body', price: 180, level: 1, xpBonus: 0.02, rarity: 'common' },
+  { id: 'fitness_set', slot: 'body', price: 450, level: 3, xpBonus: 0.04, rarity: 'uncommon' },
+  { id: 'gladiator_armor', slot: 'body', price: 2400, level: 9, xpBonus: 0.09, rarity: 'epic' },
   // Оружие
   { id: 'wooden_club', slot: 'weapon', price: 120, level: 1, xpBonus: 0.02, rarity: 'common' },
   { id: 'iron_dumbbell', slot: 'weapon', price: 300, level: 2, xpBonus: 0.03, rarity: 'uncommon' },

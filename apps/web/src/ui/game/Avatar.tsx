@@ -99,10 +99,10 @@ export function Avatar({ color, appearance = DEFAULT_APPEARANCE, equipped = {}, 
         )}
 
         {/* ── Тело ──────────────────────────────────── */}
-        <path d={female ? 'M28 212 C30 176 52 156 84 148 Q100 156 116 148 C148 156 170 176 172 212 Z' : 'M16 212 C18 172 44 152 80 146 Q100 156 120 146 C156 152 182 172 184 212 Z'} fill={url('shirt')} />
+        <path d={female ? BUST.female : BUST.male} fill={url('shirt')} />
         <path d="M84 147 L100 168 L116 147 Q100 155 84 147 Z" fill={skin.shade} />
         <path d="M84 147 L100 168 L116 147" fill="none" stroke={tone(shirt, 0.7)} strokeWidth="2.5" strokeLinejoin="round" />
-        {bodyItem(body, url, color)}
+        {bodyItem(body, url, color, skin.base, female)}
 
         {/* ── Шея и голова ──────────────────────────── */}
         <path d="M88 110 L88 146 Q100 154 112 146 L112 110 Z" fill={url('neck')} />
@@ -225,6 +225,9 @@ const ICON_VIEW: Record<string, string> = {
   silver_tiara: '66 36 68 36',
   tracksuit: '14 140 172 74',
   kimono: '14 140 172 74',
+  sport_set: '40 140 120 74',
+  fitness_set: '14 140 172 74',
+  gladiator_armor: '30 140 150 74',
   scale_mail: '14 140 172 74',
   dragon_armor: '10 132 180 82',
   jump_rope: '120 96 70 116',
@@ -512,8 +515,57 @@ function weaponFront(id: string | undefined): ReactNode {
   );
 }
 
-function bodyItem(id: string | undefined, url: Url, color: string): ReactNode {
+/** Силуэт плеч и груди на портрете. */
+const BUST = {
+  female: 'M28 212 C30 176 52 156 84 148 Q100 156 116 148 C148 156 170 176 172 212 Z',
+  male: 'M16 212 C18 172 44 152 80 146 Q100 156 120 146 C156 152 182 172 184 212 Z',
+};
+
+/** Одежда на портрете. skin — цвет кожи, если часть тела открыта (на иконке без героя не нужен). */
+function bodyItem(id: string | undefined, url: Url, color: string, skin?: string, female = false): ReactNode {
+  const bare = skin ? <path d={female ? BUST.female : BUST.male} fill={skin} /> : null;
   switch (id) {
+    case 'sport_set':
+      return (
+        <g>
+          {bare}
+          {female ? (
+            <path d="M64 212 C62 194 66 180 74 172 L86 150 L94 151 L92 168 Q100 176 108 168 L106 151 L114 150 L126 172 C134 180 138 194 136 212 Z" fill={color} />
+          ) : (
+            <path d="M50 212 C50 186 58 170 70 162 L80 147 L90 149 Q100 166 110 149 L120 147 L130 162 C142 170 150 186 150 212 Z" fill={color} />
+          )}
+          <path d="M68 204 Q100 211 132 204" fill="none" stroke="#f4f4f4" strokeWidth="4" />
+          <path d="M92 168 Q100 176 108 168" fill="none" stroke="#f4f4f4" strokeWidth="2" />
+        </g>
+      );
+    case 'fitness_set':
+      return (
+        <g>
+          <path d={female ? BUST.female : BUST.male} fill={tone(color, 1.25)} />
+          {skin && <path d="M80 147 Q100 178 120 147 Q100 156 80 147 Z" fill={skin} />}
+          <path d="M80 147 Q100 178 120 147" fill="none" stroke={tone(color, 0.8)} strokeWidth="2.5" />
+          <path d="M46 180 L52 212 M154 180 L148 212" stroke={tone(color, 0.7)} strokeWidth="3" />
+        </g>
+      );
+    case 'gladiator_armor':
+      return (
+        <g>
+          {bare}
+          {female ? (
+            <>
+              <path d="M88 172 L93 150 M112 172 L107 150" stroke="#4a2f1f" strokeWidth="4" strokeLinecap="round" />
+              <path d="M64 212 C62 192 70 176 84 171 Q100 182 116 171 C130 176 138 192 136 212 Z" fill={url('bronze')} stroke="#7a5228" strokeWidth="2" />
+              <circle cx="100" cy="184" r="4" fill={url('gold')} />
+            </>
+          ) : (
+            <>
+              <path d="M58 150 L142 214" stroke="#4a2f1f" strokeWidth="10" strokeLinecap="round" />
+              <circle cx="98" cy="182" r="8" fill={url('bronze')} stroke="#7a5228" strokeWidth="2" />
+            </>
+          )}
+          <ellipse cx="154" cy="166" rx="26" ry="15" transform="rotate(18 154 166)" fill={url('bronze')} stroke="#7a5228" strokeWidth="2" />
+        </g>
+      );
     case 'leather_vest':
       return (
         <g fill="#7a4e2d" stroke="#5a3820" strokeWidth="1.5">

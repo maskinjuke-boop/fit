@@ -905,6 +905,21 @@ button {
   cursor: pointer;
   backdrop-filter: blur(4px);
 }
+.hero3d-busy {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 2px;
+  color: var(--muted, #9aa1ab);
+  font-size: 13px;
+  pointer-events: none;
+  animation: fade-in 0.3s ease;
+}
+.hero3d-busy .spinner {
+  margin-bottom: 6px;
+}
 .hero3d.fallback {
   display: grid;
   place-items: center;

@@ -1,7 +1,9 @@
 import * as THREE from 'three';
 import type { Figure } from '../../../game/state';
 import { HEAD_R, HEAD_SCALE, HEAD_Y } from './body';
-import { M, mat, mesh, shade, taperTube, tex, v } from './kit';
+import { M, mat, mesh, phys, shade, taperTube, tex, v } from './kit';
+import { mergeGeometries } from './sdf';
+import { strands } from './strands';
 
 /**
  * Голова с вылепленным лицом: череп деформируется (надбровье, глазницы, скулы,
@@ -31,20 +33,22 @@ const gauss = (d: THREE.Vector3, cx: number, cy: number, cz: number, sx: number,
 
 function bump(d: THREE.Vector3, female: boolean): number {
   let b = 0;
-  const nose = female ? 0.8 : 1;
-  b += 0.035 * gauss(d, 0, 0.3, -0.95, 0.6, 0.5, 0.5); // затылок
-  b += (female ? 0.012 : 0.03) * gauss(d, 0, 0.32, 0.95, 0.42, 0.07, 0.3); // надбровье
+  const nose = female ? 0.85 : 1;
+  b += 0.03 * gauss(d, 0, 0.3, -0.95, 0.6, 0.5, 0.5); // затылок
+  b += (female ? 0.014 : 0.035) * gauss(d, 0, 0.31, 0.95, 0.42, 0.07, 0.3); // надбровье
   for (const sx of [-1, 1]) {
-    b -= 0.05 * gauss(d, sx * 0.33, 0.07, 0.94, 0.12, 0.085, 0.3); // глазницы
-    b += (female ? 0.035 : 0.03) * gauss(d, sx * 0.55, -0.16, 0.8, 0.16, 0.12, 0.25); // скулы
+    b -= 0.055 * gauss(d, sx * 0.33, 0.07, 0.94, 0.12, 0.085, 0.3); // глазницы
+    b += (female ? 0.045 : 0.04) * gauss(d, sx * 0.52, -0.13, 0.82, 0.15, 0.1, 0.25); // скулы
+    b -= (female ? 0.022 : 0.012) * gauss(d, sx * 0.56, -0.42, 0.76, 0.13, 0.11, 0.3); // впадина под скулой
     b -= 0.02 * gauss(d, sx * 0.78, 0.3, 0.5, 0.15, 0.15, 0.25); // виски
-    b += 0.06 * nose * gauss(d, sx * 0.105, -0.34, 0.93, 0.05, 0.05, 0.25); // крылья носа
+    b += 0.07 * nose * gauss(d, sx * 0.105, -0.34, 0.93, 0.05, 0.05, 0.25); // крылья носа
+    b += (female ? 0.018 : 0.04) * gauss(d, sx * 0.66, -0.6, 0.45, 0.16, 0.1, 0.3); // угол челюсти
   }
   // Нос вылеплен прямо на лице: спинка от переносицы к кончику.
-  b += 0.06 * nose * gauss(d, 0, -0.08, 0.97, 0.06, 0.2, 0.25);
-  b += 0.13 * nose * gauss(d, 0, -0.29, 0.95, 0.075, 0.08, 0.25);
+  b += 0.075 * nose * gauss(d, 0, -0.08, 0.97, 0.06, 0.2, 0.25);
+  b += 0.17 * nose * gauss(d, 0, -0.29, 0.95, 0.075, 0.08, 0.25);
   b -= 0.012 * gauss(d, 0, -0.44, 0.92, 0.05, 0.05, 0.2); // ложбинка над губой
-  b += (female ? 0.03 : 0.05) * gauss(d, 0, -0.86, 0.5, 0.22, 0.13, 0.3); // подбородок
+  b += (female ? 0.035 : 0.055) * gauss(d, 0, -0.86, 0.5, 0.2, 0.12, 0.3); // подбородок
   b += 0.03 * gauss(d, 0, -0.58, 0.85, 0.3, 0.15, 0.2); // область рта
   return b;
 }
@@ -54,15 +58,21 @@ function surface(d: THREE.Vector3, female: boolean, out = new THREE.Vector3()): 
   const r = HEAD_R * (1 + bump(d, female));
   let x = d.x;
   let z = d.z;
-  // Нижняя часть лица сужается к подбородку (у женской фигуры заметнее).
-  if (d.y < 0.05) {
-    const k = smooth(0.05, -0.85, d.y) * (female ? 0.34 : 0.26);
-    x *= 1 - k;
-    z *= 1 - k * (z < 0 ? 0.35 : 0.08);
-  }
-  // Нижняя часть лица чуть короче — подбородок не вытянут.
-  const y = d.y < 0 ? d.y * (1 - 0.1 * smooth(0, -1, d.y)) : d.y;
+  // Лицо широкое до скул, ниже челюсть сужается к подбородку (у женской фигуры — мягче и уже).
+  if (d.y < -0.2) x *= 1 - smooth(-0.2, -0.95, d.y) * (female ? 0.33 : 0.24);
+  // Затылок внизу переходит в шею, лоб чуть скошен назад.
+  if (z < 0 && d.y < 0) z *= 1 - 0.32 * smooth(0, -0.85, d.y);
+  if (z > 0 && d.y > 0.2) z *= 1 - 0.05 * smooth(0.2, 0.85, d.y);
+  // Профиль: подбородок и рот выдвинуты вперёд, лицо — почти вертикальная плоскость, а не шар.
+  if (z > 0) z += (female ? 0.085 : 0.1) * gauss(d, 0, -0.78, 0.6, 0.3, 0.2, 0.45) + 0.03 * gauss(d, 0, -0.5, 0.85, 0.25, 0.15, 0.3);
+  // Нижняя часть лица чуть короче — подбородок не вытянут; макушка чуть ниже.
+  const y = d.y < 0 ? d.y * (1 - 0.08 * smooth(0, -1, d.y)) : d.y * (1 - 0.04 * smooth(0.4, 1, d.y));
   return out.set(x * r * HEAD_SCALE.x * (female ? 0.97 : 1), y * r * HEAD_SCALE.y, z * r * HEAD_SCALE.z);
+}
+
+/** Точка на поверхности черепа в направлении d с отступом off (координаты относительно центра головы). */
+export function skullPoint(d: THREE.Vector3, female: boolean, off = 0): THREE.Vector3 {
+  return surface(d.clone().normalize(), female).multiplyScalar((HEAD_R + off) / HEAD_R);
 }
 
 /**
@@ -159,7 +169,21 @@ function at(x: number, y: number, lift: number, female: boolean): THREE.Vector3 
   return p.addScaledVector(n, lift).add(v(0, HEAD_Y, 0));
 }
 
+const skullCache = new Map<string, THREE.BufferGeometry>();
+
+/** Череп с лицом: одна сетка на фигуру, переиспользуется всеми героями (не освобождается). */
 function skullGeometry(female: boolean, blush: number): THREE.BufferGeometry {
+  const key = `${female}|${blush}`;
+  let g = skullCache.get(key);
+  if (!g) {
+    g = buildSkull(female, blush);
+    g.userData.shared = true;
+    skullCache.set(key, g);
+  }
+  return g;
+}
+
+function buildSkull(female: boolean, blush: number): THREE.BufferGeometry {
   const W = 144;
   const H = 108;
   const geo = new THREE.SphereGeometry(1, W, H);
@@ -191,11 +215,32 @@ function skullGeometry(female: boolean, blush: number): THREE.BufferGeometry {
   return geo;
 }
 
-function eye(female: boolean, iris: THREE.ColorRepresentation, skin: THREE.Material, sx: number, lids: Lid[]): THREE.Group {
-  const er = female ? 0.041 : 0.039;
+/**
+ * Ресницы вдоль края верхнего века: тонкие изогнутые волоски, к внешнему уголку длиннее.
+ * Строятся в координатах века (край — полуокружность радиуса r в плоскости XZ, спереди z > 0).
+ */
+function lashes(r: number, female: boolean, sx: number): THREE.BufferGeometry {
+  const n = female ? 22 : 16;
+  const parts: THREE.BufferGeometry[] = [];
+  for (let k = 0; k < n; k += 1) {
+    const a = Math.PI * (0.1 + (0.8 * k) / (n - 1));
+    const out = v(Math.cos(a), 0, Math.sin(a));
+    // К внешнему уголку (x·sx > 0) ресницы длиннее и сильнее загнуты.
+    const outer = Math.max(0, Math.cos(a) * sx);
+    const len = (female ? 0.017 : 0.009) * (0.75 + 0.7 * outer) * (0.9 + 0.2 * Math.sin(k * 7.3));
+    const root = out.clone().multiplyScalar(r * 0.995);
+    const mid = root.clone().addScaledVector(out, len * 0.55).add(v(0, len * 0.18, 0));
+    const tip = root.clone().addScaledVector(out, len * 0.8).add(v(0, len * (0.55 + outer * 0.2), 0));
+    parts.push(taperTube(new THREE.CatmullRomCurve3([root, mid, tip]), female ? 0.0013 : 0.0011, 0.0003, 5, 4));
+  }
+  return mergeGeometries(parts);
+}
+
+function eye(female: boolean, iris: THREE.ColorRepresentation, skin: THREE.Material, sx: number, lids: Lid[], lowerSkin?: THREE.Material): THREE.Group {
+  const er = female ? 0.038 : 0.036;
   const g = new THREE.Group();
   g.add(new THREE.Mesh(new THREE.SphereGeometry(er, 32, 24), mat('#f2ede6', 0.18)));
-  const irisGeo = new THREE.SphereGeometry(er * 1.004, 40, 12, 0, Math.PI * 2, 0, 0.62);
+  const irisGeo = new THREE.SphereGeometry(er * 1.004, 40, 12, 0, Math.PI * 2, 0, 0.56);
   irisGeo.rotateX(Math.PI / 2);
   const irisMat = mat(iris, 0.12, 0, { envMapIntensity: 1.2 });
   const t = tex('iris', 1, 1, true);
@@ -208,23 +253,19 @@ function eye(female: boolean, iris: THREE.ColorRepresentation, skin: THREE.Mater
   // Верхнее веко: полусфера чуть больше глаза; поворот вокруг X открывает и закрывает глаз.
   const upper = new THREE.Group();
   upper.add(new THREE.Mesh(new THREE.SphereGeometry(er * 1.14, 32, 12, 0, Math.PI * 2, 0, Math.PI / 2), skin));
-  const lash = mat('#1a1210', 0.6);
-  const lashGeo = new THREE.TorusGeometry(er * 1.14, female ? 0.0055 : 0.0035, 6, 32, Math.PI);
+  const lash = mat('#160f0d', 0.55);
+  // Линия роста ресниц (у женской фигуры — как тонкая подводка) и сами ресницы.
+  const lashGeo = new THREE.TorusGeometry(er * 1.14, female ? 0.0036 : 0.0024, 6, 32, Math.PI);
   lashGeo.rotateX(Math.PI / 2);
   upper.add(new THREE.Mesh(lashGeo, lash));
-  if (female) {
-    // Стрелка ресниц у внешнего уголка.
-    const flick = new THREE.Mesh(new THREE.ConeGeometry(0.004, 0.02, 6), lash);
-    flick.position.set(er * 1.08 * sx, 0.004, er * 0.25);
-    flick.rotation.z = -sx * 1.0;
-    upper.add(flick);
-  }
-  const open = female ? -0.5 : -0.42;
+  upper.add(new THREE.Mesh(lashes(er * 1.14, female, sx), lash));
+  const open = female ? -0.44 : -0.36;
   upper.rotation.x = open;
   g.add(upper);
   lids.push({ obj: upper, open, closed: 0.62 });
-  const lower = new THREE.Mesh(new THREE.SphereGeometry(er * 1.1, 32, 8, 0, Math.PI * 2, Math.PI / 2 + 0.62, Math.PI / 2 - 0.62), skin);
-  lower.rotation.x = -0.15;
+  // Нижнее веко — нижняя полусфера: края обоих век сходятся в уголках глаза (миндалевидный разрез).
+  const lower = new THREE.Mesh(new THREE.SphereGeometry(er * 1.1, 32, 10, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2), lowerSkin ?? skin);
+  lower.rotation.x = female ? 0.36 : 0.33;
   g.add(lower);
   return g;
 }
@@ -242,12 +283,77 @@ function ear(female: boolean, skin: THREE.Material, skinShade: THREE.Material): 
   return g;
 }
 
+/** Направление от центра головы: th — от макушки, phi — от лица (+Z) вокруг вертикали. */
+const dirTP = (th: number, phi: number): THREE.Vector3 => v(Math.sin(th) * Math.sin(phi), Math.cos(th), Math.sin(th) * Math.cos(phi));
+
+/** Линия бороды: на щеках выше, у рта — ниже нижней губы (рот открыт). */
+const beardTop = (phi: number): number => Math.PI * (0.57 + 0.17 * Math.max(0, 1 - Math.abs(phi) / (Math.PI * 0.56)) ** 1.5);
+
+let beardCache: THREE.BufferGeometry | null = null;
+
+/**
+ * Короткая борода: плотная основа по линии бороды (с вырезом для рта) и пряди поверх —
+ * от скул и подбородка вниз, под челюсть.
+ */
+function beardGeometry(): THREE.BufferGeometry {
+  if (beardCache) return beardCache;
+  const C = v(0, HEAD_Y, 0);
+  const P = (th: number, phi: number, off: number): THREE.Vector3 => surface(dirTP(th, phi).normalize(), false).multiplyScalar((HEAD_R + off) / HEAD_R).add(C);
+  // Основа: сетка по (phi, th) от линии бороды до горла.
+  const U = 40;
+  const V = 10;
+  const pos: number[] = [];
+  const uv: number[] = [];
+  const idx: number[] = [];
+  for (let i = 0; i <= U; i += 1) {
+    const phi = -Math.PI * 0.56 + (Math.PI * 1.12 * i) / U;
+    const th0 = beardTop(phi);
+    const th1 = Math.PI * (Math.abs(phi) < Math.PI * 0.3 ? 0.9 : 0.86);
+    for (let j = 0; j <= V; j += 1) {
+      const t = j / V;
+      const p = P(th0 + (th1 - th0) * t, phi, 0.004 + 0.012 * Math.sin(Math.PI * Math.min(1, t * 1.4)));
+      pos.push(p.x, p.y, p.z);
+      uv.push((i / U) * 3, t);
+    }
+  }
+  for (let i = 0; i < U; i += 1) {
+    for (let j = 0; j < V; j += 1) {
+      const a = i * (V + 1) + j;
+      const b = a + V + 1;
+      idx.push(a, a + 1, b, b, a + 1, b + 1);
+    }
+  }
+  const base = new THREE.BufferGeometry();
+  base.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  base.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  base.setIndex(idx);
+  base.computeVertexNormals();
+  // Пряди поверх основы.
+  const paths: THREE.Vector3[][] = [];
+  const widths: number[] = [];
+  const n = 30;
+  for (let i = 0; i < n; i += 1) {
+    const phi = -Math.PI * 0.54 + (Math.PI * 1.08 * (i + 0.5)) / n;
+    const th0 = beardTop(phi) + 0.03;
+    const th1 = Math.PI * (Math.abs(phi) < Math.PI * 0.3 ? 0.88 : 0.82);
+    paths.push([P(th0, phi, 0.008), P((th0 + th1) / 2, phi, 0.016), P(th1, phi, 0.014)]);
+    widths.push(0.026);
+  }
+  const locks = strands(paths, widths, 0.007, 10, 6);
+  beardCache = mergeGeometries([base, locks]);
+  beardCache.userData.shared = true;
+  return beardCache;
+}
+
 export function buildHead(figure: Figure, skinBase: string, skinShade: string, hair: string, eyeColor: string, beard: boolean): HeadParts {
   const female = figure === 'female';
   const group = new THREE.Group();
   const lids: Lid[] = [];
   const skin = M.skin(skinBase);
   const shadeM = M.skin(skinShade);
+
+  // Веки: у женской фигуры — лёгкие тени (чуть темнее и теплее кожи).
+  const lidSkin = female ? M.skin(new THREE.Color(skinBase).lerp(new THREE.Color('#7d4d5c'), 0.2)) : skin;
 
   const headMat = M.skin(skinBase);
   headMat.vertexColors = true;
@@ -256,9 +362,10 @@ export function buildHead(figure: Figure, skinBase: string, skinShade: string, h
   // Глаза в глазницах.
   for (const sx of [-1, 1]) {
     const { p, n } = facePoint(0.088 * sx, 0.02, female);
-    const e = eye(female, eyeColor, skin, sx, lids);
+    const e = eye(female, eyeColor, lidSkin, sx, lids, skin);
     e.position.copy(p).addScaledVector(n, -0.017).add(v(0, HEAD_Y, 0));
-    e.rotation.y = 0.06 * sx;
+    // Внешний уголок чуть выше внутреннего.
+    e.rotation.set(0, 0.06 * sx, 0.07 * sx);
     group.add(e);
   }
 
@@ -292,7 +399,8 @@ export function buildHead(figure: Figure, skinBase: string, skinShade: string, h
 
   // Губы: верхняя с «луком Купидона», нижняя полнее, линия рта.
   const lipColor = female ? '#c4566a' : shade(skinShade, 0.88).lerp(new THREE.Color('#a85a50'), 0.35);
-  const lipM = mat(lipColor, female ? 0.32 : 0.55);
+  // Губы: у женской фигуры — с блеском (лаковый слой).
+  const lipM = female ? phys(lipColor, 0.38, { clearcoat: 0.7, clearcoatRoughness: 0.22, sheen: 0.2, sheenColor: new THREE.Color('#ff9aa8') }) : phys(lipColor, 0.55, { sheen: 0.15 });
   const my = -0.15;
   for (const sx of [-1, 1]) {
     const upperPts = [
@@ -300,15 +408,16 @@ export function buildHead(figure: Figure, skinBase: string, skinShade: string, h
       [0.011, my + 0.014],
       [0.026, my + 0.009],
       [0.042, my + 0.004],
-    ].map(([x, y]) => at(x! * sx, y!, 0.004, female));
-    group.add(new THREE.Mesh(taperTube(new THREE.CatmullRomCurve3(upperPts), female ? 0.009 : 0.0065, female ? 0.003 : 0.0025, 16, 8), lipM));
+    ].map(([x, y]) => at(x! * sx, y!, 0.0015, female));
+    group.add(new THREE.Mesh(taperTube(new THREE.CatmullRomCurve3(upperPts), female ? 0.0078 : 0.006, female ? 0.003 : 0.0025, 16, 8), lipM));
   }
   const lowerC = facePoint(0, my - 0.011, female);
   const lower = mesh(new THREE.SphereGeometry(1, 20, 12), lipM, undefined, female ? [0.032, 0.012, 0.012] : [0.028, 0.008, 0.009]);
   lower.position.copy(lowerC.p).addScaledVector(lowerC.n, 0.001).add(v(0, HEAD_Y, 0));
   lower.lookAt(lower.position.clone().add(lowerC.n));
   lower.rotateX(Math.PI / 2);
-  lower.scale.set(female ? 0.032 : 0.028, female ? 0.012 : 0.009, female ? 0.012 : 0.008);
+  // y — насколько губа выступает над лицом, z — её высота.
+  lower.scale.set(female ? 0.031 : 0.027, female ? 0.0085 : 0.006, female ? 0.0115 : 0.008);
   group.add(lower);
   const line = [-0.044, -0.022, 0, 0.022, 0.044].map((x) => at(x, my + 0.003 + Math.abs(x) * 0.12, 0.003, female));
   group.add(new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(line), 20, female ? 0.0032 : 0.0026, 6), mat(female ? '#5a2a26' : '#6e3a32', 0.8)));
@@ -327,19 +436,9 @@ export function buildHead(figure: Figure, skinBase: string, skinShade: string, h
   if (beard && !female) {
     const bm = M.hair(hair, 2);
     bm.side = THREE.DoubleSide;
-    const geo = new THREE.SphereGeometry(1, 48, 16, Math.PI * 0.1, Math.PI * 0.8, Math.PI * 0.63, Math.PI * 0.3);
-    const pos = geo.getAttribute('position');
-    const d = new THREE.Vector3();
-    const p = new THREE.Vector3();
-    for (let i = 0; i < pos.count; i += 1) {
-      d.fromBufferAttribute(pos, i).normalize();
-      surface(d, false, p).multiplyScalar(1.07);
-      pos.setXYZ(i, p.x, p.y, p.z);
-    }
-    geo.computeVertexNormals();
-    group.add(mesh(geo, bm, [0, HEAD_Y, 0]));
+    group.add(new THREE.Mesh(beardGeometry(), bm));
     const stache = [-0.055, -0.028, 0, 0.028, 0.055].map((x) => at(x, my + 0.024 - Math.abs(x) * 0.3, 0.008, false));
-    group.add(new THREE.Mesh(taperTube(new THREE.CatmullRomCurve3(stache), 0.012, 0.012, 20, 8), bm));
+    group.add(new THREE.Mesh(taperTube(new THREE.CatmullRomCurve3(stache), 0.011, 0.011, 20, 8), bm));
   }
   return { group, lids };
 }
