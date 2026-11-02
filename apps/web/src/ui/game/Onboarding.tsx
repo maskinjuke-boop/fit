@@ -1,8 +1,17 @@
 import { useState, type ChangeEvent } from 'react';
 import { ARCHETYPES, COLORS, type Archetype, type FitnessLevel } from '../../game/config';
 import { useGame } from '../../game/GameContext';
+import { DEFAULT_APPEARANCE, type Appearance } from '../../game/state';
 import { useI18n, type I18nKey } from '../../i18n';
+import { AppearanceEditor } from './AppearanceEditor';
 import { Avatar } from './Avatar';
+
+/** Стартовый предмет пути — показываем его на портрете сразу при выборе. */
+const STARTER: Record<Archetype, { slot: 'head' | 'offhand'; id: string }> = {
+  guardian: { slot: 'offhand', id: 'wooden_shield' },
+  ranger: { slot: 'head', id: 'leather_cap' },
+  mystic: { slot: 'head', id: 'headband' },
+};
 
 type Step = 'welcome' | 'health' | 'hero' | 'setup';
 const FITNESS: readonly FitnessLevel[] = ['beginner', 'intermediate', 'advanced'];
@@ -17,6 +26,9 @@ export function Onboarding() {
   const [name, setName] = useState('');
   const [archetype, setArchetype] = useState<Archetype>('guardian');
   const [color, setColor] = useState<string>(COLORS[0]);
+  const [appearance, setAppearance] = useState<Appearance>(DEFAULT_APPEARANCE);
+  const starter = STARTER[archetype];
+  const preview = { [starter.slot]: starter.id };
   const [fitness, setFitness] = useState<FitnessLevel>('beginner');
   const [hasBar, setHasBar] = useState<boolean | null>(null);
 
@@ -28,7 +40,7 @@ export function Onboarding() {
       {step === 'welcome' && (
         <section className="ob-step">
           <div className="ob-hero-art">
-            <Avatar archetype="guardian" color={COLORS[0]} size={140} />
+            <Avatar color={COLORS[0]} appearance={DEFAULT_APPEARANCE} equipped={{ offhand: 'wooden_shield', weapon: 'wooden_club' }} size={160} />
           </div>
           <h1>{t('ob.welcomeTitle')}</h1>
           <p>{t('ob.welcomeText')}</p>
@@ -84,7 +96,7 @@ export function Onboarding() {
         <section className="ob-step">
           <h1>{t('ob.heroTitle')}</h1>
           <div className="ob-hero-art">
-            <Avatar archetype={archetype} color={color} size={140} />
+            <Avatar color={color} appearance={appearance} equipped={preview} size={170} />
           </div>
           <label className="field">
             <span>{t('ob.name')}</span>
@@ -94,18 +106,20 @@ export function Onboarding() {
           <div className="choice-grid">
             {ARCHETYPES.map((a) => (
               <button key={a} className={`choice ${archetype === a ? 'on' : ''}`} onClick={() => setArchetype(a)}>
-                <Avatar archetype={a} color={color} size={56} />
                 <b>{t(`arch.${a}` as I18nKey)}</b>
                 <span className="muted small">{t(`arch.${a}.desc` as I18nKey)}</span>
+                <span className="small accent">{t(`item.${STARTER[a].id}` as I18nKey)}</span>
               </button>
             ))}
           </div>
-          <p className="field-label">{t('ob.color')}</p>
-          <div className="swatches">
-            {COLORS.map((c) => (
-              <button key={c} className={`swatch ${color === c ? 'on' : ''}`} style={{ background: c }} aria-label={c} onClick={() => setColor(c)} />
-            ))}
-          </div>
+          <AppearanceEditor
+            appearance={appearance}
+            color={color}
+            onChange={(a, c) => {
+              setAppearance(a);
+              setColor(c);
+            }}
+          />
           <div className="ob-actions">
             <button className="btn" onClick={() => setStep('health')}>
               {t('ob.back')}
@@ -144,7 +158,7 @@ export function Onboarding() {
             <button
               className="btn primary grow"
               disabled={hasBar === null}
-              onClick={() => createCharacter({ name: name.trim(), archetype, color, fitness: anyRisk ? 'beginner' : fitness, hasBar: hasBar ?? false })}
+              onClick={() => createCharacter({ name: name.trim(), archetype, color, appearance, fitness: anyRisk ? 'beginner' : fitness, hasBar: hasBar ?? false })}
             >
               {t('ob.create')}
             </button>

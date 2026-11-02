@@ -4,7 +4,7 @@ import { generateDailies, taskProgress, tiredGroups } from '../src/game/dailies'
 import { addDays, dayKey, weekKey } from '../src/game/dates';
 import { applyRep, ensureDay, newCharacterState, reroll, type GameEvent } from '../src/game/engine';
 import { levelInfo, xpForLevel } from '../src/game/levels';
-import { createState, type GameState } from '../src/game/state';
+import { createState, DEFAULT_APPEARANCE, type GameState } from '../src/game/state';
 import type { ExerciseId } from '../src/tracking/exercise';
 
 const day0 = new Date(2026, 10, 2, 10, 0, 0);
@@ -12,7 +12,7 @@ const at = (days: number, hour = 10) => new Date(2026, 10, 2 + days, hour, 0, 0)
 
 function hero(opts: { hasBar?: boolean; fitness?: 'beginner' | 'intermediate' | 'advanced' } = {}): GameState {
   return newCharacterState(
-    { name: 'Тест', archetype: 'guardian', color: '#ffb020', hasBar: opts.hasBar ?? true, fitness: opts.fitness ?? 'beginner' },
+    { name: 'Тест', archetype: 'guardian', color: '#ffb020', hasBar: opts.hasBar ?? true, fitness: opts.fitness ?? 'beginner', appearance: DEFAULT_APPEARANCE },
     day0,
     createState,
   );
@@ -76,8 +76,9 @@ describe('Повторы и опыт', () => {
   it('XP = 10 × множитель × бонус качества', () => {
     const r = applyRep(hero(), { exercise: 'pushup', quality: 100 }, day0);
     const xp = r.events.find((e) => e.kind === 'xp');
-    expect(xp?.kind === 'xp' ? xp.amount : 0).toBeCloseTo(24, 6);
-    expect(r.state.statXp.strength).toBeCloseTo(24, 6);
+    // Страж начинает с деревянным щитом: +2% к опыту.
+    expect(xp?.kind === 'xp' ? xp.amount : 0).toBeCloseTo(24 * 1.02, 6);
+    expect(r.state.statXp.strength).toBeCloseTo(24 * 1.02, 6);
   });
 
   it('повышение уровня', () => {

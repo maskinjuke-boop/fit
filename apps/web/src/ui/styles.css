@@ -834,8 +834,8 @@ button {
   bottom: 0;
   z-index: 6;
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  padding: 6px 6px max(6px, env(safe-area-inset-bottom));
+  grid-template-columns: repeat(5, 1fr);
+  padding: 6px 4px max(6px, env(safe-area-inset-bottom));
   background: rgba(15, 17, 20, 0.96);
   border-top: 1px solid var(--line);
 }
@@ -935,4 +935,195 @@ button {
   .banner {
     animation: none;
   }
+}
+
+/* ═══ Магазин, снаряжение, внешность, администратор ═════ */
+.accent {
+  color: var(--accent);
+}
+.lvl-chip {
+  display: inline-block;
+  min-width: 22px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: #1a1200;
+  font-size: 12px;
+  font-weight: 800;
+  text-align: center;
+  vertical-align: 2px;
+}
+.segmented.wrap button {
+  flex: 1 1 30%;
+}
+.appearance {
+  display: grid;
+  gap: 10px;
+}
+.shop-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.shop-head h2 {
+  margin: 0;
+}
+.gold-pill {
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: rgba(255, 176, 32, 0.12);
+  color: var(--accent);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.chips {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.item-grid {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 10px;
+}
+.item-card {
+  width: 100%;
+  display: grid;
+  justify-items: center;
+  gap: 4px;
+  padding: 12px 8px;
+  border-radius: var(--radius);
+  border: 1px solid var(--line);
+  background: var(--surface);
+  cursor: pointer;
+  text-align: center;
+}
+.item-card.equipped {
+  border-color: var(--good);
+  background: rgba(61, 220, 132, 0.06);
+}
+.item-card.locked {
+  opacity: 0.55;
+}
+.item-card b {
+  font-size: 14px;
+}
+.item-price {
+  margin-top: 2px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--accent);
+}
+.item-price.owned {
+  color: var(--good);
+}
+.item-sheet {
+  text-align: center;
+}
+.item-sheet h2 {
+  margin-top: 8px;
+}
+.item-sheet .row {
+  justify-content: center;
+}
+.item-sheet-art {
+  display: flex;
+  justify-content: center;
+}
+.slot-list {
+  list-style: none;
+  margin: 0 0 10px;
+  padding: 0;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.slot-list li {
+  display: grid;
+  gap: 2px;
+  padding: 10px;
+  border-radius: 12px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+}
+.slot-list .link {
+  text-align: left;
+  font-size: 14px;
+  color: var(--text);
+}
+.owned-list .chip {
+  background: var(--bg);
+}
+.avatar {
+  flex: none;
+}
+.admin-fab {
+  position: fixed;
+  right: 14px;
+  bottom: calc(80px + env(safe-area-inset-bottom));
+  z-index: 7;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  border: 1px solid var(--bad);
+  background: #2a1214;
+  color: var(--bad);
+  font-size: 22px;
+  cursor: pointer;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+}
+.admin-sheet {
+  max-height: 88vh;
+  overflow: auto;
+  max-width: 520px;
+}
+.admin-sheet h3 {
+  margin: 16px 0 8px;
+  font-size: 14px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.admin-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin: 8px 0;
+}
+.admin-row > span {
+  min-width: 56px;
+  color: var(--muted);
+  font-size: 14px;
+}
+.admin-input {
+  width: 72px;
+  min-height: 44px;
+  padding: 8px 10px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: var(--bg);
+  color: var(--text);
+  font-size: 15px;
+}
+.admin-input.wide {
+  width: 100%;
+}
+.admin-actions {
+  display: grid;
+  gap: 6px;
+  margin-top: 12px;
+}
+.admin-log {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--bg);
+  font-size: 13px;
+  display: grid;
+  gap: 4px;
 }

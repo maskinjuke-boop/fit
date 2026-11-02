@@ -1,4 +1,4 @@
-import type { GameState } from './state';
+import { migrate, type GameState } from './state';
 
 /**
  * До появления сервера (этап 2) прогресс хранится в браузере на устройстве.
@@ -11,7 +11,7 @@ export function loadGame(): GameState | null {
     const raw = localStorage.getItem(KEY);
     if (!raw) return null;
     const s = JSON.parse(raw) as GameState;
-    return s.version === 1 && s.character ? s : null;
+    return s.version === 1 && s.character ? migrate(s) : null;
   } catch {
     return null;
   }

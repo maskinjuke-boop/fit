@@ -8,7 +8,9 @@ import type { Metrics } from '../tracking/types';
 import { AccuracyPanel } from './AccuracyPanel';
 import { ExercisePicker } from './ExercisePicker';
 import { BottomNav, HeroHeader, HeroTab, HomeTab, QuestsTab, type Tab } from './game/GameScreens';
+import { AdminPanel } from './game/AdminPanel';
 import { Onboarding } from './game/Onboarding';
+import { ShopTab } from './game/Shop';
 import { SessionSummary, type Session } from './game/SessionSummary';
 import { eventText } from './game/text';
 import { TrackingScreen } from './TrackingScreen';
@@ -24,6 +26,7 @@ export function App() {
   const [showAccuracy, setShowAccuracy] = useState(false);
   const [summary, setSummary] = useState<Session | null>(null);
   const [dayBanner, setDayBanner] = useState<string | null>(null);
+  const [showAdmin, setShowAdmin] = useState(false);
   const loading = useRef<Promise<void> | null>(null);
   const session = useRef<Session>({ reps: 0, xp: 0, gold: 0, events: [] });
 
@@ -101,9 +104,16 @@ export function App() {
         {tab === 'home' && <HomeTab state={state} onTrain={() => setTab('train')} />}
         {tab === 'train' && <ExercisePicker embedded onPick={startExercise} />}
         {tab === 'quests' && <QuestsTab state={state} />}
+        {tab === 'shop' && <ShopTab state={state} />}
         {tab === 'hero' && <HeroTab state={state} onAccuracy={() => setShowAccuracy(true)} />}
       </div>
       <BottomNav tab={tab} onTab={setTab} />
+      {game.adminEnabled && (
+        <button className="admin-fab" onClick={() => setShowAdmin(true)} aria-label={t('admin')}>
+          ⚙
+        </button>
+      )}
+      {showAdmin && <AdminPanel onClose={() => setShowAdmin(false)} />}
 
       {exercise && engine.status === 'loading' && (
         <div className="overlay">

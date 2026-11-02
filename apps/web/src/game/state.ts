@@ -1,5 +1,19 @@
 import type { ExerciseId } from '../tracking/exercise';
 import type { Archetype, FitnessLevel, MuscleGroup, StatId } from './config';
+import type { Slot } from './items';
+
+export type HairStyle = 'short' | 'long' | 'bun' | 'buzz' | 'curly';
+
+/** Внешность портрета. */
+export interface Appearance {
+  /** Индекс в палитре оттенков кожи. */
+  skin: number;
+  hair: HairStyle;
+  hairColor: number;
+  beard: boolean;
+}
+
+export const DEFAULT_APPEARANCE: Appearance = { skin: 1, hair: 'short', hairColor: 1, beard: false };
 
 export interface Character {
   id: string;
@@ -10,6 +24,7 @@ export interface Character {
   hasBar: boolean;
   fitness: FitnessLevel;
   createdDay: string;
+  appearance: Appearance;
 }
 
 /** Статистика одного дня. Прогресс ежедневок считается из неё. */
@@ -77,6 +92,11 @@ export interface GameState {
   lifetimeReps: Partial<Record<ExerciseId, number>>;
   /** Текущий игровой день. */
   today: string;
+  /** Купленные предметы. */
+  inventory: string[];
+  equipped: Partial<Record<Slot, string>>;
+  /** Состояние меняли через режим администратора (для будущих рейтингов). */
+  adminTouched?: boolean;
 }
 
 export const emptyDay = (): DayStats => ({ reps: {}, goodReps: {}, cameraXp: 0, dailiesDone: 0 });
@@ -95,5 +115,18 @@ export function createState(character: Character): GameState {
     streak: { count: 0, best: 0, lastDay: null, freezes: 0, freezeWeek: null },
     lifetimeReps: {},
     today: '',
+    inventory: [],
+    equipped: {},
+  };
+}
+
+/** Приводит старое сохранение к текущей схеме (новые поля — значения по умолчанию). */
+export function migrate(raw: GameState): GameState {
+  const s = raw as GameState & Partial<Pick<GameState, 'inventory' | 'equipped'>>;
+  return {
+    ...s,
+    character: { ...s.character, appearance: { ...DEFAULT_APPEARANCE, ...(s.character.appearance ?? {}) } },
+    inventory: s.inventory ?? [],
+    equipped: s.equipped ?? {},
   };
 }

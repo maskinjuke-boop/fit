@@ -16,7 +16,8 @@ import {
 } from './config';
 import { generateDailies, rerollTask, taskProgress } from './dailies';
 import { addDays, dayKey, daysBetween, weekKey } from './dates';
-import { levelOf } from './levels';
+import { MAX_EQUIPMENT_BONUS, itemById, type Slot } from './items';
+import { levelOf, xpForLevel } from './levels';
 import { QUESTS, effectiveObjective, objectiveTarget, questById, type QuestDef } from './quests';
 import { emptyDay, type Character, type DayStats, type GameState } from './state';
 
@@ -32,6 +33,14 @@ export type GameEvent =
   | { kind: 'streak'; count: number }
   | { kind: 'freezeUsed'; days: number }
   | { kind: 'streakLost' };
+
+export type ShopError = 'owned' | 'level' | 'gold' | 'unknown';
+
+const STARTER_ITEM: Record<Character['archetype'], string> = {
+  guardian: 'wooden_shield',
+  ranger: 'leather_cap',
+  mystic: 'headband',
+};
 
 export interface Result {
   state: GameState;
@@ -253,7 +262,7 @@ export function applyRep(state: GameState, rep: { exercise: ExerciseId; quality:
   const overLimit = doneBefore >= limit;
   if (doneBefore === limit) events.push({ kind: 'limit', exercise: rep.exercise });
 
-  const xp = XP_PER_REP * info.multiplier * qualityBonus(rep.quality) * (overLimit ? OVER_LIMIT_FACTOR : 1);
+  const xp = XP_PER_REP * info.multiplier * qualityBonus(rep.quality) * (overLimit ? OVER_LIMIT_FACTOR : 1) * (1 + equipmentBonus(s));
   stats.reps[rep.exercise] = (stats.reps[rep.exercise] ?? 0) + 1;
   if (rep.quality >= 80) stats.goodReps[rep.exercise] = (stats.goodReps[rep.exercise] ?? 0) + 1;
   stats.cameraXp += xp;
@@ -266,6 +275,50 @@ export function applyRep(state: GameState, rep: { exercise: ExerciseId; quality:
   settleStreak(s, events);
   settleQuests(s, events);
   return { state: s, events };
+}
+
+// ─── Магазин и экипировка ──────────────────────────────────────────────
+
+/** Суммарная прибавка к опыту от надетых предметов (не больше 25%). */
+export function equipmentBonus(s: GameState): number {
+  const total = Object.values(s.equipped).reduce((acc, id) => acc + (id ? (itemById(id)?.xpBonus ?? 0) : 0), 0);
+  return Math.min(MAX_EQUIPMENT_BONUS, total);
+}
+
+export function canBuy(s: GameState, id: string): ShopError | null {
+  const item = itemById(id);
+  if (!item) return 'unknown';
+  if (s.inventory.includes(id)) return 'owned';
+  if (levelOf(s.totalXp) < item.level) return 'level';
+  if (s.gold < item.price) return 'gold';
+  return null;
+}
+
+/** Покупка: списывает золото, кладёт предмет в инвентарь и сразу надевает (прежний остаётся в инвентаре). */
+export function buyItem(state: GameState, id: string): { state: GameState; error: ShopError | null } {
+  const error = canBuy(state, id);
+  const item = itemById(id);
+  if (error || !item) return { state, error: error ?? 'unknown' };
+  const s = structuredClone(state);
+  s.gold -= item.price;
+  s.inventory.push(id);
+  s.equipped[item.slot] = id;
+  return { state: s, error: null };
+}
+
+export function equipItem(state: GameState, id: string): GameState {
+  const item = itemById(id);
+  if (!item || !state.inventory.includes(id)) return state;
+  const s = structuredClone(state);
+  s.equipped[item.slot] = id;
+  return s;
+}
+
+export function unequipSlot(state: GameState, slot: Slot): GameState {
+  if (!state.equipped[slot]) return state;
+  const s = structuredClone(state);
+  delete s.equipped[slot];
+  return s;
 }
 
 export function reroll(state: GameState, index: number): GameState {
@@ -283,7 +336,53 @@ export function reroll(state: GameState, index: number): GameState {
 export function newCharacterState(character: Omit<Character, 'id' | 'createdDay'>, now: Date, createState: (c: Character) => GameState): GameState {
   const id = typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `c${Date.now()}${Math.random()}`;
   const s = createState({ ...character, id, createdDay: dayKey(now) });
+  // Стартовый предмет по выбранному пути — чтобы экипировка была видна сразу.
+  const starter = STARTER_ITEM[character.archetype];
+  s.inventory.push(starter);
+  const slot = itemById(starter)?.slot;
+  if (slot) s.equipped[slot] = starter;
   return ensureDay(s, now).state;
 }
 
 export { STATS };
+
+// ─── Для режима администратора ─────────────────────────────────────────
+
+/** Начисляет опыт и золото напрямую (без бонуса серии) и закрывает квесты, условия которых выполнились. */
+export function grant(state: GameState, reward: { xp?: number; gold?: number }): Result {
+  const s = structuredClone(state);
+  const events: GameEvent[] = [];
+  s.gold = Math.max(0, s.gold + (reward.gold ?? 0));
+  if (reward.xp) addXp(s, reward.xp, null, events);
+  settleQuests(s, events);
+  return { state: s, events };
+}
+
+/** Ставит уровень персонажа (в обе стороны): опыт = порог уровня. */
+export function setLevel(state: GameState, level: number): Result {
+  const s = structuredClone(state);
+  const events: GameEvent[] = [];
+  const target = xpForLevel(Math.max(1, Math.min(99, Math.round(level))));
+  if (target > s.totalXp) addXp(s, target - s.totalXp, null, events);
+  else s.totalXp = target;
+  settleQuests(s, events);
+  return { state: s, events };
+}
+
+/** Закрывает все активные квесты с наградой; открываются следующие. */
+export function completeActiveQuests(state: GameState): Result {
+  const s = structuredClone(state);
+  const events: GameEvent[] = [];
+  for (const qs of Object.values(s.quests)) {
+    if (qs.status !== 'active') continue;
+    const def = questById(qs.id);
+    if (!def) continue;
+    qs.status = 'done';
+    qs.doneWeek = weekKey(s.today);
+    qs.progress = def.objectives.map((o) => objectiveTarget(effectiveObjective(o, s.character)));
+    const r = grantReward(s, def.reward, events);
+    events.push({ kind: 'questDone', questId: def.id, ...r });
+  }
+  settleQuests(s, events);
+  return { state: s, events };
+}

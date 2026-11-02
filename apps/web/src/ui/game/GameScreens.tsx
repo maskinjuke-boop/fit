@@ -7,10 +7,12 @@ import { QUESTS, effectiveObjective, objectiveTarget, questById } from '../../ga
 import type { GameState } from '../../game/state';
 import { useI18n, type I18nKey } from '../../i18n';
 import type { ExerciseId } from '../../tracking/exercise';
+import { AppearanceEditor } from './AppearanceEditor';
 import { Avatar } from './Avatar';
+import { InventorySection } from './Shop';
 import { exName, objectiveText, questName, taskText } from './text';
 
-export type Tab = 'home' | 'train' | 'quests' | 'hero';
+export type Tab = 'home' | 'train' | 'quests' | 'shop' | 'hero';
 
 function Bar({ value, color }: { value: number; color?: string }) {
   return (
@@ -27,9 +29,11 @@ export function HeroHeader({ state }: { state: GameState }) {
   const c = state.character;
   return (
     <header className="hero-header">
-      <Avatar archetype={c.archetype} color={c.color} size={56} level={info.level} />
+      <Avatar color={c.color} appearance={c.appearance} equipped={state.equipped} size={56} />
       <div className="hero-header-main">
-        <div className="hero-name">{c.name}</div>
+        <div className="hero-name">
+          {c.name} <span className="lvl-chip">{info.level}</span>
+        </div>
         <Bar value={info.progress} color={c.color} />
         <div className="muted small">
           {t('level')} {info.level} · {Math.floor(info.into)}/{info.span} XP
@@ -49,6 +53,7 @@ export function BottomNav({ tab, onTab }: { tab: Tab; onTab(t: Tab): void }) {
     ['home', '⌂', 'tab.home'],
     ['train', '▶', 'tab.train'],
     ['quests', '✦', 'tab.quests'],
+    ['shop', '◈', 'tab.shop'],
     ['hero', '☺', 'tab.hero'],
   ];
   return (
@@ -219,15 +224,16 @@ export function QuestsTab({ state }: { state: GameState }) {
 
 export function HeroTab({ state, onAccuracy }: { state: GameState; onAccuracy(): void }) {
   const { t, lang, setLang } = useI18n();
-  const { setHasBar, reset } = useGame();
+  const { setHasBar, setAppearance, reset } = useGame();
   const [confirm, setConfirm] = useState(false);
+  const [editing, setEditing] = useState<{ appearance: GameState['character']['appearance']; color: string } | null>(null);
   const c = state.character;
   const info = levelInfo(state.totalXp);
   const reps = Object.entries(state.lifetimeReps) as Array<[ExerciseId, number]>;
   return (
     <div className="tab-body">
       <section className="card hero-card">
-        <Avatar archetype={c.archetype} color={c.color} size={120} level={info.level} />
+        <Avatar color={c.color} appearance={c.appearance} equipped={state.equipped} size={132} level={info.level} />
         <div>
           <h2>{c.name}</h2>
           <p className="muted">
@@ -236,8 +242,38 @@ export function HeroTab({ state, onAccuracy }: { state: GameState; onAccuracy():
           <p>
             {t('level')} {info.level} · ◈ {state.gold} {t('gold')}
           </p>
+          <button className="link" onClick={() => setEditing({ appearance: c.appearance, color: c.color })}>
+            ✎ {t('editAppearance')}
+          </button>
         </div>
       </section>
+
+      <InventorySection state={state} />
+      {editing && (
+        <div className="overlay">
+          <div className="sheet wide-sheet">
+            <h2>{t('appearance')}</h2>
+            <div className="ob-hero-art">
+              <Avatar color={editing.color} appearance={editing.appearance} equipped={state.equipped} size={160} />
+            </div>
+            <AppearanceEditor appearance={editing.appearance} color={editing.color} onChange={(a, col) => setEditing({ appearance: a, color: col })} />
+            <div className="row">
+              <button className="btn" onClick={() => setEditing(null)}>
+                {t('cancel')}
+              </button>
+              <button
+                className="btn primary"
+                onClick={() => {
+                  setAppearance(editing.appearance, editing.color);
+                  setEditing(null);
+                }}
+              >
+                {t('save')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <Section title={t('stats')}>
         <ul className="stat-list">
