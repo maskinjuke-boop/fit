@@ -81,9 +81,9 @@ export function strands(paths: THREE.Vector3[][], widths: number[], thick: numbe
       if (S.lengthSq() < 1e-8) S.set(1, 0, 0);
       S.normalize();
       N.crossVectors(S, T).normalize();
-      // Прядь выходит из-под волос узкой, расходится и сужается к кончику.
-      const w = w0 * (0.7 + 0.3 * smooth(0, 0.15, t)) * (1 - 0.82 * smooth(0.55, 1, t));
-      const th = thick * (1 - 0.6 * t);
+      // Прядь выходит из-под волос тонкой (корень не виден ступенькой), расходится и сужается к кончику.
+      const w = w0 * (0.25 + 0.75 * smooth(0, 0.2, t)) * (1 - 0.82 * smooth(0.55, 1, t));
+      const th = thick * (0.35 + 0.65 * smooth(0, 0.15, t)) * (1 - 0.6 * t);
       const perim = Math.PI * 2 * Math.sqrt((w * w + th * th) / 2);
       for (let j = 0; j <= radial; j += 1) {
         const a = (j / radial) * Math.PI * 2;

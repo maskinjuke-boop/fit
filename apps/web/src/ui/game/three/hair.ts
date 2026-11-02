@@ -62,7 +62,7 @@ function longLocks(figure: Figure, from: number, clearance: number): THREE.Buffe
     const phi = Math.PI * (0.6 + (0.8 * i) / (nb - 1)) + jitter(i, 1) * 0.04;
     // Сзади по центру пряди чуть длиннее, к вискам — короче.
     const len = 0.6 + jitter(i, 2) * 0.07 + Math.abs(Math.cos(phi)) * 0.05;
-    const p0 = onSkull(Math.max(from, Math.PI * 0.34), phi, 0.034, female);
+    const p0 = onSkull(Math.max(from, Math.PI * 0.34), phi, 0.028, female);
     const p1 = onSkull(Math.PI * 0.5, phi, 0.044, female);
     const p2 = p1.clone().add(v(0, -0.1, 0)).lerp(atArc(phi, p1.y - 0.1), 0.35);
     const p3 = atArc(phi, HEAD_Y - 0.34);
@@ -74,7 +74,7 @@ function longLocks(figure: Figure, from: number, clearance: number): THREE.Buffe
   for (const sx of [-1, 1]) {
     [0.36, 0.42, 0.48, 0.54].forEach((k, i) => {
       const phi = sx * Math.PI * k;
-      const p0 = onSkull(Math.max(from, Math.PI * (0.28 + i * 0.03)), phi, 0.034, female);
+      const p0 = onSkull(Math.max(from, Math.PI * (0.28 + i * 0.03)), phi, 0.028, female);
       const p1 = onSkull(Math.PI * 0.5, phi, 0.046, female);
       const p2 = p1.clone().add(v(0.012 * sx, -0.12, 0));
       const x = female ? 0.28 : 0.31;
