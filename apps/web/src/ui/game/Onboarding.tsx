@@ -5,6 +5,7 @@ import { DEFAULT_APPEARANCE, type Appearance } from '../../game/state';
 import { useI18n, type I18nKey } from '../../i18n';
 import { AppearanceEditor } from './AppearanceEditor';
 import { Avatar } from './Avatar';
+import { Hero3D } from './Hero3D';
 
 /** Стартовый предмет пути — показываем его на портрете сразу при выборе. */
 const STARTER: Record<Archetype, { slot: 'head' | 'offhand'; id: string }> = {
@@ -96,7 +97,7 @@ export function Onboarding() {
         <section className="ob-step">
           <h1>{t('ob.heroTitle')}</h1>
           <div className="ob-hero-art">
-            <Avatar color={color} appearance={appearance} equipped={preview} size={170} />
+            <Hero3D color={color} appearance={appearance} equipped={preview} height={250} />
           </div>
           <label className="field">
             <span>{t('ob.name')}</span>

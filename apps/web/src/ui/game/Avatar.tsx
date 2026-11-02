@@ -1,6 +1,7 @@
 import { useId, type ReactNode } from 'react';
-import type { Slot } from '../../game/items';
+import { itemById, type Slot } from '../../game/items';
 import { DEFAULT_APPEARANCE, type Appearance, type HairStyle } from '../../game/state';
+import { HAIR_COLORS, SKIN_TONES } from './palette';
 
 /**
  * Портрет персонажа: человек по пояс в круглой рамке. Внешность (кожа, волосы, борода)
@@ -8,16 +9,7 @@ import { DEFAULT_APPEARANCE, type Appearance, type HairStyle } from '../../game/
  * головной убор — то, что в руках спереди. Весь арт оригинальный, векторный.
  */
 
-export const SKIN_TONES = [
-  { base: '#f6dcc8', shade: '#dfb398' },
-  { base: '#eec3a0', shade: '#d09a76' },
-  { base: '#d29a72', shade: '#b07650' },
-  { base: '#a76e4b', shade: '#875335' },
-  { base: '#71462e', shade: '#563320' },
-] as const;
-
-export const HAIR_COLORS = ['#1f1612', '#4a2f1f', '#8a5a2b', '#d6ab62', '#a8392a', '#a3a8b0'] as const;
-export const HAIR_STYLES: readonly HairStyle[] = ['short', 'buzz', 'long', 'bun', 'curly'];
+export { HAIR_COLORS, HAIR_STYLES, SKIN_TONES } from './palette';
 
 /** Затемнение (k < 1) или осветление (k > 1) цвета #rrggbb. */
 function tone(hex: string, k: number): string {
@@ -82,39 +74,15 @@ export function Avatar({ color, appearance = DEFAULT_APPEARANCE, equipped = {}, 
           <stop offset="60%" stopColor={hair} />
           <stop offset="100%" stopColor={tone(hair, 0.8)} />
         </linearGradient>
-        <linearGradient id={id('steel')} x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0%" stopColor="#e9eef3" />
-          <stop offset="45%" stopColor="#a7b0ba" />
-          <stop offset="100%" stopColor="#6b747e" />
-        </linearGradient>
-        <linearGradient id={id('gold')} x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0%" stopColor="#fff1b8" />
-          <stop offset="45%" stopColor="#e7b442" />
-          <stop offset="100%" stopColor="#a8741c" />
-        </linearGradient>
-        <linearGradient id={id('wood')} x1="0" y1="0" x2="1" y2="0">
-          <stop offset="0%" stopColor="#9a6a3c" />
-          <stop offset="100%" stopColor="#6a4424" />
-        </linearGradient>
-        <linearGradient id={id('bronze')} x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0%" stopColor="#f2c48a" />
-          <stop offset="100%" stopColor="#a8682e" />
-        </linearGradient>
-        <pattern id={id('mail')} width="8" height="7" patternUnits="userSpaceOnUse">
-          <rect width="8" height="7" fill="#7d858e" />
-          <circle cx="4" cy="3.5" r="3" fill="none" stroke="#b9c0c8" strokeWidth="1.2" />
-        </pattern>
+        <ItemDefs id={id} />
       </defs>
 
       <g clipPath={url('clip')}>
         <rect width="200" height="200" fill={url('bg')} />
 
         {/* ── За спиной ─────────────────────────────── */}
-        {body === 'traveler_cloak' && <path d="M14 210 C16 158 50 136 100 136 C150 136 184 158 186 210 Z" fill="#2c4634" />}
-        {body === 'champion_armor' && <path d="M14 210 C18 160 50 138 100 138 C150 138 182 160 186 210 Z" fill="#8f1f2b" />}
-        {head === 'ranger_hood' && (
-          <path d="M58 98 C54 54 76 28 100 28 C124 28 146 54 142 98 C144 122 150 140 160 152 L40 152 C50 140 56 122 58 98 Z" fill="#35553a" />
-        )}
+        {bodyBack(body)}
+        {headBack(head)}
         {weaponBack(weapon, url)}
         {appearance.hair === 'long' && !hairHidden && (
           <path
@@ -161,6 +129,113 @@ export function Avatar({ color, appearance = DEFAULT_APPEARANCE, equipped = {}, 
           </text>
         </g>
       )}
+    </svg>
+  );
+}
+
+/** Градиенты и узоры предметов (металл, золото, дерево, бронза, кольчуга). */
+function ItemDefs({ id }: { id: (name: string) => string }) {
+  return (
+    <>
+          <linearGradient id={id('steel')} x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0%" stopColor="#e9eef3" />
+            <stop offset="45%" stopColor="#a7b0ba" />
+            <stop offset="100%" stopColor="#6b747e" />
+          </linearGradient>
+          <linearGradient id={id('gold')} x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0%" stopColor="#fff1b8" />
+            <stop offset="45%" stopColor="#e7b442" />
+            <stop offset="100%" stopColor="#a8741c" />
+          </linearGradient>
+          <linearGradient id={id('wood')} x1="0" y1="0" x2="1" y2="0">
+            <stop offset="0%" stopColor="#9a6a3c" />
+            <stop offset="100%" stopColor="#6a4424" />
+          </linearGradient>
+          <linearGradient id={id('bronze')} x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0%" stopColor="#f2c48a" />
+            <stop offset="100%" stopColor="#a8682e" />
+          </linearGradient>
+          <pattern id={id('mail')} width="8" height="7" patternUnits="userSpaceOnUse">
+            <rect width="8" height="7" fill="#7d858e" />
+            <circle cx="4" cy="3.5" r="3" fill="none" stroke="#b9c0c8" strokeWidth="1.2" />
+          </pattern>
+    </>
+  );
+}
+
+function bodyBack(id: string | undefined): ReactNode {
+  if (id === 'traveler_cloak') return <path d="M14 210 C16 158 50 136 100 136 C150 136 184 158 186 210 Z" fill="#2c4634" />;
+  if (id === 'champion_armor') return <path d="M14 210 C18 160 50 138 100 138 C150 138 182 160 186 210 Z" fill="#8f1f2b" />;
+  return null;
+}
+
+function headBack(id: string | undefined): ReactNode {
+  if (id !== 'ranger_hood') return null;
+  return <path d="M58 98 C54 54 76 28 100 28 C124 28 146 54 142 98 C144 122 150 140 160 152 L40 152 C50 140 56 122 58 98 Z" fill="#35553a" />;
+}
+
+/** Область рисунка каждого предмета для отдельной иконки (x y ширина высота в координатах портрета). */
+const ICON_VIEW: Record<string, string> = {
+  headband: '66 60 80 30',
+  leather_cap: '60 28 80 58',
+  ranger_hood: '36 24 128 132',
+  wizard_hat: '50 2 100 72',
+  iron_helm: '58 26 84 78',
+  champion_crown: '64 36 72 36',
+  leather_vest: '14 140 172 74',
+  traveler_cloak: '10 132 180 82',
+  chainmail: '14 140 172 74',
+  mystic_robe: '14 140 172 74',
+  plate_armor: '14 140 172 74',
+  champion_armor: '14 136 172 78',
+  wooden_club: '124 34 64 180',
+  iron_dumbbell: '120 112 76 60',
+  bronze_sword: '108 36 74 176',
+  steel_sword: '108 36 74 176',
+  hunter_bow: '4 26 60 184',
+  oak_staff: '130 10 60 204',
+  wooden_shield: '4 142 72 72',
+  kettlebell: '16 140 54 68',
+  spell_tome: '10 150 66 58',
+  iron_shield: '10 136 60 80',
+};
+
+/** Иконка предмета без персонажа — для магазина и инвентаря. */
+export function ItemIcon({ itemId, color, size = 72 }: { itemId: string; color: string; size?: number }) {
+  const uid = useId().replace(/[^a-zA-Z0-9]/g, '');
+  const id = (name: string): string => `${name}-${uid}`;
+  const url = (name: string): string => `url(#${id(name)})`;
+  const item = itemById(itemId);
+  if (!item) return null;
+  const view = (ICON_VIEW[itemId] ?? '0 0 200 200').split(' ').map(Number);
+  const [x = 0, y = 0, w = 200, h = 200] = view;
+  // Квадратная иконка: дополняем меньшую сторону полями.
+  const side = Math.max(w, h) * 1.12;
+  const vb = `${x + w / 2 - side / 2} ${y + h / 2 - side / 2} ${side} ${side}`;
+  return (
+    <svg width={size} height={size} viewBox={vb} role="img" className="item-icon">
+      <defs>
+        <ItemDefs id={id} />
+      </defs>
+      {item.slot === 'head' && (
+        <>
+          {headBack(itemId)}
+          {headItem(itemId, url, color)}
+        </>
+      )}
+      {item.slot === 'body' && (
+        <>
+          {bodyBack(itemId)}
+          {bodyItem(itemId, url, color)}
+        </>
+      )}
+      {item.slot === 'weapon' && (
+        <>
+          {weaponBack(itemId, url)}
+          {weaponFront(itemId)}
+        </>
+      )}
+      {item.slot === 'offhand' && offhandItem(itemId, url, color)}
     </svg>
   );
 }

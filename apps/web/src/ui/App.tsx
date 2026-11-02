@@ -107,7 +107,13 @@ export function App() {
         {tab === 'shop' && <ShopTab state={state} />}
         {tab === 'hero' && <HeroTab state={state} onAccuracy={() => setShowAccuracy(true)} />}
       </div>
-      <BottomNav tab={tab} onTab={setTab} />
+      <BottomNav
+        tab={tab}
+        onTab={(next) => {
+          setTab(next);
+          window.scrollTo(0, 0);
+        }}
+      />
       {game.adminEnabled && (
         <button className="admin-fab" onClick={() => setShowAdmin(true)} aria-label={t('admin')}>
           ⚙

@@ -9,6 +9,7 @@ import { useI18n, type I18nKey } from '../../i18n';
 import type { ExerciseId } from '../../tracking/exercise';
 import { AppearanceEditor } from './AppearanceEditor';
 import { Avatar } from './Avatar';
+import { Hero3D } from './Hero3D';
 import { InventorySection } from './Shop';
 import { exName, objectiveText, questName, taskText } from './text';
 
@@ -233,8 +234,12 @@ export function HeroTab({ state, onAccuracy }: { state: GameState; onAccuracy():
   return (
     <div className="tab-body">
       <section className="card hero-card">
-        <Avatar color={c.color} appearance={c.appearance} equipped={state.equipped} size={132} level={info.level} />
-        <div>
+        <div className="hero-stage">
+          <Hero3D color={c.color} appearance={c.appearance} equipped={state.equipped} height={320} />
+          <span className="hero-stage-level">{info.level}</span>
+          <span className="hero-stage-hint muted small">⟲ {t('rotateHint')}</span>
+        </div>
+        <div className="hero-card-info">
           <h2>{c.name}</h2>
           <p className="muted">
             {t(`arch.${c.archetype}` as I18nKey)} · {t(`fit.${c.fitness}` as I18nKey)}
@@ -254,7 +259,7 @@ export function HeroTab({ state, onAccuracy }: { state: GameState; onAccuracy():
           <div className="sheet wide-sheet">
             <h2>{t('appearance')}</h2>
             <div className="ob-hero-art">
-              <Avatar color={editing.color} appearance={editing.appearance} equipped={state.equipped} size={160} />
+              <Hero3D color={editing.color} appearance={editing.appearance} equipped={state.equipped} height={240} />
             </div>
             <AppearanceEditor appearance={editing.appearance} color={editing.color} onChange={(a, col) => setEditing({ appearance: a, color: col })} />
             <div className="row">
