@@ -29,6 +29,11 @@ jobs:
 
       - run: pnpm build
 
+      - name: Check the build has MediaPipe files
+        run: |
+          ls apps/web/dist/wasm/vision_wasm_internal.wasm
+          ls apps/web/dist/models/pose_landmarker_lite.task
+
       - name: Pack the build
         run: |
           cd apps/web/dist

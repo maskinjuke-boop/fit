@@ -4,12 +4,14 @@ import react from '@vitejs/plugin-react';
 import basicSsl from '@vitejs/plugin-basic-ssl';
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
+import { dirname, join } from 'node:path';
 
 // Версия MediaPipe нужна, чтобы запасной адрес WASM совпадал с версией библиотеки.
 const mediapipeVersion = (() => {
   try {
     const require = createRequire(import.meta.url);
-    const pkg = JSON.parse(readFileSync(require.resolve('@mediapipe/tasks-vision/package.json'), 'utf8')) as { version: string };
+    const dir = dirname(require.resolve('@mediapipe/tasks-vision'));
+    const pkg = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8')) as { version: string };
     return pkg.version;
   } catch {
     return 'latest';

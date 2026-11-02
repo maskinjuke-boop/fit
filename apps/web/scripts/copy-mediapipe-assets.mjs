@@ -9,19 +9,20 @@ import { fileURLToPath } from 'node:url';
 const here = dirname(fileURLToPath(import.meta.url));
 const target = join(here, '..', 'public', 'wasm');
 
+// package.json пакета закрыт полем exports, поэтому ищем папку пакета от его точки входа.
 let source;
 try {
   const require = createRequire(import.meta.url);
-  const pkgJson = require.resolve('@mediapipe/tasks-vision/package.json');
-  source = join(dirname(pkgJson), 'wasm');
-} catch {
-  console.warn('[mediapipe] пакет @mediapipe/tasks-vision не найден — пропускаю копирование WASM');
-  process.exit(0);
+  const entry = require.resolve('@mediapipe/tasks-vision');
+  source = join(dirname(entry), 'wasm');
+} catch (e) {
+  console.error(`[mediapipe] пакет @mediapipe/tasks-vision не найден: ${e}`);
+  process.exit(1);
 }
 
 if (!existsSync(source)) {
-  console.warn(`[mediapipe] нет папки ${source} — пропускаю копирование WASM`);
-  process.exit(0);
+  console.error(`[mediapipe] нет папки ${source}`);
+  process.exit(1);
 }
 
 mkdirSync(target, { recursive: true });
