@@ -6,6 +6,7 @@ import { HAIR_STYLES, HAIR_COLORS, SKIN_TONES } from '../src/ui/game/palette';
 import { GARMENT_IDS, bodyGeometry, frontZ, garmentGeometry, isPrepared, prepare } from '../src/ui/game/three/anatomy';
 import { TORSO_Y } from '../src/ui/game/three/body';
 import { buildCharacter, buildItemModel, disposeObject, garmentsFor } from '../src/ui/game/three/buildCharacter';
+import { eyeAnchor, headPositions, headTris, loopSubdivide, rayRadiusTable } from '../src/ui/game/three/headMesh';
 import { sphere, surfaceNets } from '../src/ui/game/three/sdf';
 
 function vertexCount(o: Object3D): number {
@@ -213,5 +214,43 @@ describe('Ползунки тела и лица', () => {
       expect(c.lids.length).toBe(2);
       disposeObject(c.root);
     }
+  });
+});
+
+describe('Голова MakeHuman', () => {
+  const neutral = Object.fromEntries(FACE_PARTS.map((k) => [k, 0])) as Record<(typeof FACE_PARTS)[number], number>;
+
+  it('данные модели читаются, форма головы правдоподобна для обеих фигур', () => {
+    const tris = headTris();
+    for (const female of [true, false]) {
+      const pos = headPositions(female, neutral);
+      expect(pos.length / 3).toBeGreaterThan(4000);
+      for (let i = 0; i < tris.length; i += 1) expect(tris[i]!).toBeLessThan(pos.length / 3);
+      const { c, r } = eyeAnchor(female);
+      expect(r).toBeGreaterThan(0.03);
+      expect(r).toBeLessThan(0.05);
+      expect(c.z).toBeGreaterThan(0.12);
+      // Радиусы от центра: макушка, лоб, затылок, виски — в разумных пределах (без ушей).
+      const tab = rayRadiusTable(pos, 60, 120);
+      for (const v of tab) {
+        expect(v).toBeGreaterThan(0.08);
+        expect(v).toBeLessThan(0.4);
+      }
+    }
+  });
+
+  it('ползунки лица двигают вершины модели, деление сохраняет форму', () => {
+    const base = headPositions(true, neutral);
+    for (const k of ['faceWidth', 'cheekbones', 'jaw', 'chin', 'nose', 'lips', 'eyes'] as const) {
+      const moved = headPositions(true, { ...neutral, [k]: 1 });
+      let d = 0;
+      for (let i = 0; i < base.length; i += 1) d = Math.max(d, Math.abs(moved[i]! - base[i]!));
+      expect(d).toBeGreaterThan(0.002);
+    }
+    const sub = loopSubdivide(base, headTris(), new Float32Array(base.length / 3));
+    expect(sub.tris.length).toBe(headTris().length * 4);
+    const box = (p: Float32Array): number[] => [0, 1, 2].map((c) => Math.max(...Array.from(p).filter((_, i) => i % 3 === c)) - Math.min(...Array.from(p).filter((_, i) => i % 3 === c)));
+    const [a, b] = [box(base), box(sub.pos)];
+    for (let c = 0; c < 3; c += 1) expect(Math.abs(a[c]! - b[c]!)).toBeLessThan(0.02);
   });
 });
