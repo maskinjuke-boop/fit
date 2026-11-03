@@ -9,7 +9,8 @@ export const TORSO_Y = 1.16;
 /** Голова строится в собственных координатах вокруг HEAD_Y и крепится к шее в точке NECK_Y. */
 export const HEAD_Y = 1.9;
 export const HEAD_R = 0.27;
-export const HEAD_SCALE = new THREE.Vector3(0.86, 1.06, 0.97);
+/** Приближение черепа эллипсоидом (для головных уборов): ширина, высота, глубина относительно HEAD_R. */
+export const HEAD_SCALE = new THREE.Vector3(0.74, 1.06, 0.92);
 export const NECK_Y = 1.68;
 /** Масштаб головы относительно тела. */
 export const HEAD_GROW = 0.76;

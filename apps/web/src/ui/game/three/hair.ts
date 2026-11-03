@@ -166,7 +166,7 @@ export function buildHair(style: Appearance['hair'], m: Mat, cover: Cover, figur
       if (!hat && !helm) g.add(cap(0.007, HAIRLINE.short, m, female));
       break;
     case 'short':
-      if (hat) g.add(cap(0.018, HAIRLINE.short, m, female, Math.PI * 0.4));
+      if (hat) g.add(cap(0.018, HAIRLINE.short, m, female, Math.PI * 0.33));
       if (!hat && !helm) {
         g.add(cap(0.018, HAIRLINE.short, m, female));
         // Объём сверху и лёгкий чуб надо лбом.
@@ -178,14 +178,14 @@ export function buildHair(style: Appearance['hair'], m: Mat, cover: Cover, figur
       const r = HEAD_R + 0.03;
       // Сверху — волосы с линией роста, ниже — пряди по бокам с открытым лицом.
       if (!hat && !helm) g.add(cap(0.03, HAIRLINE.long, m, female));
-      if (!helm) g.add(hairShell(r, hat ? Math.PI * 0.4 : Math.PI * 0.3, Math.PI * 0.6, 1.05, m, female));
+      if (!helm) g.add(hairShell(r, hat ? Math.PI * 0.34 : Math.PI * 0.3, Math.PI * 0.6, 1.05, m, female));
       const from = helm ? Math.PI * 0.52 : hat ? Math.PI * 0.42 : Math.PI * 0.34;
       g.add(new THREE.Mesh(cached(`${figure}|long|${cover}|${clearance.toFixed(3)}`, () => longLocks(figure, from, clearance)), m));
       break;
     }
     case 'ponytail': {
       if (!hat && !helm) g.add(cap(0.016, HAIRLINE.pony, m, female));
-      if (hat) g.add(cap(0.016, HAIRLINE.pony, m, female, Math.PI * 0.4));
+      if (hat) g.add(cap(0.016, HAIRLINE.pony, m, female, Math.PI * 0.33));
       const y0 = helm || hat ? HEAD_Y - 0.02 : HEAD_Y + 0.07;
       const z0 = helm || hat ? -0.3 : -0.285;
       g.add(mesh(new THREE.TorusGeometry(0.045, 0.016, 8, 20), M.cloth('#d23a4a', 2), [0, y0, z0 - 0.015]));
@@ -196,7 +196,7 @@ export function buildHair(style: Appearance['hair'], m: Mat, cover: Cover, figur
     case 'bob': {
       const r = HEAD_R + 0.045;
       if (!helm) {
-        g.add(hairShell(r, hat ? Math.PI * 0.38 : 0, Math.PI * 0.64, 1.0, m, female));
+        g.add(hairShell(r, hat ? Math.PI * 0.33 : 0, Math.PI * 0.64, 1.0, m, female));
         g.add(new THREE.Mesh(cached(`${figure}|bob`, () => bobFringe(r, Math.PI * 0.64, 1.0, female)), m));
       }
       if (!hat && !helm) {
@@ -206,7 +206,7 @@ export function buildHair(style: Appearance['hair'], m: Mat, cover: Cover, figur
       break;
     }
     case 'bun':
-      if (hat) g.add(cap(0.012, HAIRLINE.pony, m, female, Math.PI * 0.4));
+      if (hat) g.add(cap(0.012, HAIRLINE.pony, m, female, Math.PI * 0.33));
       if (!hat && !helm) {
         g.add(cap(0.012, HAIRLINE.pony, m, female));
         g.add(mesh(new THREE.SphereGeometry(0.11, 20, 14), m, [0, HEAD_Y + 0.25, -0.13]));

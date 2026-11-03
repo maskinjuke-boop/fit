@@ -254,7 +254,7 @@ export function buildHeadItem(id: string, ctx: ItemCtx): THREE.Group {
     }
     case 'sports_cap': {
       const cm = M.cloth(color, 6, 0.85);
-      g.add(dome(HEAD_R + 0.03, Math.PI * 0.37, cm, 0.03));
+      g.add(dome(HEAD_R + 0.03, Math.PI * 0.44, cm, 0.03));
       g.add(mesh(new THREE.SphereGeometry(0.025, 12, 10), cm, [0, HEAD_Y + 0.33, -0.01]));
       const visorM = M.cloth(shade(color, 0.7), 6, 0.8);
       visorM.side = THREE.DoubleSide;
