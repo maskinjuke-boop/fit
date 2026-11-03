@@ -194,7 +194,7 @@ describe('Ползунки тела и лица', () => {
       for (let i = 0; i < pos.count; i += 1) {
         const y = pos.getY(i);
         const x = Math.abs(pos.getX(i));
-        if (Math.abs(y - landmarks('female').waist) < 0.02 && x < 0.24) w = Math.max(w, x);
+        if (Math.abs(y - landmarks('female').waist) < 0.02 && x < landmarks('female').waistW * 1.2) w = Math.max(w, x);
       }
       disposeObject(c.root);
       return w;
