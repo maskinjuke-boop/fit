@@ -263,7 +263,7 @@ export function HeroTab({ state, onAccuracy }: { state: GameState; onAccuracy():
         <div className="overlay">
           <div className="sheet wide-sheet">
             <h2>{t('appearance')}</h2>
-            <div className="ob-hero-art">
+            <div className="ob-hero-art sticky">
               <Hero3D color={editing.color} appearance={editing.appearance} equipped={state.equipped} height={260} zoomable />
             </div>
             <AppearanceEditor appearance={editing.appearance} color={editing.color} onChange={(a, col) => setEditing({ appearance: a, color: col })} />

@@ -5,7 +5,8 @@ import { EYE_COLORS, HAIR_COLORS, SKIN_TONES } from '../palette';
 import { band, bodyGeometry, frontZ, garmentGeometry, garmentOffset, type GarmentId } from './anatomy';
 import { HEAD_GROW, NECK_WORLD, NECK_Y, TORSO_Y, bodyShape, type BodyShape } from './body';
 import { buildHair, type Cover } from './hair';
-import { buildHead, type Lid } from './head';
+import { buildHead, setFace, type Lid } from './head';
+import { applyMorph, bodyMorph, bodyValues, heightScale } from './morph';
 import { HEAD_COVER, HEAD_GARMENTS, WEAPON_POSE, buildBodyItem, buildHeadItem, buildOffhand, buildWeapon, defaultPlan, garmentsFor, headGarmentMat, type ItemCtx, type Outfit } from './items3d';
 import { M, limb, mat, mesh, organ, retile, ring, shade, texKind, v, type Anim, type Mat } from './kit';
 
@@ -66,7 +67,7 @@ function buildHand(skin: Mat, scale: number, grip: boolean): THREE.Group {
 }
 
 /** Кисти на запястьях вылепленных рук. Возвращает точки хвата для предметов: [правая, левая]. */
-function addHands(shape: BodyShape, skin: Mat, parent: THREE.Object3D, grips: [boolean, boolean]): [THREE.Vector3, THREE.Vector3] {
+function addHands(shape: BodyShape, skin: Mat, parent: THREE.Object3D, grips: [boolean, boolean], rigid: Array<{ obj: THREE.Object3D; anchor: THREE.Vector3 }>): [THREE.Vector3, THREE.Vector3] {
   const anchors: THREE.Vector3[] = [];
   [-1, 1].forEach((sx, i) => {
     const e = v(shape.elbow.x * sx, shape.elbow.y, shape.elbow.z);
@@ -77,6 +78,7 @@ function addHands(shape: BodyShape, skin: Mat, parent: THREE.Object3D, grips: [b
     hand.quaternion.setFromUnitVectors(v(0, -1, 0), dir);
     if (sx < 0) hand.scale.x *= -1;
     parent.add(hand);
+    rigid.push({ obj: hand, anchor: w.clone() });
     anchors.push(w.clone().addScaledVector(dir, 0.07 * shape.hand).add(v(-0.012 * sx, 0, 0.012)));
   });
   return [anchors[0]!, anchors[1]!];
@@ -207,6 +209,7 @@ function headGarmentMeshes(figure: Figure, headItem: string): THREE.Mesh[] {
 
 export function buildCharacter(appearance: Appearance, color: string, equipped: Partial<Record<Slot, string>>): CharacterParts {
   const root = new THREE.Group();
+  setFace(appearance.face);
   const shape = bodyShape(appearance.figure);
   const figure = shape.figure;
   const female = figure === 'female';
@@ -236,7 +239,8 @@ export function buildCharacter(appearance: Appearance, color: string, equipped: 
   root.add(torso);
 
   // Кисти, обувь и предметы в руках — вместе с телом.
-  const [right, left] = addHands(shape, skin, torso, [Boolean(equipped.weapon), Boolean(equipped.offhand)]);
+  const rigid: Array<{ obj: THREE.Object3D; anchor: THREE.Vector3 }> = [];
+  const [right, left] = addHands(shape, skin, torso, [Boolean(equipped.weapon), Boolean(equipped.offhand)], rigid);
   addShoes(shape, (equipped.body && SHOES[equipped.body]) || 'boots', skin, color, torso);
   if (equipped.weapon) {
     const w = buildWeapon(equipped.weapon, ctx);
@@ -244,12 +248,19 @@ export function buildCharacter(appearance: Appearance, color: string, equipped: 
     const [rx, ry, rz] = WEAPON_POSE[equipped.weapon] ?? [0.25, 0, 0];
     w.rotation.set(rx, ry, rz);
     torso.add(w);
+    rigid.push({ obj: w, anchor: right.clone() });
   }
   if (equipped.offhand) {
     const o = buildOffhand(equipped.offhand, ctx);
     o.position.copy(left);
     torso.add(o);
+    rigid.push({ obj: o, anchor: left.clone() });
   }
+
+  // Ползунки тела: деформация тела вместе с одеждой; рост — масштаб от земли.
+  const morph = bodyMorph(shape, appearance);
+  if (morph) applyMorph(torso, morph, rigid);
+  root.scale.setScalar(heightScale(appearance));
 
   // Голова с лицом, причёска и головной убор (в собственных координатах головы).
   const head = new THREE.Group();
@@ -257,7 +268,9 @@ export function buildCharacter(appearance: Appearance, color: string, equipped: 
   head.add(face.group);
   const cover: Cover = equipped.head ? HEAD_COVER[equipped.head] ?? 'none' : 'none';
   // Длинные пряди ложатся поверх одежды: зазор — по самому толстому надетому слою.
-  const clearance = Math.max(0.016, ...garmentsFor(figure, equipped.body, equipped.head).filter((g) => g !== 'bracers' && g !== 'greaves').map((g) => garmentOffset(figure, g)));
+  const bv = bodyValues(appearance);
+  const grow = Math.round(Math.max(0, bv.chest, bv.shoulders, bv.neck) * 6) / 6;
+  const clearance = Math.max(0.016, ...garmentsFor(figure, equipped.body, equipped.head).filter((g) => g !== 'bracers' && g !== 'greaves').map((g) => garmentOffset(figure, g))) + 0.03 * grow;
   head.add(buildHair(appearance.hair, M.hair(hairColor), cover, figure, clearance));
   if (equipped.head) head.add(buildHeadItem(equipped.head, ctx));
   head.position.y = -NECK_Y;
@@ -267,6 +280,7 @@ export function buildCharacter(appearance: Appearance, color: string, equipped: 
   headPivot.scale.setScalar(HEAD_GROW);
   headPivot.add(head);
   root.add(headPivot);
+  setFace(undefined);
 
   return { root, torso, head: headPivot, lids: face.lids, anim };
 }

@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import type { Appearance, Figure } from '../../../game/state';
 import { anatomy } from './anatomy';
 import { HEAD_GROW, HEAD_R, HEAD_SCALE, HEAD_Y, NECK_WORLD, NECK_Y } from './body';
-import { HAIRLINE, hairCap, skullPoint, skullShell, type Hairline } from './head';
+import { HAIRLINE, faceNeutral, hairCap, skullPoint, skullShell, type Hairline } from './head';
 import { M, mesh, taperTube, v, type Mat } from './kit';
 import { strands, type Drape } from './strands';
 
@@ -90,7 +90,9 @@ function longLocks(figure: Figure, from: number, clearance: number): THREE.Buffe
 
 /** Сетки прядей не зависят от цвета — строятся один раз и переиспользуются. */
 const lockCache = new Map<string, THREE.BufferGeometry>();
-function cached(key: string, make: () => THREE.BufferGeometry): THREE.BufferGeometry {
+function cached(key: string, make: () => THREE.BufferGeometry, faceDependent = true): THREE.BufferGeometry {
+  // Пряди по изменённому ползунками лицу строятся для героя заново и освобождаются вместе с ним.
+  if (faceDependent && !faceNeutral()) return make();
   let g = lockCache.get(key);
   if (!g) {
     g = make();
@@ -190,7 +192,7 @@ export function buildHair(style: Appearance['hair'], m: Mat, cover: Cover, figur
       const z0 = helm || hat ? -0.3 : -0.285;
       g.add(mesh(new THREE.TorusGeometry(0.045, 0.016, 8, 20), M.cloth('#d23a4a', 2), [0, y0, z0 - 0.015]));
       g.add(new THREE.Mesh(taperTube(ponyCenter(y0, z0), 0.05, 0.01, 28, 12), m));
-      g.add(new THREE.Mesh(cached(`pony|${cover === 'none' ? 'up' : 'low'}`, () => ponytail(y0, z0)), m));
+      g.add(new THREE.Mesh(cached(`pony|${cover === 'none' ? 'up' : 'low'}`, () => ponytail(y0, z0), false), m));
       break;
     }
     case 'bob': {

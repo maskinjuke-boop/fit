@@ -253,9 +253,11 @@ export default function Character3D({ color, appearance, equipped, height = 260,
     const apply = (): void => {
       if (alive) api.current?.setCharacter(buildCharacter(appearance, color, equipped), color);
     };
+    let timer = 0;
     if (isPrepared(appearance.figure, garments)) {
       setSculpting(false);
-      apply();
+      // Ползунки меняют внешность много раз в секунду — пересобираем героя чуть позже, один раз.
+      timer = window.setTimeout(apply, 40);
     } else {
       setSculpting(true);
       void prepare(appearance.figure, garments).then(() => {
@@ -266,6 +268,7 @@ export default function Character3D({ color, appearance, equipped, height = 260,
     }
     return () => {
       alive = false;
+      window.clearTimeout(timer);
     };
   }, [sig, failed]);
 

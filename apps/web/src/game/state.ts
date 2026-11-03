@@ -18,7 +18,21 @@ export interface Appearance {
   beard: boolean;
   /** Индекс в палитре цветов глаз. */
   eyes: number;
+  /** Настройки тела по группам: −1 … 1 (0 — как задумано для фигуры). */
+  body?: Partial<Record<BodyPart, number>>;
+  /** Настройки черт лица: −1 … 1. */
+  face?: Partial<Record<FacePart, number>>;
 }
+
+/** Ползунки тела: общие (рост, вес, мышцы) и отдельные группы. */
+export const BODY_PARTS = ['height', 'weight', 'muscle', 'shoulders', 'chest', 'arms', 'neck', 'waist', 'belly', 'hips', 'glutes', 'legs'] as const;
+export type BodyPart = (typeof BODY_PARTS)[number];
+/** Ползунки лица. */
+export const FACE_PARTS = ['faceWidth', 'cheekbones', 'jaw', 'chin', 'nose', 'lips', 'eyes', 'brows'] as const;
+export type FacePart = (typeof FACE_PARTS)[number];
+
+/** Значение ползунка в допустимых пределах (для старых и испорченных сохранений). */
+export const sliderValue = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? Math.max(-1, Math.min(1, v)) : 0);
 
 export const DEFAULT_APPEARANCE: Appearance = { figure: 'male', skin: 1, hair: 'short', hairColor: 1, beard: false, eyes: 0 };
 

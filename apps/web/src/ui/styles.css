@@ -542,6 +542,13 @@ button {
   justify-content: center;
   padding: 8px 0;
 }
+.ob-hero-art.sticky {
+  /* Герой остаётся на виду, пока листаете ползунки и настройки внешности. */
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  background: var(--bg);
+}
 .ob-hero-art.pair {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -1679,4 +1686,47 @@ button {
   background: rgba(77, 163, 255, 0.18);
   color: #cfe6ff;
   font-size: 14px;
+}
+
+/* Ползунки тела и лица */
+.morph {
+  display: grid;
+  gap: 8px;
+}
+.morph-tabs button {
+  min-height: 38px;
+  font-size: 13px;
+}
+.morph-row {
+  display: grid;
+  gap: 2px;
+}
+.morph-row label {
+  display: flex;
+  justify-content: space-between;
+  font-size: 14px;
+}
+.morph-val {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.morph-slider {
+  display: grid;
+  grid-template-columns: 74px 1fr 74px;
+  align-items: center;
+  gap: 8px;
+}
+.morph-slider span {
+  font-size: 12px;
+  line-height: 1.15;
+  overflow-wrap: anywhere;
+}
+.morph-slider span:last-child {
+  text-align: right;
+}
+.morph-slider input[type='range'] {
+  width: 100%;
+  accent-color: var(--accent);
+  height: 32px;
+  touch-action: pan-y;
 }

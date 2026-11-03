@@ -1,7 +1,7 @@
-import { Box3, Vector3, type Object3D } from 'three';
+import { Box3, Vector3, type Mesh, type Object3D } from 'three';
 import { describe, expect, it } from 'vitest';
 import { ITEMS } from '../src/game/items';
-import { DEFAULT_APPEARANCE } from '../src/game/state';
+import { BODY_PARTS, DEFAULT_APPEARANCE, FACE_PARTS } from '../src/game/state';
 import { HAIR_STYLES, HAIR_COLORS, SKIN_TONES } from '../src/ui/game/palette';
 import { GARMENT_IDS, bodyGeometry, frontZ, garmentGeometry, isPrepared, prepare } from '../src/ui/game/three/anatomy';
 import { TORSO_Y } from '../src/ui/game/three/body';
@@ -154,5 +154,64 @@ describe('Вылепленное тело и одежда', () => {
     await prepare('female', ['shorts', 'sports_bra']);
     expect(isPrepared('female', ['shorts', 'sports_bra'])).toBe(true);
     expect(isPrepared('female', ['shorts', 'greaves', 'sports_bra'])).toBe(isPrepared('female', ['greaves']));
+  });
+});
+
+describe('Ползунки тела и лица', () => {
+  const all = (v: number) => Object.fromEntries(BODY_PARTS.map((k) => [k, v]));
+  const allFace = (v: number) => Object.fromEntries(FACE_PARTS.map((k) => [k, v]));
+
+  it('тело меняется вместе с одеждой, общие сетки не портятся', () => {
+    for (const figure of ['male', 'female'] as const) {
+      const before = Float32Array.from(bodyGeometry(figure).getAttribute('position').array as Float32Array);
+      const base = { ...DEFAULT_APPEARANCE, figure, hair: 'long' as const };
+      for (const v of [-1, 1]) {
+        const c = buildCharacter({ ...base, body: all(v), face: allFace(v) }, '#4da3ff', { body: 'chainmail', weapon: 'spear', offhand: 'iron_shield' });
+        c.root.updateMatrixWorld(true);
+        const box = new Box3().setFromObject(c.root);
+        expect(box.min.y).toBeGreaterThan(-0.05);
+        expect(box.max.y).toBeLessThan(3.2);
+        expect(Math.max(-box.min.x, box.max.x)).toBeLessThan(1.2);
+        disposeObject(c.root);
+      }
+      const after = bodyGeometry(figure).getAttribute('position').array as Float32Array;
+      expect(after.length).toBe(before.length);
+      let same = true;
+      for (let i = 0; i < before.length; i += 97) if (before[i] !== after[i]) same = false;
+      expect(same).toBe(true);
+    }
+  });
+
+  it('ползунок «толще» действительно делает часть тела шире', () => {
+    const width = (body: Record<string, number>): number => {
+      const c = buildCharacter({ ...DEFAULT_APPEARANCE, figure: 'female', body }, '#4da3ff', {});
+      const m = c.torso.children[0] as Mesh;
+      const pos = m.geometry.getAttribute('position');
+      let w = 0;
+      // Ширина талии: самые дальние от оси точки корпуса на её высоте.
+      for (let i = 0; i < pos.count; i += 1) {
+        const y = pos.getY(i);
+        const x = Math.abs(pos.getX(i));
+        if (Math.abs(y - (TORSO_Y + 0.1)) < 0.02 && x < 0.3) w = Math.max(w, x);
+      }
+      disposeObject(c.root);
+      return w;
+    };
+    const thin = width({ waist: -1 });
+    const mid = width({});
+    const wide = width({ waist: 1 });
+    expect(thin).toBeLessThan(mid - 0.01);
+    expect(wide).toBeGreaterThan(mid + 0.01);
+  });
+
+  it('рост меняет масштаб героя, а лицо строится при любых значениях', () => {
+    const tall = buildCharacter({ ...DEFAULT_APPEARANCE, body: { height: 1 } }, '#4da3ff', {});
+    expect(tall.root.scale.y).toBeGreaterThan(1.05);
+    disposeObject(tall.root);
+    for (const v of [-1, -0.5, 0.5, 1]) {
+      const c = buildCharacter({ ...DEFAULT_APPEARANCE, figure: 'female', beard: false, face: allFace(v) }, '#4da3ff', {});
+      expect(c.lids.length).toBe(2);
+      disposeObject(c.root);
+    }
   });
 });
