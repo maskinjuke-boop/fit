@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { sliderValue, type Appearance, type BodyPart } from '../../../game/state';
-import { TORSO_Y, type BodyShape } from './body';
+import { type BodyShape } from './body';
+import { landmarks } from './bodyMesh';
 
 /**
  * Настройка тела ползунками без повторной «лепки»: плавная деформация пространства вокруг
@@ -67,15 +68,19 @@ export function bodyMorph(shape: BodyShape, a: Pick<Appearance, 'body'>): Morph 
   const m = bodyValues(a);
   const parts: BodyPart[] = ['shoulders', 'chest', 'arms', 'neck', 'waist', 'belly', 'hips', 'glutes', 'legs'];
   if (parts.every((k) => Math.abs(m[k]) < 1e-3)) return null;
-  const T = TORSO_Y;
+  const L = landmarks(shape.figure);
   const female = shape.figure === 'female';
-  const arm = [shape.shoulder.clone(), shape.elbow.clone(), shape.wrist.clone()];
-  const lx = shape.legX;
-  const leg = [new THREE.Vector3(lx, T - 0.06, 0), new THREE.Vector3(lx * 1.04, 0.6, 0.02), new THREE.Vector3(lx * 1.06, 0.1, 0)];
+  // Рука до кончиков пальцев: кисть — часть сетки тела и движется вместе с рукой.
+  const tip = shape.wrist.clone().addScaledVector(new THREE.Vector3().subVectors(shape.wrist, shape.elbow).normalize(), 0.2);
+  const arm = [shape.shoulder.clone(), shape.elbow.clone(), shape.wrist.clone(), tip];
+  const leg = [shape.hip.clone().setY(shape.hip.y + 0.04), shape.knee.clone(), shape.ankle.clone()];
+  const hipY = shape.hip.y;
+  const sy = shape.shoulder.y;
+  const cy = L.clavicle[1];
   // Центры груди (у женской фигуры — бюст, у мужской — грудные мышцы) и ягодиц.
-  const chestC = female ? new THREE.Vector3(0.086, T + 0.37, 0.118) : new THREE.Vector3(0.105, T + 0.43, 0.088);
-  const chestR = female ? 0.105 : 0.11;
-  const gluteC = new THREE.Vector3(female ? 0.095 : 0.085, T - 0.12, female ? -0.08 : -0.065);
+  const chestC = L.nipple ? new THREE.Vector3(L.nipple[0] - 0.035, L.nipple[1] + 0.015, L.nipple[2] - 0.065) : new THREE.Vector3(0.09, L.armpit - 0.06, 0.09);
+  const chestR = female ? 0.1 : 0.11;
+  const gluteC = new THREE.Vector3(female ? 0.095 : 0.085, hipY - 0.06, female ? -0.11 : -0.1);
   const qa = new THREE.Vector3();
   const ql = new THREE.Vector3();
   const loc = new THREE.Vector3();
@@ -86,14 +91,14 @@ export function bodyMorph(shape: BodyShape, a: Pick<Appearance, 'body'>): Morph 
     loc.set(Math.abs(p.x), p.y, p.z);
     const ax = loc.x;
     const na = nearest(loc, arm, qa);
-    const armW = smooth(0.135, 0.085, na.d) * smooth(0.22, 0.3, ax);
+    const armW = smooth(0.11, 0.07, na.d) * smooth(0.17, 0.24, ax);
     const nl = nearest(loc, leg, ql);
-    const legW = smooth(0.2, 0.12, nl.d) * smooth(T + 0.02, T - 0.16, loc.y);
+    const legW = smooth(0.2, 0.12, nl.d) * smooth(hipY + 0.1, hipY - 0.08, loc.y);
     const torsoW = 1 - armW;
     d.set(0, 0, 0);
     // Плечи: руки целиком и плечевой пояс сдвигаются наружу.
     if (m.shoulders) {
-      const w = Math.max(armW, smooth(0.08, 0.27, ax) * smooth(T + 0.28, T + 0.5, loc.y) * (1 - legW));
+      const w = Math.max(armW, smooth(0.07, 0.22, ax) * smooth(sy - 0.24, sy - 0.02, loc.y) * (1 - legW));
       d.x += 0.045 * m.shoulders * w;
     }
     // Грудь: объём растёт от центра внутри грудной клетки наружу.
@@ -109,32 +114,32 @@ export function bodyMorph(shape: BodyShape, a: Pick<Appearance, 'body'>): Morph 
     if (spread && armW > 0) d.x += spread * armW * smooth(shape.shoulder.y, shape.elbow.y, loc.y);
     // Руки толще или тоньше (кисть не меняется).
     if (m.arms && armW > 0) {
-      const k = 0.35 * m.arms * armW * smooth(shape.wrist.y - 0.02, shape.wrist.y + 0.14, loc.y);
+      const k = 0.35 * m.arms * armW * smooth(shape.wrist.y + 0.01, shape.wrist.y + 0.12, loc.y);
       d.x += (loc.x - qa.x) * k;
       d.y += (loc.y - qa.y) * k;
       d.z += (loc.z - qa.z) * k;
     }
     // Шея.
     if (m.neck) {
-      const g = smooth(T + 0.5, T + 0.62, loc.y) * smooth(0.15, 0.09, Math.hypot(loc.x, loc.z + 0.01)) * torsoW;
+      const g = smooth(cy - 0.04, cy + 0.06, loc.y) * smooth(0.13, 0.08, Math.hypot(loc.x, loc.z + 0.01)) * torsoW;
       d.x += loc.x * 0.28 * m.neck * g;
       d.z += (loc.z + 0.01) * 0.28 * m.neck * g;
     }
     // Талия.
     if (m.waist) {
-      const g = Math.exp(-(((loc.y - (T + 0.1)) / 0.12) ** 2)) * smooth(0.36, 0.3, ax) * torsoW;
+      const g = Math.exp(-(((loc.y - L.waist) / 0.12) ** 2)) * smooth(0.32, 0.26, ax) * torsoW;
       d.x += loc.x * 0.22 * m.waist * g;
       d.z += loc.z * 0.22 * m.waist * g;
     }
     // Живот вперёд.
     if (m.belly) {
-      const g = Math.exp(-(((loc.y - (T + 0.07)) / 0.11) ** 2) - (loc.x / 0.15) ** 2) * smooth(-0.02, 0.08, loc.z) * torsoW;
+      const g = Math.exp(-(((loc.y - (L.waist - 0.05)) / 0.11) ** 2) - (loc.x / 0.15) ** 2) * smooth(-0.02, 0.08, loc.z) * torsoW;
       d.z += 0.07 * m.belly * g;
       d.y -= 0.01 * m.belly * g;
     }
     // Бёдра (таз и верх бедра).
     if (m.hips) {
-      const g = Math.exp(-(((loc.y - (T - 0.13)) / 0.13) ** 2)) * smooth(0.42, 0.36, ax) * torsoW;
+      const g = Math.exp(-(((loc.y - (hipY - 0.04)) / 0.13) ** 2)) * smooth(0.38, 0.32, ax) * torsoW;
       d.x += loc.x * 0.16 * m.hips * g;
       d.z += loc.z * 0.06 * m.hips * g;
     }
@@ -147,7 +152,7 @@ export function bodyMorph(shape: BodyShape, a: Pick<Appearance, 'body'>): Morph 
     }
     // Ноги толще или тоньше (у щиколотки — меньше, там обувь).
     if (m.legs && legW > 0) {
-      const k = 0.3 * m.legs * legW * smooth(0.12, 0.3, loc.y);
+      const k = 0.3 * m.legs * legW * smooth(shape.ankle.y + 0.05, shape.ankle.y + 0.2, loc.y);
       d.x += (loc.x - ql.x) * k;
       d.z += (loc.z - ql.z) * k;
     }

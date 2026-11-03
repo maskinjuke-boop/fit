@@ -6,6 +6,7 @@ import { HAIR_STYLES, HAIR_COLORS, SKIN_TONES } from '../src/ui/game/palette';
 import { GARMENT_IDS, bodyGeometry, frontZ, garmentGeometry, isPrepared, prepare } from '../src/ui/game/three/anatomy';
 import { TORSO_Y } from '../src/ui/game/three/body';
 import { buildCharacter, buildItemModel, disposeObject, garmentsFor } from '../src/ui/game/three/buildCharacter';
+import { landmarks } from '../src/ui/game/three/bodyMesh';
 import { eyeAnchor, headPositions, headTris, loopSubdivide, rayRadiusTable } from '../src/ui/game/three/headMesh';
 import { sphere, surfaceNets } from '../src/ui/game/three/sdf';
 
@@ -193,7 +194,7 @@ describe('Ползунки тела и лица', () => {
       for (let i = 0; i < pos.count; i += 1) {
         const y = pos.getY(i);
         const x = Math.abs(pos.getX(i));
-        if (Math.abs(y - (TORSO_Y + 0.1)) < 0.02 && x < 0.3) w = Math.max(w, x);
+        if (Math.abs(y - landmarks('female').waist) < 0.02 && x < 0.24) w = Math.max(w, x);
       }
       disposeObject(c.root);
       return w;

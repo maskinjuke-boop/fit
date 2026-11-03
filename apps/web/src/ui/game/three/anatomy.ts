@@ -1,15 +1,15 @@
 import * as THREE from 'three';
 import type { Figure } from '../../../game/state';
 import { NECK_WORLD, TORSO_Y, bodyShape, type BodyShape } from './body';
+import { bodyRenderGeometry, bodySdf, bodySdfAsync, landmarks } from './bodyMesh';
+export { landmarks };
 import { loadMesh, saveMesh } from './meshStore';
-import { blend, ellipsoid, netsGen, polyline, roundCone, runSliced, smax, smin, sphere, type Field, type MeshOptions, type Prim, type V3 } from './sdf';
+import { ellipsoid, netsGen, polyline, runSliced, smax, type Field, type MeshOptions, type V3 } from './sdf';
 
 /**
- * Анатомия героя: тело как поле расстояний из трёх частей — корпус, руки и ноги
- * (руки и ноги симметричны: считаются по |x|). Части плавно сливаются в одну кожу.
- * Мужская фигура — «треугольник» с широкими плечами и рельефом груди и пресса,
- * женская — «песочные часы»: узкая талия, широкие бёдра и выраженная грудь.
- * Одежда — оболочки того же тела с маской области (футболка, топ, брюки…).
+ * Анатомия героя: тело — готовая модель MakeHuman (см. bodyMesh), поле расстояний до неё
+ * разделено на три части — корпус, руки и ноги. Одежда — оболочки того же тела с маской
+ * области (футболка, топ, брюки…), поэтому сидит по фигуре.
  */
 
 const T = TORSO_Y;
@@ -29,138 +29,26 @@ interface Anatomy {
   shape: BodyShape;
 }
 
-const lerp3 = (a: THREE.Vector3, b: THREE.Vector3, t: number, off: V3 = [0, 0, 0]): V3 => [a.x + (b.x - a.x) * t + off[0], a.y + (b.y - a.y) * t + off[1], a.z + (b.z - a.z) * t + off[2]];
-const v3 = (p: THREE.Vector3): V3 => [p.x, p.y, p.z];
-
-function torsoPrims(female: boolean): { main: Prim[]; detail: Prim[]; carve: Prim[] } {
-  const neckTop = NECK_WORLD + 0.12;
-  if (female) {
-    return {
-      main: [
-        ellipsoid([0, T + 0.38, -0.005], [0.222, 0.24, 0.148]),
-        ellipsoid([0, T + 0.12, 0], [0.19, 0.2, 0.132]),
-        ellipsoid([0, T + 0.04, 0.03], [0.155, 0.12, 0.108]),
-        ellipsoid([0, T - 0.08, -0.012], [0.285, 0.16, 0.158]),
-        ellipsoid([0.1, T + 0.38, -0.05], [0.125, 0.19, 0.1]),
-        // Трапеция: от шеи вниз к плечу (у женской фигуры — мягкий покатый скат).
-        roundCone([0.03, T + 0.62, -0.035], [0.25, T + 0.535, -0.025], 0.05, 0.042),
-        roundCone([0, T + 0.5, -0.02], [0, neckTop, 0], 0.068, 0.058),
-      ],
-      // Грудь: полная нижняя часть и мягкий переход сверху (каплевидная форма), ягодицы.
-      detail: [
-        ellipsoid([0.086, T + 0.37, 0.118], [0.104, 0.1, 0.112]),
-        ellipsoid([0.075, T + 0.435, 0.07], [0.09, 0.075, 0.075]),
-        ellipsoid([0.095, T - 0.12, -0.08], [0.14, 0.14, 0.126]),
-        // Ключицы и грудино-ключично-сосцевидные мышцы шеи.
-        roundCone([0.018, T + 0.585, 0.06], [0.21, T + 0.565, 0.005], 0.0105, 0.0095),
-        roundCone([0.045, NECK_WORLD + 0.07, -0.005], [0.016, T + 0.6, 0.055], 0.014, 0.011),
-      ],
-      carve: [sphere([0, T + 0.02, 0.14], 0.011)],
-    };
-  }
-  return {
-    main: [
-      ellipsoid([0, T + 0.37, 0], [0.255, 0.26, 0.165]),
-      ellipsoid([0, T + 0.1, 0.005], [0.222, 0.2, 0.15]),
-      ellipsoid([0, T - 0.08, -0.005], [0.245, 0.15, 0.15]),
-      ellipsoid([0.12, T + 0.38, -0.05], [0.15, 0.2, 0.11]),
-      // Трапеция: мощный скат от шеи к плечу.
-      roundCone([0.03, T + 0.65, -0.04], [0.29, T + 0.55, -0.025], 0.064, 0.05),
-      roundCone([0, T + 0.5, -0.02], [0, neckTop, 0], 0.088, 0.072),
-    ],
-    // Грудные мышцы, кубики пресса, ягодицы.
-    detail: [
-      ellipsoid([0.105, T + 0.43, 0.088], [0.12, 0.085, 0.07]),
-      ...[0.04, 0.115, 0.19].map((dy): Prim => ellipsoid([0.045, T + dy, 0.128], [0.042, 0.034, 0.034])),
-      ellipsoid([0.085, T - 0.13, -0.065], [0.12, 0.13, 0.11]),
-      // Ключицы и грудино-ключично-сосцевидные мышцы шеи.
-      roundCone([0.02, T + 0.6, 0.075], [0.25, T + 0.58, 0.01], 0.013, 0.012),
-      roundCone([0.055, NECK_WORLD + 0.07, -0.005], [0.02, T + 0.615, 0.07], 0.018, 0.014),
-    ],
-    carve: [sphere([0, T + 0.02, 0.157], 0.011)],
-  };
-}
-
-function armPrims(shape: BodyShape, female: boolean): Prim[] {
-  const s = shape.shoulder;
-  const e = shape.elbow;
-  const w = shape.wrist;
-  const dir = new THREE.Vector3().subVectors(w, e).normalize();
-  const tip = w.clone().addScaledVector(dir, 0.016);
-  const k = female ? 0.8 : 1;
-  return [
-    // Дельтовидная мышца: округлая «шапочка» над суставом, сужается книзу к месту прикрепления.
-    ellipsoid([s.x + 0.012, s.y - 0.02, 0], [0.085 * k, 0.095 * k, 0.092 * k]),
-    roundCone([s.x + 0.006, s.y + 0.0, 0], lerp3(s, e, 0.42, [0.014, 0, 0]), 0.084 * k, 0.042 * k),
-    roundCone(v3(s), v3(e), 0.085 * k, 0.06 * k),
-    ellipsoid(lerp3(s, e, 0.45, [0, 0, 0.02]), [0.07 * k, 0.11 * k, 0.07 * k]),
-    ellipsoid(lerp3(s, e, 0.45, [0.005, 0, -0.025]), [0.065 * k, 0.12 * k, 0.065 * k]),
-    roundCone(v3(e), v3(w), 0.064 * k, 0.036 * k),
-    ellipsoid(lerp3(e, w, 0.25, [0, 0, 0.005]), [0.064 * k, 0.1 * k, 0.058 * k]),
-    // Запястье плоское, как основание ладони (ладонь смотрит к телу).
-    ellipsoid(v3(tip), [0.026 * k, 0.034 * k, 0.035 * k]),
-  ];
-}
-
-function legPrims(shape: BodyShape, female: boolean): Prim[] {
-  const x = shape.legX;
-  const hip = new THREE.Vector3(x, T - 0.06, 0);
-  const knee = new THREE.Vector3(x * 1.04, 0.6, 0.02);
-  const ankle = new THREE.Vector3(x * 1.06, 0.1, 0);
-  const prims: Prim[] = [
-    roundCone(v3(hip), v3(knee), female ? 0.14 : 0.125, female ? 0.072 : 0.075),
-    ellipsoid(lerp3(hip, knee, 0.4, [0, 0, 0.03]), female ? [0.1, 0.2, 0.095] : [0.1, 0.2, 0.09]),
-    sphere(v3(knee), female ? 0.066 : 0.07),
-    roundCone(v3(knee), v3(ankle), female ? 0.066 : 0.072, female ? 0.04 : 0.045),
-    ellipsoid(lerp3(knee, ankle, 0.25, [0, 0, -0.03]), female ? [0.062, 0.11, 0.062] : [0.07, 0.12, 0.07]),
-    sphere([ankle.x, 0.07, 0.01], 0.045),
-  ];
-  // Женская фигура: полнота бедра снаружи — линия «песочных часов».
-  if (female) prims.push(ellipsoid([x + 0.055, T - 0.2, -0.01], [0.11, 0.16, 0.12]));
-  return prims;
-}
-
 const anatomies = new Map<Figure, Anatomy>();
 
 export function anatomy(figure: Figure): Anatomy {
   let a = anatomies.get(figure);
   if (a) return a;
-  const female = figure === 'female';
-  const shape = bodyShape(figure);
-  const tp = torsoPrims(female);
-  const main = blend(tp.main, 0.09);
-  const detail = blend(tp.detail, 0.03);
-  const carve = tp.carve;
-  const torso: Field = (x, y, z) => {
-    const ax = Math.abs(x);
-    let d = smin(main(ax, y, z), detail(ax, y, z), female ? 0.045 : 0.03);
-    for (const c of carve) d = smax(d, -c.d(ax, y, z), 0.01);
-    return d;
-  };
-  const armF = blend(armPrims(shape, female), 0.035);
-  const legF = blend(legPrims(shape, female), 0.04);
-  const arm: Field = (x, y, z) => armF(Math.abs(x), y, z);
-  const leg: Field = (x, y, z) => legF(Math.abs(x), y, z);
+  const sdf = bodySdf(figure);
+  const tmp: Parts = { torso: 0, arm: 0, leg: 0 };
   a = {
-    shape,
-    torso,
-    arm,
-    leg,
-    eval(x, y, z, out) {
-      const t = torso(x, y, z);
-      const r = arm(x, y, z);
-      const l = leg(x, y, z);
-      if (out) {
-        out.torso = t;
-        out.arm = r;
-        out.leg = l;
-      }
-      return smin(smin(t, r, 0.03), l, 0.06);
-    },
+    shape: bodyShape(figure),
+    torso: (x, y, z) => (sdf.parts(x, y, z, tmp), tmp.torso),
+    arm: (x, y, z) => (sdf.parts(x, y, z, tmp), tmp.arm),
+    leg: (x, y, z) => (sdf.parts(x, y, z, tmp), tmp.leg),
+    eval: (x, y, z, out) => (out ? sdf.parts(x, y, z, out) : sdf.d(x, y, z)),
   };
   anatomies.set(figure, a);
   return a;
 }
+
+/** Поле расстояний строится порциями заранее (затем anatomy() берёт его из кэша). */
+const anatomyAsync = (figure: Figure): Promise<unknown> => bodySdfAsync(figure, (g) => runSliced(g));
 
 /** Общий шаг сетки — у всех оболочек одинаковый, поэтому одежда ложится ровно. */
 export const STEP = 0.014;
@@ -179,13 +67,6 @@ interface Job {
   opts: MeshOptions;
 }
 
-function bodyJob(figure: Figure): Job {
-  const a = anatomy(figure);
-  const field: Field = (x, y, z) => a.eval(x, y, z);
-  // Тени в складках кожи чуть тёплые (подповерхностное рассеяние).
-  return { field, opts: { min: [-0.62, 0.04, -0.32], max: [0.62, NECK_WORLD + 0.2, 0.36], step: STEP, uv: 4, ao: { field, tint: [0.75, 1.05, 1.2] } } };
-}
-
 /** Сетка из кэша или построенная сразу (в тестах и когда ждать нельзя). */
 function meshSync(key: string, job: () => Job): THREE.BufferGeometry {
   let g = geometryCache.get(key);
@@ -201,7 +82,7 @@ function meshSync(key: string, job: () => Job): THREE.BufferGeometry {
 }
 
 /** Версия построителя сеток: менять, если меняется сам алгоритм (развёртка, затенение складок). */
-const MESHER_VERSION = 'r4.1';
+const MESHER_VERSION = 'mh1';
 
 /**
  * «Отпечаток» задания: значения поля в контрольных точках и параметры сетки.
@@ -253,8 +134,30 @@ function meshAsync(key: string, job: () => Job): Promise<THREE.BufferGeometry> {
   return p;
 }
 
-export function bodyGeometry(figure: Figure): THREE.BufferGeometry {
-  return meshSync(`${figure}|body`, () => bodyJob(figure));
+/** Затенение складок кожи по полю расстояний: шаги от поверхности вдоль нормали. */
+function aoAt(figure: Figure): (x: number, y: number, z: number, nx: number, ny: number, nz: number) => number {
+  const a = anatomy(figure);
+  return (x, y, z, nx, ny, nz) => {
+    let occ = 0;
+    let sca = 1;
+    for (let i = 1; i <= 4; i += 1) {
+      const hh = 0.01 + 0.028 * i;
+      occ += Math.max(0, hh - a.eval(x + nx * hh, y + ny * hh, z + nz * hh)) * sca;
+      sca *= 0.7;
+    }
+    return Math.min(1, Math.max(0.3, 1 - occ * 4.2));
+  };
+}
+
+/** Тело; grips — какие кисти сжаты (держат предмет): [правая, левая]. */
+export function bodyGeometry(figure: Figure, grips: readonly [boolean, boolean] = [false, false]): THREE.BufferGeometry {
+  const key = grips[0] || grips[1] ? `${figure}|body|${+grips[0]}${+grips[1]}` : `${figure}|body`;
+  let g = geometryCache.get(key);
+  if (!g) {
+    g = shared(bodyRenderGeometry(figure, aoAt(figure), grips));
+    geometryCache.set(key, g);
+  }
+  return g;
 }
 
 // ─── Одежда ────────────────────────────────────────────────────────────
@@ -278,6 +181,10 @@ export const GARMENT_IDS = [
   'bracers',
   'greaves',
   'mantle',
+  'boots',
+  'sneakers',
+  'sole',
+  'sandals',
 ] as const;
 export type GarmentId = (typeof GARMENT_IDS)[number];
 
@@ -294,6 +201,8 @@ const slab = (y: number, lo: number, hi: number): number => Math.max(lo - y, y -
 function specs(figure: Figure): Record<GarmentId, GarmentSpec> {
   const female = figure === 'female';
   const shape = bodyShape(figure);
+  const L = landmarks(figure);
+  const a = anatomy(figure);
   const s = shape.shoulder;
   const e = shape.elbow;
   const w = shape.wrist;
@@ -306,17 +215,42 @@ function specs(figure: Figure): Record<GarmentId, GarmentSpec> {
   /** Где вдоль плеча (0 — плечевой сустав, 1 — локоть). */
   const tUp = (x: number, y: number, z: number): number => ((Math.abs(x) - s.x) * up.x + (y - s.y) * up.y + (z - s.z) * up.z) / upLen;
   const tFore = (x: number, y: number, z: number): number => ((Math.abs(x) - e.x) * fore.x + (y - e.y) * fore.y + (z - e.z) * fore.z) / foreLen;
+  /** Точка, перенесённая на кожу (с отступом off) по полю расстояний. */
+  const onSkin = (p: V3, off = 0): V3 => {
+    let [x, y, z] = p;
+    const h = 0.004;
+    for (let i = 0; i < 12; i += 1) {
+      const d = a.torso(x, y, z) - off;
+      const gx = a.torso(x + h, y, z) - a.torso(x - h, y, z);
+      const gy = a.torso(x, y + h, z) - a.torso(x, y - h, z);
+      const gz = a.torso(x, y, z + h) - a.torso(x, y, z - h);
+      const gl = Math.hypot(gx, gy, gz) || 1;
+      x -= (d * gx) / gl;
+      y -= (d * gy) / gl;
+      z -= (d * gz) / gl;
+    }
+    return [x, y, z];
+  };
   // Принадлежность части тела: что ближе — корпус, рука или нога.
   const torsoOnly = (p: Parts): number => p.torso - Math.min(p.arm, p.leg) - 0.004;
   const armOnly = (p: Parts): number => p.arm - p.torso + 0.004;
   const notArm = (p: Parts): number => Math.min(p.torso, p.leg) - p.arm - 0.004;
   const legOrHips = (p: Parts): number => Math.min(p.torso, p.leg) - p.arm;
-  const neck = ellipsoid([0, T + 0.66, 0.02], [0.105, 0.09, 0.14]);
-  const scoop = ellipsoid([0, T + 0.64, 0.13], [0.12, 0.13, 0.18]);
-  const backScoop = ellipsoid([0, T + 0.64, -0.14], [0.11, 0.1, 0.12]);
-  const armhole = ellipsoid([0.27, T + 0.52, 0], [0.07, 0.12, 0.16]);
-  const braFront = ellipsoid([0, T + 0.6, 0.17], [0.07, 0.13, 0.12]);
-  const cleavage = ellipsoid([0, T + 0.56, 0.2], [0.045, 0.11, 0.1]);
+  const legOnly = (p: Parts): number => p.leg - Math.min(p.torso, p.arm) + 0.004;
+  // Шея и вырезы — по сечению шеи модели.
+  // Основание шеи — чуть выше ключиц (сустав шеи модели выше, у затылка).
+  const neckY = L.clavicle[1] + 0.035;
+  const ns = section(figure, neckY + 0.02);
+  const nz = (ns.zFront + ns.zBack) / 2;
+  const neck = ellipsoid([0, neckY + 0.04, nz + 0.01], [ns.wx + 0.03, 0.075, (ns.zFront - ns.zBack) / 2 + 0.045]);
+  const bs = section(figure, neckY - 0.03);
+  // Грудь: у женской фигуры — по соску модели, у мужской — по грудным мышцам.
+  const nip: V3 = L.nipple ? [L.nipple[0], L.nipple[1], L.nipple[2]] : [0.1, L.armpit - 0.07, 0.12];
+  const scoop = ellipsoid([0, neckY - 0.01, bs.zFront + 0.03], [0.12, 0.13, 0.16]);
+  const backScoop = ellipsoid([0, neckY - 0.01, bs.zBack - 0.01], [0.11, 0.1, 0.12]);
+  const armhole = ellipsoid([s.x - 0.035, s.y - 0.01, s.z], [0.07, 0.12, 0.16]);
+  const braFront = ellipsoid([0, nip[1] + 0.19, nip[2] + 0.05], [0.06, 0.12, 0.12]);
+  const cleavage = ellipsoid([0, nip[1] + 0.17, nip[2] + 0.06], [0.04, 0.1, 0.1]);
   /** Вырез «лодочкой» спереди, и шея открыта со всех сторон. */
   const scooped = (shrink: number) => (x: number, y: number, z: number): number => Math.min(neck.d(x, y, z), scoop.d(x, y, z) + shrink);
   const torsoBox: [V3, V3] = [
@@ -327,24 +261,28 @@ function specs(figure: Figure): Record<GarmentId, GarmentSpec> {
     [-0.64, T - 0.32, -0.32],
     [0.64, NECK_WORLD + 0.05, 0.36],
   ];
+  const shoulderTop = (k: number): V3 => onSkin([0.07 + (s.x - 0.09) * k, neckY + 0.02, nz - 0.01]);
   const strapF = polyline([
-    [0.07, T + 0.5, 0.16],
-    [0.12, T + 0.6, 0.06],
-    [0.13, T + 0.63, -0.03],
-    [0.05, T + 0.46, -0.15],
+    onSkin([nip[0] - 0.07, nip[1] + 0.13, nip[2]]),
+    onSkin([nip[0] - 0.045, nip[1] + 0.24, nip[2] - 0.02]),
+    shoulderTop(0.45),
+    onSkin([0.1, nip[1] + 0.2, -0.2]),
+    onSkin([0.05, nip[1] + 0.06, -0.2]),
   ]);
-  const halter = polyline([
-    [0.05, T + 0.5, 0.15],
-    [0.065, T + 0.63, 0.06],
-    [0.05, T + 0.7, -0.03],
-    [0, T + 0.68, -0.07],
-  ]);
+  const halter = polyline([onSkin([0.045, nip[1] + 0.12, nip[2]]), onSkin([0.05, nip[1] + 0.24, nip[2] - 0.03]), shoulderTop(0.1), onSkin([0, neckY - 0.03, -0.2])]);
   const top = (lo: number, sleeve: number | null, neckHole: (x: number, y: number, z: number) => number) => (x: number, y: number, z: number, p: Parts) => {
     const body = Math.max(slab(y, lo, NECK_WORLD), notArm(p), -neckHole(Math.abs(x), y, z));
     if (sleeve === null) return body;
     const arm = Math.max(armOnly(p), sleeve <= 1 ? (tUp(x, y, z) - sleeve) * upLen : (tFore(x, y, z) - (sleeve - 1)) * foreLen);
     return Math.min(body, arm);
   };
+  const ankle = L.ankle[1];
+  const knee = L.knee[1];
+  const shoeBox: [V3, V3] = [
+    [-0.42, -0.06, -0.3],
+    [0.42, ankle + 0.33, 0.36],
+  ];
+  const shoe = (topY: number) => (_x: number, y: number, _z: number, p: Parts): number => Math.max(y - topY, legOnly(p));
   return {
     tee: { off: 0.016, min: fullBox[0], max: fullBox[1], mask: top(T - 0.03, 0.42, (x, y, z) => neck.d(x, y, z)) },
     tee_fitted: { off: 0.014, min: fullBox[0], max: fullBox[1], mask: top(T - 0.02, 0.36, scooped(0.04)) },
@@ -363,18 +301,20 @@ function specs(figure: Figure): Record<GarmentId, GarmentSpec> {
       max: torsoBox[1],
       mask: (x, y, z, p) => {
         const ax = Math.abs(x);
-        const band = Math.max(slab(y, T + 0.27, T + 0.52), torsoOnly(p), -braFront.d(ax, y, z), -backScoop.d(ax, y, z) + 0.03);
-        return Math.min(band, Math.max(strapF(ax, y, z) - 0.026, torsoOnly(p)));
+        // Спереди лиф закрывает грудь, сзади — узкая полоса под лопатками.
+        const back = Math.min(1, Math.max(0, (nip[2] - 0.08 - z) / 0.2));
+        const band = Math.max(slab(y, nip[1] - 0.11, nip[1] + 0.16 - 0.1 * back), torsoOnly(p), -braFront.d(ax, y, z));
+        return Math.min(band, Math.max(strapF(ax, y, z) - 0.03, torsoOnly(p)));
       },
     },
-    crop_top: { off: 0.013, min: fullBox[0], max: fullBox[1], mask: top(T + 0.24, 0.22, scooped(0.05)) },
+    crop_top: { off: 0.013, min: fullBox[0], max: fullBox[1], mask: top(nip[1] - 0.13, 0.22, scooped(0.05)) },
     vest: {
       off: 0.026,
       min: torsoBox[0],
       max: torsoBox[1],
       mask: (x, y, z, p) => {
         const ax = Math.abs(x);
-        const open = Math.max(ax - (0.035 + Math.max(0, y - (T + 0.25)) * 0.45), -z);
+        const open = Math.max(ax - (0.035 + Math.max(0, y - (nip[1] - 0.1)) * 0.45), -z);
         return Math.max(slab(y, T - 0.06, NECK_WORLD), torsoOnly(p) + 0.006, -open, -neck.d(ax, y, z) + 0.02, -armhole.d(ax, y, z));
       },
     },
@@ -392,33 +332,49 @@ function specs(figure: Figure): Record<GarmentId, GarmentSpec> {
         const ax = Math.abs(x);
         // Широкая полоса спереди (закрывает грудь целиком, с ложбинкой посередине) сужается к спине.
         const k = Math.min(1, Math.max(0, (z + 0.1) / 0.15));
-        const bandY = Math.abs(y - (T + 0.35 + 0.025 * k)) - (0.05 + 0.075 * k);
+        const bandY = Math.abs(y - (nip[1] - 0.01 + 0.025 * k)) - (0.05 + 0.08 * k);
         const cups = Math.max(bandY, torsoOnly(p), -cleavage.d(ax, y, z));
         return Math.min(cups, Math.max(halter(ax, y, z) - 0.022, torsoOnly(p)));
       },
     },
-    pants: { off: 0.012, min: [-0.42, 0.1, -0.32], max: [0.42, T + 0.08, 0.32], mask: (_x, y, _z, p) => Math.max(slab(y, 0.13, T + 0.04), notArm(p)) },
-    leggings: { off: 0.009, min: [-0.42, 0.1, -0.32], max: [0.42, T + 0.1, 0.32], mask: (_x, y, _z, p) => Math.max(slab(y, 0.13, T + 0.06), notArm(p)) },
-    shorts: { off: 0.011, min: [-0.42, 0.7, -0.32], max: [0.42, T + 0.08, 0.32], mask: (_x, y, _z, p) => Math.max(slab(y, female ? 0.84 : 0.76, T + 0.03), notArm(p)) },
-    briefs: { off: 0.012, min: [-0.42, T - 0.36, -0.32], max: [0.42, T + 0.06, 0.32], mask: (_x, y, _z, p) => Math.max(slab(y, T - 0.25, T + 0.01), legOrHips(p)) },
+    pants: { off: 0.012, min: [-0.46, 0.0, -0.32], max: [0.46, T + 0.08, 0.32], mask: (_x, y, _z, p) => Math.max(slab(y, ankle + 0.06, T + 0.04), notArm(p)) },
+    leggings: { off: 0.009, min: [-0.46, 0.0, -0.32], max: [0.46, T + 0.1, 0.32], mask: (_x, y, _z, p) => Math.max(slab(y, ankle + 0.07, T + 0.06), notArm(p)) },
+    shorts: { off: 0.011, min: [-0.46, knee, -0.32], max: [0.46, T + 0.08, 0.32], mask: (_x, y, _z, p) => Math.max(slab(y, knee + (female ? 0.2 : 0.14), T + 0.03), notArm(p)) },
+    briefs: { off: 0.012, min: [-0.46, L.crotch - 0.12, -0.32], max: [0.46, T + 0.06, 0.32], mask: (_x, y, _z, p) => Math.max(slab(y, L.crotch - 0.04, T - 0.02), legOrHips(p)) },
     bracers: {
       off: 0.024,
-      min: [-0.64, T - 0.32, -0.2],
-      max: [0.64, T + 0.25, 0.2],
+      min: [-0.64, w.y - 0.1, -0.2],
+      max: [0.64, e.y + 0.1, 0.2],
       mask: (x, y, z, p) => Math.max(armOnly(p), (0.32 - tFore(x, y, z)) * foreLen, (tFore(x, y, z) - 0.95) * foreLen),
     },
     // Накидка капюшона: лежит на плечах поверх любой одежды, вокруг шеи — свободный вырез.
     mantle: {
       off: 0.042,
-      min: [-0.62, T + 0.24, -0.34],
+      min: [-0.62, s.y - 0.3, -0.34],
       max: [0.62, NECK_WORLD + 0.08, 0.38],
-      mask: (x, y, z) => Math.max(T + 0.36 + 0.03 * Math.min(1, Math.abs(x) / 0.3) - y, -(neck.d(Math.abs(x), y, z) - 0.025)),
+      mask: (x, y, z) => Math.max(s.y - 0.16 + 0.03 * Math.min(1, Math.abs(x) / 0.3) - y, -(neck.d(Math.abs(x), y, z) - 0.025)),
     },
     greaves: {
       off: 0.02,
-      min: [-0.36, 0.25, -0.24],
-      max: [0.36, 0.62, 0.26],
-      mask: (_x, y, z, p) => Math.max(slab(y, 0.32, 0.56), p.leg - p.torso, -z - 0.02),
+      min: [-0.4, knee - 0.4, -0.24],
+      max: [0.4, knee, 0.26],
+      mask: (_x, y, z, p) => Math.max(slab(y, knee - 0.3, knee - 0.05), p.leg - p.torso, L.knee[2] - z - 0.02),
+    },
+    boots: { off: 0.014, min: shoeBox[0], max: shoeBox[1], mask: shoe(ankle + 0.27) },
+    sneakers: { off: 0.012, min: shoeBox[0], max: shoeBox[1], mask: shoe(ankle + 0.045) },
+    sole: { off: 0.022, min: shoeBox[0], max: [0.42, 0.08, 0.36], mask: shoe(0.028) },
+    sandals: {
+      off: 0.01,
+      min: shoeBox[0],
+      max: shoeBox[1],
+      mask: (_x, y, z, p) => {
+        // Ремешки: вокруг щиколотки, над подъёмом и поперёк стопы, плюс шнуровка по голени.
+        const ring1 = Math.abs(y - (ankle + 0.005)) - 0.012;
+        const ring2 = Math.abs(y - (ankle + 0.17)) - 0.01;
+        const ring3 = Math.abs(y - (ankle + 0.1)) - 0.01;
+        const instep = Math.max(Math.abs(z - (L.toe[2] + 0.03)) - 0.013, y - ankle);
+        return Math.max(Math.min(ring1, ring2, ring3, instep), legOnly(p));
+      },
     },
   };
 }
@@ -466,7 +422,8 @@ export function isPrepared(figure: Figure, garments: readonly GarmentId[]): bool
 
 /** Заранее строит тело (если body) и одежду порциями, не блокируя интерфейс. */
 export async function prepare(figure: Figure, garments: readonly GarmentId[], body = true): Promise<void> {
-  if (body) await meshAsync(`${figure}|body`, () => bodyJob(figure));
+  await anatomyAsync(figure);
+  if (body) bodyGeometry(figure);
   for (const g of garments) await meshAsync(`${figure}|${g}`, () => garmentJob(figure, g));
 }
 
@@ -536,15 +493,29 @@ export function onTorso(shape: BodyShape, x: number, worldY: number, off = 0.02,
 
 /** Пояс-кольцо по сечению тела на высоте y. */
 export function band(shape: BodyShape, worldY: number, tube: number, m: THREE.Material, off = 0.03): THREE.Mesh {
+  // Кольцо повторяет сечение тела (поясница вогнута, живот и ягодицы выпуклые).
+  const a = anatomy(shape.figure);
   const s = section(shape.figure, worldY);
-  const rx = s.wx + off;
-  const rz = (s.zFront - s.zBack) / 2 + off;
-  const geo = new THREE.TorusGeometry(rx, tube, 10, 64);
-  geo.rotateX(Math.PI / 2);
-  const me = new THREE.Mesh(geo, m);
-  me.position.set(0, worldY, (s.zFront + s.zBack) / 2);
-  me.scale.set(1, 1, rz / rx);
-  return me;
+  const zc = (s.zFront + s.zBack) / 2;
+  const f = (x: number, z: number): number => Math.min(a.torso(x, worldY, z), a.leg(x, worldY, z)) - off;
+  const N = 72;
+  const r: number[] = [];
+  for (let i = 0; i < N; i += 1) {
+    const t = (i / N) * Math.PI * 2;
+    const dx = Math.sin(t);
+    const dz = Math.cos(t);
+    let q = 0.02;
+    while (q < 0.7 && f(dx * q, zc + dz * q) < 0) q += 0.004;
+    r.push(q);
+  }
+  // Сглаживание по кругу — без мелких изломов.
+  const sm = r.map((_, i) => (r[(i + N - 2) % N]! + 2 * r[(i + N - 1) % N]! + 3 * r[i]! + 2 * r[(i + 1) % N]! + r[(i + 2) % N]!) / 9);
+  const pts = sm.map((q, i) => {
+    const t = (i / N) * Math.PI * 2;
+    return new THREE.Vector3(Math.sin(t) * q, worldY, zc + Math.cos(t) * q);
+  });
+  const geo = new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts, true), 144, tube, 10, true);
+  return new THREE.Mesh(geo, m);
 }
 
 /** Юбка или подол от талии вниз: профиль (радиус, высота от талии), растянутый по бёдрам героя. */
