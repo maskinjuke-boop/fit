@@ -4,6 +4,7 @@ import type { Appearance, Figure } from '../../../game/state';
 import { prepare } from './anatomy';
 import { HEAD_CENTER_WORLD, HEAD_GROW } from './body';
 import { buildCharacter, buildItemModel, disposeObject, garmentsFor } from './buildCharacter';
+import { loadHairTexture } from './hairMesh';
 import { HEAD_GARMENTS, itemGarments } from './items3d';
 import { createStudio, enableShadows, setupRenderer, type Studio } from './studio';
 
@@ -167,7 +168,7 @@ export async function renderItem(id: string, color: string, figure: Figure, size
 
 /** Портрет героя по пояс для шапки и списков. */
 export async function renderPortrait(appearance: Appearance, color: string, equipped: Partial<Record<Slot, string>>, size = 160): Promise<string> {
-  await prepare(appearance.figure, garmentsFor(appearance.figure, equipped.body, equipped.head));
+  await Promise.all([prepare(appearance.figure, garmentsFor(appearance.figure, equipped.body, equipped.head)), loadHairTexture(appearance.hair)]);
   return enqueue(() => {
     const { studio: st } = ensure();
     const parts = buildCharacter(appearance, color, equipped);

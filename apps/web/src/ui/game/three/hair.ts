@@ -1,35 +1,23 @@
 import * as THREE from 'three';
 import type { Appearance, Figure } from '../../../game/state';
 import { anatomy } from './anatomy';
-import { HEAD_GROW, HEAD_R, HEAD_SCALE, HEAD_Y, NECK_WORLD, NECK_Y } from './body';
-import { HAIRLINE, faceNeutral, hairCap, lineAt, skullPoint, skullShell, type Hairline } from './head';
-import { M, mesh, taperTube, v, type Mat } from './kit';
-import { mergeGeometries } from './sdf';
-import { sheet, strands, type Drape } from './strands';
+import { HEAD_GROW, HEAD_Y, NECK_WORLD, NECK_Y } from './body';
+import { faceKey, faceNeutral, faceValues, skullPoint } from './head';
+import { hairTexture, isMeshHair, loadHairTexture, meshHairGeometry } from './hairMesh';
+import { M, mesh, v, type Mat } from './kit';
+import type { Drape } from './strands';
 
 /**
- * Причёски. Основа — «шапка» по форме черепа с естественной линией роста волос,
- * длинные волосы и хвост собраны из прядей: сплюснутых лент, которые лежат по голове,
- * спадают по спине и через плечи. Координаты — собственные координаты головы.
+ * Причёски — готовые причёски MakeHuman (CC0, см. hairMesh): сетки из карточек с текстурой
+ * прядей, сделанные для той же модели головы. Под шляпой волосы прижаты к голове, под шлемом
+ * видны только длинные пряди; длинные волосы ложатся поверх тела и одежды.
+ * Координаты — собственные координаты головы.
  */
 
 export type Cover = 'none' | 'hat' | 'helm';
 
-const HS = HEAD_SCALE;
-/** Сдвиг волос относительно центра головы (как у шапки волос). */
-const ORIGIN = v(0, HEAD_Y + 0.004, -0.004);
-
-/** Детерминированный «шум» для разброса прядей. */
-const jitter = (i: number, k: number): number => {
-  const s = Math.sin(i * 12.9898 + k * 78.233) * 43758.5453;
-  return s - Math.floor(s) - 0.5;
-};
-
 /** Направление от центра головы: th — угол от макушки, phi — от лица (+Z) вокруг вертикали. */
 const dir = (th: number, phi: number): THREE.Vector3 => v(Math.sin(th) * Math.sin(phi), Math.cos(th), Math.sin(th) * Math.cos(phi));
-
-/** Точка на поверхности головы (с отступом off) в координатах головы. */
-const onSkull = (th: number, phi: number, off: number, female: boolean): THREE.Vector3 => skullPoint(dir(th, phi), female, off).add(ORIGIN);
 
 function drapeFor(figure: Figure, clearance: number): Drape & { clearance: number } {
   const a = anatomy(figure);
@@ -44,232 +32,96 @@ function drapeFor(figure: Figure, clearance: number): Drape & { clearance: numbe
   };
 }
 
-/** Где за спиной лежат длинные волосы: дуга (в координатах головы), огибающая шею и лопатки. */
-const curtain = (female: boolean): { rx: number; zc: number; rz: number } => (female ? { rx: 0.27, zc: -0.095, rz: 0.235 } : { rx: 0.31, zc: -0.105, rz: 0.26 });
-
-/**
- * Длинные волосы: пряди сзади до лопаток и по бокам — через плечи на грудь.
- * from — откуда начинаются пряди (угол от макушки): под шапкой и шлемом — ниже.
- */
-function longLocks(figure: Figure, from: number, clearance: number): THREE.BufferGeometry {
-  const female = figure === 'female';
-  const arc = curtain(female);
-  const atArc = (phi: number, y: number, grow = 1): THREE.Vector3 => v(arc.rx * grow * Math.sin(phi), y, arc.zc + arc.rz * grow * Math.cos(phi));
-  const drape = drapeFor(figure, clearance);
-  // Сзади: веер прядей от виска до виска через затылок (по порядку — для сплошного слоя под ними).
-  const back: THREE.Vector3[][] = [];
-  const backW: number[] = [];
-  const nb = 24;
-  for (let i = 0; i < nb; i += 1) {
-    const phi = Math.PI * (0.6 + (0.8 * i) / (nb - 1)) + jitter(i, 1) * 0.03;
-    // Сзади по центру пряди чуть длиннее, к вискам — короче.
-    const len = 0.6 + jitter(i, 2) * 0.11 + Math.abs(Math.cos(phi)) * 0.05;
-    const p0 = onSkull(Math.max(from, Math.PI * 0.34), phi, 0.028, female);
-    const p1 = onSkull(Math.PI * 0.5, phi, 0.044, female);
-    const p2 = p1.clone().add(v(0, -0.1, 0)).lerp(atArc(phi, p1.y - 0.1), 0.35);
-    const p3 = atArc(phi, HEAD_Y - 0.34);
-    const p4 = atArc(phi, HEAD_Y - len, 1.06).add(v(jitter(i, 3) * 0.025, 0, 0));
-    back.push([p0, p1, p2, p3, p4]);
-    backW.push(0.036 + jitter(i, 4) * 0.006);
-  }
-  // По бокам: пряди перед ушами спадают через плечи вперёд.
-  const sides: THREE.Vector3[][][] = [];
-  for (const sx of [-1, 1]) {
-    const side: THREE.Vector3[][] = [];
-    [0.36, 0.405, 0.45, 0.495, 0.54].forEach((k, i) => {
-      const phi = sx * Math.PI * k;
-      const p0 = onSkull(Math.max(from, Math.PI * (0.28 + i * 0.024)), phi, 0.028, female);
-      const p1 = onSkull(Math.PI * 0.5, phi, 0.046, female);
-      const p2 = p1.clone().add(v(0.012 * sx, -0.12, 0));
-      const x = female ? 0.28 : 0.31;
-      const p3 = v(sx * (x + 0.01 * i), HEAD_Y - 0.31, 0.03 - i * 0.016);
-      const p4 = v(sx * (x - 0.01 + 0.01 * i), HEAD_Y - 0.45, 0.15 - i * 0.02);
-      const p5 = v(sx * (x - 0.02 + 0.012 * i), HEAD_Y - 0.6 + i * 0.024, 0.2 - i * 0.024);
-      side.push([p0, p1, p2, p3, p4, p5]);
-    });
-    sides.push(side);
-  }
-  const front = sides.flat();
-  const locks = strands([...back, ...front], [...backW, ...front.map(() => 0.034)], 0.011, 24, 8, drape, 3);
-  // Сплошные слои под прядями: сзади и по бокам — сквозь причёску не просвечивает.
-  return mergeGeometries([locks, sheet(back, 0.011, 24, drape, 0.006, 0.74), ...sides.map((sd) => sheet(sd, 0.011, 24, drape, 0.006, 0.74))]);
-}
-
-/**
- * Короткие пряди вдоль линии роста волос: край причёски не «отрезан», а мягкий и неровный.
- */
-function hairlineTufts(line: Hairline, off: number, female: boolean): THREE.BufferGeometry {
-  const paths: THREE.Vector3[][] = [];
-  const widths: number[] = [];
-  const n = 96;
-  for (let i = 0; i < n; i += 1) {
-    const phi = -Math.PI + (2 * Math.PI * (i + 0.5)) / n;
-    const end = lineAt(line, Math.abs(phi) / Math.PI);
-    // Прядки лежат по голове: выходят из-под причёски и ложатся на кожу у линии роста.
-    const a = onSkull(end - 0.1, phi, off * 0.8, female);
-    const b = onSkull(end - 0.03, phi, off * 0.45, female);
-    const c = onSkull(end + 0.006 + Math.abs(jitter(i, 9)) * 0.014, phi, 0.0025, female);
-    paths.push([a, b, c]);
-    widths.push(0.012 + Math.abs(jitter(i, 10)) * 0.006);
-  }
-  return strands(paths, widths, 0.0022, 8, 6);
-}
-
-/** Сетки прядей не зависят от цвета — строятся один раз и переиспользуются. */
-const lockCache = new Map<string, THREE.BufferGeometry>();
-function cached(key: string, make: () => THREE.BufferGeometry, faceDependent = true): THREE.BufferGeometry {
-  // Пряди по изменённому ползунками лицу строятся для героя заново и освобождаются вместе с ним.
-  if (faceDependent && !faceNeutral()) return make();
-  let g = lockCache.get(key);
+const hairCache = new Map<string, THREE.BufferGeometry>();
+function cached(key: string, make: () => THREE.BufferGeometry): THREE.BufferGeometry {
+  // Причёска по изменённому ползунками лицу строится для героя заново и освобождается вместе с ним.
+  if (!faceNeutral()) return make();
+  let g = hairCache.get(key);
   if (!g) {
     g = make();
     g.userData.shared = true;
-    lockCache.set(key, g);
+    hairCache.set(key, g);
   }
   return g;
 }
 
-const ponyCenter = (y0: number, z0: number): THREE.CatmullRomCurve3 =>
-  new THREE.CatmullRomCurve3([v(0, y0, z0), v(0, y0 - 0.06, z0 - 0.12), v(0.01, y0 - 0.3, z0 - 0.1), v(0.03, y0 - 0.56, z0 - 0.04)]);
-
-/** Хвост из прядей, закрученных в лёгкую спираль, вокруг плотной сердцевины. */
-function ponytail(y0: number, z0: number): THREE.BufferGeometry {
-  const center = ponyCenter(y0, z0);
-  const paths: THREE.Vector3[][] = [];
-  const widths: number[] = [];
-  const n = 10;
-  for (let i = 0; i < n; i += 1) {
-    const a0 = (i / n) * Math.PI * 2;
-    const pts: THREE.Vector3[] = [];
-    for (let k = 0; k <= 6; k += 1) {
-      const t = k / 6;
-      const c = center.getPointAt(Math.min(1, t * (0.92 + jitter(i, 5) * 0.1)));
-      const r = 0.018 + 0.036 * Math.sin(Math.PI * Math.min(1, t * 1.15)) + 0.012 * t;
-      const a = a0 + t * 0.9;
-      pts.push(c.add(v(Math.cos(a) * r, 0, Math.sin(a) * r * 0.8)));
-    }
-    paths.push(pts);
-    widths.push(0.026);
+/**
+ * Готовая причёска MakeHuman: сетка из карточек с текстурой прядей. Пока текстура
+ * загружается, материал причёски скрыт (без неё карточки выглядели бы сплошными полосами).
+ */
+function meshHair(style: string, m: Mat, cover: Cover, figure: Figure, clearance: number): THREE.Mesh {
+  const female = figure === 'female';
+  const drape = drapeFor(figure, clearance);
+  const q = new THREE.Vector3();
+  const n = new THREE.Vector3();
+  const key = `mh|${style}|${figure}|${cover}|${clearance.toFixed(3)}|${faceKey()}`;
+  const geo = cached(key, () =>
+    meshHairGeometry(style as never, female, {
+      face: faceValues(),
+      neutral: faceNeutral(),
+      cover,
+      skull: (d, off) => skullPoint(d, female, off),
+      // Пряди ниже головы ложатся поверх тела и одежды.
+      push: (p) => {
+        for (let k = 0; k < 2; k += 1) {
+          q.set(p.x, p.y + HEAD_Y, p.z);
+          const dist = drape.dist(q);
+          if (dist >= drape.clearance) return;
+          drape.normal(q, n);
+          p.addScaledVector(n, drape.clearance - dist);
+        }
+      },
+    }),
+  );
+  // Карточкам — простой материал без анизотропного блика: на плоских полосках он даёт
+  // белые «искры»; объём и блеск прядей уже нарисованы в текстуре.
+  const base = m as THREE.MeshStandardMaterial;
+  m = new THREE.MeshStandardMaterial({ color: base.color, roughness: 0.62, metalness: 0, envMapIntensity: 0.45, side: THREE.DoubleSide, alphaTest: 0.45 });
+  base.dispose();
+  const me = new THREE.Mesh(geo, m);
+  me.position.y = HEAD_Y;
+  const t = hairTexture(style);
+  if (t) m.map = t;
+  else if (typeof document !== 'undefined') {
+    m.visible = false;
+    void loadHairTexture(style).then((tx) => {
+      if (tx) {
+        m.map = tx;
+        m.needsUpdate = true;
+      }
+      m.visible = true;
+    });
   }
-  return strands(paths, widths, 0.012, 24, 8, undefined, 3);
+  return me;
 }
 
-/** Сегмент «шапки» волос по форме черепа: th0..th1 — от макушки вниз, open — вырез для лица (рад, 0 — без выреза). */
-function hairShell(r: number, th0: number, th1: number, open: number, m: Mat, female: boolean): THREE.Mesh {
-  const geo = open > 0 ? new THREE.SphereGeometry(1, 48, 20, Math.PI / 2 + open, Math.PI * 2 - open * 2, th0, th1 - th0) : new THREE.SphereGeometry(1, 48, 20, 0, Math.PI * 2, th0, th1 - th0);
-  return mesh(skullShell(geo, r - HEAD_R, female), m, [0, HEAD_Y + 0.005, -0.004]);
-}
-
-/** Волосы с естественной линией роста; from > 0 — только полоса ниже шапки. */
-function cap(off: number, line: Hairline, m: Mat, female: boolean, from = 0, taper = 0): THREE.Mesh {
-  return mesh(hairCap(off, line, female, from, taper), m, [0, HEAD_Y + 0.004, -0.004]);
-}
-
-/** Неровный край каре: короткие пряди по нижней кромке. */
-function bobFringe(r: number, th: number, open: number, female: boolean): THREE.BufferGeometry {
-  const paths: THREE.Vector3[][] = [];
-  const widths: number[] = [];
-  const n = 26;
-  for (let i = 0; i < n; i += 1) {
-    // Угол от лица: вырез для лица (|phi| < open) остаётся открытым, как у «шапки».
-    const phi = open + ((Math.PI * 2 - open * 2) * (i + 0.5)) / n;
-    const off = r - HEAD_R;
-    const a = onSkull(th - 0.2, phi, off, female);
-    const b = onSkull(th - 0.05, phi, off + 0.006, female);
-    const c = b.clone().add(v(0, -0.05 - Math.abs(jitter(i, 7)) * 0.03, 0)).add(b.clone().sub(ORIGIN).setY(0).normalize().multiplyScalar(-0.012));
-    paths.push([a, b, c]);
-    widths.push(0.03);
-  }
-  return strands(paths, widths, 0.01, 10, 8);
+/**
+ * Пучок на затылке поверх зачёсанных назад волос: приплюснутый шар с той же текстурой прядей
+ * (участок текстуры, целиком покрытый волосами) и резинка.
+ */
+function bunKnot(hair: THREE.Mesh, female: boolean): THREE.Group {
+  const g = new THREE.Group();
+  const c = skullPoint(dir(Math.PI * 0.36, Math.PI), female, 0.03).add(v(0, HEAD_Y, 0));
+  const geo = new THREE.SphereGeometry(0.085, 28, 18);
+  const uv = geo.getAttribute('uv');
+  // Участок текстуры bun.webp без прозрачности (u 0.17…0.46, v 0.56…0.85).
+  for (let i = 0; i < uv.count; i += 1) uv.setXY(i, 0.18 + 0.27 * ((uv.getX(i) * 3) % 1), 0.57 + 0.27 * uv.getY(i));
+  const ball = new THREE.Mesh(geo, hair.material);
+  ball.position.copy(c);
+  ball.scale.set(1, 0.85, 0.8);
+  g.add(ball);
+  const tie = mesh(new THREE.TorusGeometry(0.06, 0.012, 8, 24), M.cloth('#d23a4a', 2), [c.x, c.y - 0.01, c.z + 0.035]);
+  tie.rotation.x = -0.5;
+  g.add(tie);
+  return g;
 }
 
 /** clearance — насколько одежда выступает над кожей: длинные пряди ложатся поверх неё. */
 export function buildHair(style: Appearance['hair'], m: Mat, cover: Cover, figure: Figure, clearance = 0.016): THREE.Group {
   const g = new THREE.Group();
-  const female = figure === 'female';
-  const helm = cover === 'helm';
-  const hat = cover === 'hat';
-  m.side = THREE.DoubleSide;
-  switch (style) {
-    case 'buzz':
-      if (!hat && !helm) g.add(cap(0.007, HAIRLINE.short, m, female));
-      break;
-    case 'short':
-      if (hat) g.add(cap(0.012, HAIRLINE.short, m, female, Math.PI * 0.33, 0.6));
-      if (!hat && !helm) {
-        // Объём на макушке, к вискам и затылку волосы короче (плавный переход, как у стрижки).
-        g.add(cap(0.026, HAIRLINE.short, m, female, 0, 0.82));
-        g.add(new THREE.Mesh(cached(`${figure}|tufts|short`, () => hairlineTufts(HAIRLINE.short, 0.006, female)), m));
-      }
-      break;
-    case 'long': {
-      const r = HEAD_R + 0.03;
-      // Сверху — волосы с линией роста, ниже — пряди по бокам с открытым лицом.
-      if (!hat && !helm) {
-        g.add(cap(0.03, HAIRLINE.long, m, female));
-        g.add(new THREE.Mesh(cached(`${figure}|tufts|long`, () => hairlineTufts(HAIRLINE.long, 0.03, female)), m));
-      }
-      if (!helm) g.add(hairShell(r, hat ? Math.PI * 0.34 : Math.PI * 0.3, Math.PI * 0.6, 1.05, m, female));
-      const from = helm ? Math.PI * 0.52 : hat ? Math.PI * 0.42 : Math.PI * 0.34;
-      g.add(new THREE.Mesh(cached(`${figure}|long|${cover}|${clearance.toFixed(3)}`, () => longLocks(figure, from, clearance)), m));
-      break;
-    }
-    case 'ponytail': {
-      if (!hat && !helm) {
-        g.add(cap(0.018, HAIRLINE.pony, m, female, 0, 0.7));
-        g.add(new THREE.Mesh(cached(`${figure}|tufts|pony`, () => hairlineTufts(HAIRLINE.pony, 0.006, female)), m));
-      }
-      if (hat) g.add(cap(0.016, HAIRLINE.pony, m, female, Math.PI * 0.33));
-      const y0 = helm || hat ? HEAD_Y - 0.02 : HEAD_Y + 0.07;
-      const z0 = helm || hat ? -0.3 : -0.285;
-      g.add(mesh(new THREE.TorusGeometry(0.045, 0.016, 8, 20), M.cloth('#d23a4a', 2), [0, y0, z0 - 0.015]));
-      g.add(new THREE.Mesh(taperTube(ponyCenter(y0, z0), 0.05, 0.01, 28, 12), m));
-      g.add(new THREE.Mesh(cached(`pony|${cover === 'none' ? 'up' : 'low'}`, () => ponytail(y0, z0), false), m));
-      break;
-    }
-    case 'bob': {
-      const r = HEAD_R + 0.045;
-      if (!helm) {
-        g.add(hairShell(r, hat ? Math.PI * 0.33 : 0, Math.PI * 0.64, 1.0, m, female));
-        g.add(new THREE.Mesh(cached(`${figure}|bob`, () => bobFringe(r, Math.PI * 0.64, 1.0, female)), m));
-      }
-      if (!hat && !helm) {
-        // Чёлка на лоб.
-        g.add(mesh(new THREE.SphereGeometry(r + 0.004, 40, 8, Math.PI / 2 - 1.05, 2.1, Math.PI * 0.06, Math.PI * 0.28), m, [0, HEAD_Y + 0.01, -0.01], [HS.x, HS.y, HS.z]));
-      }
-      break;
-    }
-    case 'bun':
-      if (hat) g.add(cap(0.012, HAIRLINE.pony, m, female, Math.PI * 0.33));
-      if (!hat && !helm) {
-        g.add(cap(0.016, HAIRLINE.pony, m, female, 0, 0.7));
-        g.add(mesh(new THREE.SphereGeometry(0.11, 20, 14), m, [0, HEAD_Y + 0.25, -0.13]));
-        g.add(mesh(new THREE.TorusGeometry(0.075, 0.018, 8, 20), M.cloth('#d23a4a', 2), [0, HEAD_Y + 0.19, -0.1]).rotateX(-0.9));
-      }
-      break;
-    case 'curly': {
-      if (helm) break;
-      if (!hat) g.add(cap(0.01, HAIRLINE.short, m, female));
-      const n = 54;
-      const ball = new THREE.IcosahedronGeometry(0.072, 1);
-      for (let i = 0; i < n; i += 1) {
-        // Точки Фибоначчи на верхней части головы, кроме лица.
-        const y = 1 - (i / (n - 1)) * 1.25;
-        const rr = Math.sqrt(Math.max(0, 1 - y * y));
-        const phi = i * 2.399963;
-        const x = Math.cos(phi) * rr;
-        const z = Math.sin(phi) * rr;
-        if (y < 0.15 && z > 0.35) continue;
-        if (y < -0.2) continue;
-        // Под головным убором остаются только кудри, выглядывающие снизу.
-        if (hat && y > 0.12) continue;
-        const k = hat ? 0.27 : 0.29;
-        const b = mesh(ball, m, [x * k * HS.x, HEAD_Y + y * 0.3 * HS.y, z * k * HS.z - 0.01]);
-        b.rotation.set(i, i * 2, 0);
-        g.add(b);
-      }
-      break;
-    }
-  }
+  if (!isMeshHair(style)) return g;
+  const me = meshHair(style, m, cover, figure, clearance);
+  g.add(me);
+  if (style === 'bun' && cover === 'none') g.add(bunKnot(me, figure === 'female'));
   return g;
 }

@@ -7,6 +7,7 @@ import { GARMENT_IDS, bodyGeometry, frontZ, garmentGeometry, isPrepared, prepare
 import { TORSO_Y } from '../src/ui/game/three/body';
 import { buildCharacter, buildItemModel, disposeObject, garmentsFor } from '../src/ui/game/three/buildCharacter';
 import { landmarks } from '../src/ui/game/three/bodyMesh';
+import { isMeshHair, meshHairGeometry } from '../src/ui/game/three/hairMesh';
 import { eyeAnchor, headPositions, headTris, loopSubdivide, rayRadiusTable } from '../src/ui/game/three/headMesh';
 import { sphere, surfaceNets } from '../src/ui/game/three/sdf';
 
@@ -253,5 +254,32 @@ describe('Голова MakeHuman', () => {
     const box = (p: Float32Array): number[] => [0, 1, 2].map((c) => Math.max(...Array.from(p).filter((_, i) => i % 3 === c)) - Math.min(...Array.from(p).filter((_, i) => i % 3 === c)));
     const [a, b] = [box(base), box(sub.pos)];
     for (let c = 0; c < 3; c += 1) expect(Math.abs(a[c]! - b[c]!)).toBeLessThan(0.02);
+  });
+});
+
+describe('Причёски MakeHuman', () => {
+  const neutral = Object.fromEntries(FACE_PARTS.map((k) => [k, 0])) as Record<(typeof FACE_PARTS)[number], number>;
+  const fit = (cover: 'none' | 'hat' | 'helm') => ({ face: neutral, neutral: true, cover, skull: (d: Vector3, off: number) => d.clone().multiplyScalar(0.2 + off) });
+
+  it('каждая причёска строится для обеих фигур и сидит на голове', () => {
+    for (const style of HAIR_STYLES) {
+      expect(isMeshHair(style)).toBe(true);
+      for (const female of [true, false]) {
+        const g = meshHairGeometry(style as never, female, fit('none'));
+        expect(g.index!.count).toBeGreaterThan(900);
+        const box = new Box3().setFromBufferAttribute(g.getAttribute('position') as never);
+        expect(box.max.y).toBeGreaterThan(0.25);
+        expect(box.max.y).toBeLessThan(0.4);
+        g.dispose();
+      }
+    }
+  });
+
+  it('под шлемом остаются только длинные пряди', () => {
+    for (const style of HAIR_STYLES) {
+      const g = meshHairGeometry(style as never, true, fit('helm'));
+      if (style === 'long' || style === 'ponytail') expect(g.index!.count).toBeGreaterThan(0);
+      else expect(g.index!.count).toBe(0);
+    }
   });
 });

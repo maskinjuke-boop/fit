@@ -42,6 +42,8 @@ export function setFace(face: Appearance['face']): void {
 /** Ключ черт лица для кэшей; '0' — лицо по умолчанию. */
 export const faceKey = (): string => FKEY;
 export const faceNeutral = (): boolean => FKEY === '0';
+/** Текущие значения ползунков лица. */
+export const faceValues = (): Record<FacePart, number> => F;
 
 /** Радиус поверхности по направлениям (таблица θ×φ, по лучам от центра к поверхности). */
 const NT = 120;
@@ -87,69 +89,6 @@ function surface(d: THREE.Vector3, female: boolean, out = new THREE.Vector3()): 
 export function skullPoint(d: THREE.Vector3, female: boolean, off = 0): THREE.Vector3 {
   const n = d.clone().normalize();
   return surface(n, female).addScaledVector(n, off);
-}
-
-/**
- * Подгоняет сферический сегмент (единичного радиуса) под форму черепа с отступом off —
- * так волосы и шапочки облегают голову, а не висят шаром.
- */
-export function skullShell(geo: THREE.BufferGeometry, off: number, female: boolean): THREE.BufferGeometry {
-  const pos = geo.getAttribute('position');
-  const d = new THREE.Vector3();
-  const p = new THREE.Vector3();
-  for (let i = 0; i < pos.count; i += 1) {
-    d.fromBufferAttribute(pos, i).normalize();
-    surface(d, female, p).addScaledVector(d, off);
-    pos.setXYZ(i, p.x, p.y, p.z);
-  }
-  geo.computeVertexNormals();
-  return geo;
-}
-
-/** Линия роста волос: доля π от макушки в зависимости от направления (0 — лоб, 1 — затылок). */
-export type Hairline = Array<[number, number]>;
-export const HAIRLINE: Record<'short' | 'long' | 'pony', Hairline> = {
-  short: [[0, 0.27], [0.16, 0.31], [0.3, 0.44], [0.5, 0.47], [0.75, 0.56], [1, 0.6]],
-  long: [[0, 0.25], [0.16, 0.3], [0.3, 0.42], [1, 0.45]],
-  pony: [[0, 0.26], [0.16, 0.31], [0.3, 0.43], [0.5, 0.47], [0.75, 0.55], [1, 0.58]],
-};
-
-export function lineAt(line: Hairline, t: number): number {
-  for (let i = 1; i < line.length; i += 1) {
-    const [t0, v0] = line[i - 1]!;
-    const [t1, v1] = line[i]!;
-    if (t <= t1) {
-      const k = (t - t0) / (t1 - t0);
-      return (v0 + (v1 - v0) * k * k * (3 - 2 * k)) * Math.PI;
-    }
-  }
-  return line[line.length - 1]![1] * Math.PI;
-}
-
-/**
- * Волосы по форме черепа с естественной линией роста: от макушки до линии hairline
- * (или полоса от угла from до линии — то, что видно из-под шапки).
- */
-/** taper — насколько волосы тоньше у линии роста, чем на макушке (0 — одинаковой толщины). */
-export function hairCap(off: number, line: Hairline, female: boolean, from = 0, taper = 0): THREE.BufferGeometry {
-  const geo = new THREE.SphereGeometry(1, 72, 24, 0, Math.PI * 2, 0, 1);
-  const pos = geo.getAttribute('position');
-  const p = new THREE.Vector3();
-  const d = new THREE.Vector3();
-  for (let i = 0; i < pos.count; i += 1) {
-    const x = pos.getX(i);
-    const y = pos.getY(i);
-    const z = pos.getZ(i);
-    const t0 = Math.acos(Math.max(-1, Math.min(1, y)));
-    const phi = Math.atan2(x, z);
-    const end = Math.max(from + 0.001, lineAt(line, Math.abs(phi) / Math.PI));
-    const th = from + t0 * (end - from);
-    d.set(Math.sin(th) * Math.sin(phi), Math.cos(th), Math.sin(th) * Math.cos(phi));
-    surface(d, female, p).addScaledVector(d, off * (1 - taper * t0 * t0));
-    pos.setXYZ(i, p.x, p.y, p.z);
-  }
-  geo.computeVertexNormals();
-  return geo;
 }
 
 /** Точка на лице по координатам (x, y) относительно центра головы и нормаль к поверхности. */

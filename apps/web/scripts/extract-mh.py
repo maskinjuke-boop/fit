@@ -261,3 +261,46 @@ for g in ('female','male'):
 with open(f'{OUT}/bodyData.ts','w') as fo:
     fo.write(HDR+'export const BODY_DATA = '+json.dumps(body,separators=(',',':'))+' as const;\n')
 print('sizes',os.path.getsize(f'{OUT}/headData.ts'),os.path.getsize(f'{OUT}/bodyData.ts'))
+
+# ── Причёски ── (системные причёски MakeHuman, CC0; привязка к базовой сетке в формате .mhclo,
+# упакованная проектом Body Studio: src/body_studio/wardrobe/items/*.json.gz и текстуры static/wardrobe/*.png)
+HAIR_SRC=os.environ.get('HAIR_SRC')
+HAIR_OUT=os.environ.get('HAIR_OUT')   # папка для текстур (public/hair)
+HAIR_STYLES=json.loads(os.environ.get('HAIR_STYLES','{}'))  # {наш стиль: имя ассета}
+if HAIR_SRC and HAIR_STYLES:
+    import gzip
+    from PIL import Image
+    def arr(s,code): return np.frombuffer(base64.b64decode(s),code)
+    hair={'scale':1.0,'styles':{}}
+    HQ={g:headTf(g,V[g][hUsed])-np.array([0,HEAD_Y,0]) for g in ('female','male')}
+    for style,name in HAIR_STYLES.items():
+        it=json.load(gzip.open(f'{HAIR_SRC}/wardrobe/items/{name}.json.gz'))
+        ref=arr(it['ref'],'<i4').reshape(-1,3); w=arr(it['w'],'<f4').reshape(-1,3); off=arr(it['off'],'<f4').reshape(-1,3)
+        tris=arr(it['tris'],'<i4'); tuv=arr(it['tuv'],'<i4'); uv=arr(it['uv'],'<f4').reshape(-1,2)
+        pairs={}; vi=[]; ui=[]; nt=[]
+        for a,b in zip(tris.tolist(),tuv.tolist()):
+            k=(a,b)
+            if k not in pairs: pairs[k]=len(vi); vi.append(a); ui.append(b)
+            nt.append(pairs[k])
+        vi=np.array(vi); ui=np.array(ui)
+        ent={'n':len(vi),'tris':b64(np.array(nt,dtype='<u2')),'uv':b64(np.round(np.clip(uv[ui],0,1)*65535).astype('<u2'))}
+        # Причёска на женской голове; на мужскую её переносит сдвиг ближайших вершин головы
+        # (разница форм голов), поэтому хранится одна форма.
+        g='female'; v=V[g]
+        sc=np.array([abs(v[a][k]-v[b][k])/den for k,(a,b,den) in enumerate(it['scales'])])
+        P=(w[:,:,None]*v[ref]).sum(1)+off*sc
+        Q=(headTf(g,P)-np.array([0,HEAD_Y,0]))[vi]
+        ent['pos']=b64(q16(Q,1.0))
+        d=((Q[:,None,:]-HQ[g][None,:,:])**2).sum(2)
+        ent['near']=b64(d.argmin(1).astype('<u2'))
+        print('hair',style,name,'verts',len(vi),'y',Q[:,1].min().round(3),Q[:,1].max().round(3))
+        hair['styles'][style]=ent
+        # Текстура: яркость без цвета (цвет задаёт материал), средняя яркость прядей — одинаковая у всех причёсок.
+        im=np.asarray(Image.open(f'{HAIR_SRC}/static/wardrobe/{it["texture"]}').convert('RGBA')).astype(np.float32)/255
+        L=im[...,0]*0.3+im[...,1]*0.59+im[...,2]*0.11; A=im[...,3]
+        # Контраст сжат (степень 0.45): у очень тёмных текстур шум не превращается в белые пряди.
+        L=np.clip(0.62*(L/max(1e-3,L[A>0.5].mean()))**0.45,0,1)
+        g8=np.round(L*255).astype('u1'); a8=np.round(A*255).astype('u1')
+        Image.fromarray(np.dstack([g8,g8,g8,a8]),'RGBA').save(f'{HAIR_OUT}/{style}.webp',quality=80,method=6)
+    with open(f'{OUT}/hairData.ts','w') as fo:
+        fo.write(HDR.replace('базовой модели MakeHuman','системных причёсок MakeHuman')+'export const HAIR_DATA = '+json.dumps(hair,separators=(',',':'))+' as const;\n')
