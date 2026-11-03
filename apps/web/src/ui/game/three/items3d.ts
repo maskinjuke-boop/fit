@@ -580,8 +580,7 @@ export function buildBodyItem(id: string, ctx: ItemCtx): Outfit {
       out.top = M.cloth(color, 12, 0.6);
       out.bottom = M.cloth(shade(color, 0.32), 12, 0.65);
       // Резинка шорт и логотип.
-      g.add(band(shape, TORSO_Y + 0.0, 0.016, M.cloth('#f4f4f4', 4), 0.02));
-      if (female) g.add(seam(shape, [[-0.15, U(0.295)], [0, U(0.285)], [0.15, U(0.295)]], 0.008, M.cloth('#f4f4f4', 4), 0.02));
+      g.add(band(shape, TORSO_Y + 0.0, 0.008, M.cloth('#f4f4f4', 4), 0.016));
       break;
     }
     case 'fitness_set': {

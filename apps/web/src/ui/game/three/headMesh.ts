@@ -5,7 +5,7 @@ import { HEAD_DATA } from './headData';
 /**
  * Готовая модель головы из MakeHuman (makehumancommunity.org, лицензия CC0): женская и
  * мужская формы, мишени для ползунков лица, положение глаз и рта. Данные извлекает
- * scripts/extract-head.py. Координаты — относительно центра головы, лицо смотрит на +Z.
+ * scripts/extract-mh.py. Координаты — относительно центра головы, лицо смотрит на +Z.
  */
 
 const bytes = (s: string): Uint8Array => {

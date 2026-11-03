@@ -248,7 +248,7 @@ function specs(figure: Figure): Record<GarmentId, GarmentSpec> {
   const nip: V3 = L.nipple ? [L.nipple[0], L.nipple[1], L.nipple[2]] : [0.1, L.armpit - 0.07, 0.12];
   const scoop = ellipsoid([0, neckY - 0.01, bs.zFront + 0.03], [0.12, 0.13, 0.16]);
   const backScoop = ellipsoid([0, neckY - 0.01, bs.zBack - 0.01], [0.11, 0.1, 0.12]);
-  const armhole = ellipsoid([s.x - 0.035, s.y - 0.01, s.z], [0.07, 0.12, 0.16]);
+  const armhole = ellipsoid([s.x - 0.04, s.y - 0.01, s.z], [0.085, 0.13, 0.17]);
   const braFront = ellipsoid([0, nip[1] + 0.19, nip[2] + 0.05], [0.06, 0.12, 0.12]);
   const cleavage = ellipsoid([0, nip[1] + 0.17, nip[2] + 0.06], [0.04, 0.1, 0.1]);
   /** Вырез «лодочкой» спереди, и шея открыта со всех сторон. */
