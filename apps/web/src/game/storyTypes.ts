@@ -12,6 +12,13 @@ export const FACTIONS: readonly Faction[] = ['forest', 'guild', 'order'];
 
 export type CompanionId = 'wolf' | 'squire' | 'fairy' | 'golem';
 
+/** Персонажи истории, с которыми герой встречается и выстраивает отношения. */
+export type NpcId = 'lira' | 'bram' | 'sylvie' | 'cassian' | 'morwen' | 'zara' | 'valerian';
+export const NPC_IDS: readonly NpcId[] = ['lira', 'bram', 'sylvie', 'cassian', 'morwen', 'zara', 'valerian'];
+/** Границы отношения с персонажем. */
+export const NPC_MIN = -5;
+export const NPC_MAX = 10;
+
 /** Последствия выбора. Золото и опыт масштабируются регионом. */
 export interface Effect {
   resolve?: number;
@@ -32,6 +39,8 @@ export interface Effect {
   clear?: boolean;
   /** Путешествие завершено победой. */
   victory?: boolean;
+  /** Отношение персонажей к герою (знакомство — при первом изменении). */
+  npc?: Partial<Record<NpcId, number>>;
 }
 
 export interface Outcome {
@@ -49,6 +58,10 @@ export interface Requirement {
   rep?: [Faction, number];
   /** Нужен предмет в инвентаре. */
   item?: string;
+  /** Персонаж знаком и относится к герою не хуже, чем на N. */
+  npc?: [NpcId, number];
+  /** Персонаж ещё не знаком. */
+  notMet?: NpcId;
 }
 
 export interface Choice {
@@ -80,6 +93,8 @@ export interface EventDef {
   weight?: number;
   /** Не повторяется в одном путешествии. */
   once?: boolean;
+  /** Персонаж, с которым идёт разговор (портрет и отношение на карточке события). */
+  npc?: NpcId;
   /** Подстановки: {npc} и т. п. — случайный вариант из списка. */
   vars?: Record<string, readonly Txt[]>;
   choices: Choice[];
@@ -143,4 +158,6 @@ export interface StoryState {
   regionsCleared: number;
   titles: string[];
   started: boolean;
+  /** Отношение знакомых персонажей к герою (сохраняется между путешествиями). */
+  npcs: Partial<Record<NpcId, number>>;
 }

@@ -14,12 +14,14 @@ import {
   checkChance,
   choose,
   proceed,
+  requirementMet,
   startJourney,
   travel,
   trialPlan,
 } from '../src/game/story';
 import { COMPANIONS, REGIONS, REGION_STEPS, STORY_EVENTS, STORY_TITLES, storyEvent } from '../src/game/storyContent';
-import type { Txt } from '../src/game/storyTypes';
+import { NPC_IDS, type Txt } from '../src/game/storyTypes';
+import { NPCS } from '../src/game/storyNpcs';
 
 const now = new Date(2026, 10, 2, 10, 0, 0);
 
@@ -295,5 +297,60 @@ describe('Достижения', () => {
       expect(goal).toBeGreaterThan(0);
       expect(cur).toBeGreaterThanOrEqual(0);
     }
+  });
+});
+
+describe('Персонажи истории', () => {
+  it('у каждого персонажа есть тексты на двух языках, внешность и знакомство', () => {
+    for (const id of NPC_IDS) {
+      const n = NPCS[id];
+      for (const x of [n.name, n.role, n.bio, ...n.lines]) {
+        expect(x.ru.length).toBeGreaterThan(0);
+        expect(x.en.length).toBeGreaterThan(0);
+      }
+      for (const item of Object.values(n.equipped)) expect(ITEMS.some((i) => i.id === item)).toBe(true);
+      // Есть событие знакомства и хотя бы два продолжения.
+      const evs = STORY_EVENTS.filter((e) => e.npc === id);
+      expect(evs.some((e) => e.when?.notMet === id)).toBe(true);
+      expect(evs.filter((e) => e.when?.npc?.[0] === id).length).toBeGreaterThanOrEqual(1);
+    }
+  });
+
+  it('знакомство меняет отношение, а следующая встреча требует дружбы', () => {
+    let s = withEvent(started(), 'lira_meet');
+    s = choose(s, 'flirt').state;
+    expect(s.story.npcs.lira !== undefined).toBe(true);
+    const debt = storyEvent('lira_debt')!;
+    const low = structuredClone(s);
+    low.story.npcs.lira = 1;
+    expect(requirementMet(low, debt.when)).toBe(false);
+    low.story.npcs.lira = 3;
+    expect(requirementMet(low, debt.when)).toBe(true);
+    // Повторного знакомства не будет.
+    expect(requirementMet(s, storyEvent('lira_meet')!.when)).toBe(false);
+  });
+
+  it('отношение в границах и сохраняется в новом путешествии', () => {
+    let s = withEvent(started(), 'lira_smuggle');
+    s.story.npcs.lira = 1;
+    for (let i = 0; i < 3; i += 1) {
+      s = withEvent(proceed(s).state, 'lira_smuggle');
+      s = choose(s, 'report').state;
+    }
+    expect(s.story.npcs.lira).toBe(-5);
+    const next = startJourney({ ...s, story: { ...s.story, ending: 'defeat', status: 'ended' } }).state;
+    expect(next.story.npcs.lira).toBe(-5);
+  });
+
+  it('союзник помогает в битве с хранителем', () => {
+    const s = withEvent(started(), 'boss_serpent');
+    const ev = storyEvent('boss_serpent')!;
+    expect(availableChoices(s, ev).some((c) => c.id === 'zara')).toBe(false);
+    s.story.flags.push('zara_ally');
+    expect(availableChoices(s, ev).some((c) => c.id === 'zara')).toBe(true);
+    s.story.region = 3;
+    const r = choose(s, 'zara').state;
+    expect(r.story.region).toBe(4);
+    expect(r.story.npcs.zara).toBe(1);
   });
 });

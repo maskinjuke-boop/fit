@@ -7,7 +7,7 @@ import { addXp } from './progress';
 import { rng } from './random';
 import type { GameState } from './state';
 import { COMPANIONS, MAX_COMPANIONS, REGIONS, REGION_STEPS, STORY_EVENTS, storyEvent } from './storyContent';
-import type { ActiveEvent, Choice, Effect, EventDef, Faction, OutcomeView, Requirement, StoryState } from './storyTypes';
+import { NPC_MAX, NPC_MIN, type ActiveEvent, type Choice, type Effect, type EventDef, type Faction, type NpcId, type OutcomeView, type Requirement, type StoryState } from './storyTypes';
 
 /**
  * Режим истории: путешествие по пяти регионам. Каждый шаг — случайное событие,
@@ -50,13 +50,14 @@ export function newStory(): StoryState {
     regionsCleared: 0,
     titles: [],
     started: false,
+    npcs: {},
   };
 }
 
 export function migrateStory(raw: Partial<StoryState> | undefined): StoryState {
   const base = newStory();
   if (!raw) return base;
-  return { ...base, ...raw, rep: { ...base.rep, ...(raw.rep ?? {}) } };
+  return { ...base, ...raw, rep: { ...base.rep, ...(raw.rep ?? {}) }, npcs: { ...(raw.npcs ?? {}) } };
 }
 
 // ─── Масштабирование ───────────────────────────────────────────────────
@@ -109,6 +110,11 @@ export function requirementMet(s: GameState, req: Requirement | undefined): bool
   if (req.minCompanions !== undefined && st.companions.length < req.minCompanions) return false;
   if (req.rep && st.rep[req.rep[0]] < req.rep[1]) return false;
   if (req.item && !s.inventory.includes(req.item)) return false;
+  if (req.npc) {
+    const a = st.npcs[req.npc[0]];
+    if (a === undefined || a < req.npc[1]) return false;
+  }
+  if (req.notMet && st.npcs[req.notMet] !== undefined) return false;
   return true;
 }
 
@@ -216,6 +222,14 @@ function applyOutcome(s: GameState, ev: EventDef, choice: Choice, ok: boolean, v
     applied.companion = e.companion;
   }
   if (e.loseCompanion) st.companions = st.companions.filter((c) => c !== e.loseCompanion);
+  if (e.npc) {
+    // Отношение персонажей: первое изменение — знакомство.
+    applied.npc = {};
+    for (const [id, d] of Object.entries(e.npc) as Array<[NpcId, number]>) {
+      st.npcs[id] = Math.max(NPC_MIN, Math.min(NPC_MAX, (st.npcs[id] ?? 0) + d));
+      applied.npc[id] = d;
+    }
+  }
   let loot: string | undefined;
   if (e.loot) {
     const id = rollLoot(s, r);
@@ -306,6 +320,8 @@ export function startJourney(state: GameState): StoryResult {
   st.runsCompleted = prev.runsCompleted;
   st.regionsCleared = prev.regionsCleared;
   st.titles = prev.titles;
+  // Знакомые помнят героя и в новом путешествии.
+  st.npcs = { ...prev.npcs };
   st.started = true;
   s.story = st;
   return { state: s, events: [] };

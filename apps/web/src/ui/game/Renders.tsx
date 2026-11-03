@@ -92,20 +92,23 @@ function savedPortrait(key: string): string | undefined {
 }
 
 /** Портрет героя по пояс в круглой рамке (из 3D-модели). */
-export function HeroPortrait({ color, appearance, equipped, size = 56 }: { color: string; appearance: Appearance; equipped: Partial<Record<Slot, string>>; size?: number }) {
+export function HeroPortrait({ color, appearance, equipped, size = 56, remember = true }: { color: string; appearance: Appearance; equipped: Partial<Record<Slot, string>>; size?: number; remember?: boolean }) {
   const key = `portrait|${JSON.stringify([color, appearance, equipped])}`;
   const url = useSnapshot(
     key,
     (m) =>
       m.renderPortrait(appearance, color, equipped, 192).then((u) => {
-        try {
-          localStorage.setItem(PORTRAIT_KEY, JSON.stringify({ key, url: u }));
-        } catch {
-          // Хранилище недоступно — портрет просто отрисуется заново в следующий раз.
+        // Портрет своего героя запоминаем, чтобы он появлялся сразу при запуске (портреты персонажей истории — нет).
+        if (remember) {
+          try {
+            localStorage.setItem(PORTRAIT_KEY, JSON.stringify({ key, url: u }));
+          } catch {
+            // Хранилище недоступно — портрет просто отрисуется заново в следующий раз.
+          }
         }
         return u;
       }),
-    savedPortrait(key),
+    remember ? savedPortrait(key) : undefined,
   );
   if (!url) return <Avatar color={color} appearance={appearance} equipped={equipped} size={size} />;
   return (

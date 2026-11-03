@@ -3,10 +3,11 @@ import { useGame } from '../../game/GameContext';
 import type { GameState } from '../../game/state';
 import { ENERGY_XP, MAX_ENERGY, availableChoices, canAfford, checkChance, requirementMet, trialPlan } from '../../game/story';
 import { COMPANIONS, FACTION_NAME, FLAG_NAME, REGIONS, REGION_STEPS, storyEvent } from '../../game/storyContent';
-import { FACTIONS, type Choice, type EventDef, type Requirement, type Txt } from '../../game/storyTypes';
+import { NPC_MAX, NPC_IDS, FACTIONS, type Choice, type EventDef, type NpcId, type Requirement, type Txt } from '../../game/storyTypes';
+import { NPCS, NPC_TIER_NAME, npcTier } from '../../game/storyNpcs';
 import type { ExerciseId } from '../../tracking/exercise';
 import { useI18n, type I18nKey, type Lang } from '../../i18n';
-import { ItemImage } from './Renders';
+import { HeroPortrait, ItemImage } from './Renders';
 import { exName } from './text';
 
 /** Текст события с подстановками ({npc} и т. п.). */
@@ -38,6 +39,7 @@ function requirementText(req: Requirement, lang: Lang, t: (k: I18nKey) => string
   if (req.minCompanions) parts.push(`${req.minCompanions} × ${t('storyCompanions').toLowerCase()}`);
   if (req.rep) parts.push(`${FACTION_NAME[req.rep[0]][lang]} ${req.rep[1]}+`);
   if (req.item) parts.push(req.item);
+  if (req.npc) parts.push(`${NPCS[req.npc[0]].name[lang]} ♥ ${req.npc[1]}+`);
   return parts.join(', ');
 }
 
@@ -75,6 +77,10 @@ function EffectChips({ state }: { state: GameState }) {
   if (e.energy) chips.push({ text: `⚡ ${e.energy > 0 ? '+' : ''}${e.energy}`, cls: e.energy > 0 ? 'good' : 'bad' });
   if (e.skip) chips.push({ text: `⤳ ${t('storySkip')}`, cls: 'good' });
   for (const [f, d] of Object.entries(e.rep ?? {})) if (d) chips.push({ text: `${FACTION_NAME[f as keyof typeof FACTION_NAME][lang]} ${d > 0 ? '+' : ''}${d}`, cls: d > 0 ? 'good' : 'bad' });
+  for (const [id, d] of Object.entries(e.npc ?? {}) as Array<[NpcId, number]>) {
+    const n = NPCS[id];
+    chips.push({ text: `${n.icon} ${n.name[lang]} ${d ? `♥ ${d > 0 ? '+' : ''}${d}` : `· ${t('storyNpcMet')}`}`, cls: d > 0 ? 'good' : d < 0 ? 'bad' : '' });
+  }
   if (e.companion) chips.push({ text: `${COMPANIONS[e.companion].icon} ${tf('storyNewCompanion', { name: COMPANIONS[e.companion].name[lang] })}`, cls: 'good' });
   if (e.title) chips.push({ text: `🏷️ ${tf('storyNewTitle', { name: titleText(e.title)?.[lang] ?? e.title })}`, cls: 'good' });
   if (e.clear) chips.push({ text: `🏁 ${t('storyRegionClear')}`, cls: 'good' });
@@ -95,6 +101,85 @@ function EffectChips({ state }: { state: GameState }) {
         </div>
       )}
     </>
+  );
+}
+
+/** Сердечки отношения персонажа (0…10; ниже нуля — неприязнь). */
+function Affinity({ value }: { value: number }) {
+  return (
+    <span className={`affinity ${value < 0 ? 'hostile' : ''}`} aria-label={`${value}/${NPC_MAX}`}>
+      {value < 0
+        ? Array.from({ length: -value }, (_, i) => <span key={i}>💔</span>)
+        : Array.from({ length: NPC_MAX }, (_, i) => (
+            <span key={i} className={i < value ? 'on' : ''}>
+              ♥
+            </span>
+          ))}
+    </span>
+  );
+}
+
+/** Персонаж на карточке события: портрет, имя, отношение и реплика. */
+function NpcCard({ id, affinity }: { id: NpcId; affinity: number | undefined }) {
+  const { lang } = useI18n();
+  const n = NPCS[id];
+  const a = affinity ?? 0;
+  return (
+    <div className="npc-card">
+      <HeroPortrait color={n.color} appearance={n.appearance} equipped={n.equipped} size={76} remember={false} />
+      <div className="npc-info">
+        <b>{n.name[lang]}</b>
+        <span className="muted small">{n.role[lang]}</span>
+        {affinity !== undefined && (
+          <>
+            <span className="small">
+              {NPC_TIER_NAME[npcTier(a)]![lang]} <Affinity value={a} />
+            </span>
+            <span className="npc-line">{n.lines[npcTier(a)][lang]}</span>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** Знакомые персонажи: портреты, отношение и что о них известно. */
+function Acquaintances({ state }: { state: GameState }) {
+  const { t, lang } = useI18n();
+  const met = NPC_IDS.filter((id) => state.story.npcs[id] !== undefined);
+  return (
+    <details className="card acquaintances" open={met.length > 0 && met.length <= 3}>
+      <summary>
+        <h2>
+          {t('storyNpcs')} <span className="muted small">{met.length}/{NPC_IDS.length}</span>
+        </h2>
+      </summary>
+      {met.length === 0 ? (
+        <p className="muted">{t('storyNpcsEmpty')}</p>
+      ) : (
+        <ul>
+          {met.map((id) => {
+            const n = NPCS[id];
+            const a = state.story.npcs[id] ?? 0;
+            return (
+              <li key={id}>
+                <HeroPortrait color={n.color} appearance={n.appearance} equipped={n.equipped} size={56} remember={false} />
+                <div className="npc-info">
+                  <b>
+                    {n.icon} {n.name[lang]}
+                  </b>
+                  <span className="muted small">{n.role[lang]}</span>
+                  <span className="small">
+                    {NPC_TIER_NAME[npcTier(a)]![lang]} <Affinity value={a} />
+                  </span>
+                  <span className="muted small">{n.bio[lang]}</span>
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </details>
   );
 }
 
@@ -250,6 +335,7 @@ export function StoryTab({ state, onTrain }: { state: GameState; onTrain(exercis
           <div className="story-icon">{ev.icon}</div>
           {ev.boss && <span className="boss-badge">{t('storyBoss')}</span>}
           <h2>{ev.title[lang]}</h2>
+          {ev.npc && <NpcCard id={ev.npc} affinity={st.npcs[ev.npc]} />}
           <p>{fill(ev.text, lang, ev, st.event.vars)}</p>
           <div className="choices">
             {[...availableChoices(state, ev), ...ev.choices.filter((c) => !requirementMet(state, c.requires))].map((c) => (
@@ -285,6 +371,10 @@ export function StoryTab({ state, onTrain }: { state: GameState; onTrain(exercis
         <section className={`card story-event outcome ${st.last.ok ? 'ok' : 'fail'}`}>
           <div className="story-icon">{storyEvent(st.last.event)?.icon}</div>
           <h2>{st.last.ok ? `✓ ${t('storySuccess')}` : `✗ ${t('storyFail')}`}</h2>
+          {(() => {
+            const npc = storyEvent(st.last.event)?.npc;
+            return npc && st.npcs[npc] !== undefined ? <NpcCard id={npc} affinity={st.npcs[npc]} /> : null;
+          })()}
           <p>
             {(() => {
               const e = storyEvent(st.last.event);
@@ -321,6 +411,7 @@ export function StoryTab({ state, onTrain }: { state: GameState; onTrain(exercis
         </section>
       )}
 
+      <Acquaintances state={state} />
       <Journal state={state} />
     </div>
   );

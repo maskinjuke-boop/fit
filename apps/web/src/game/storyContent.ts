@@ -1,3 +1,4 @@
+import { NPC_BOSS_CHOICES, NPC_EVENTS } from './storyNpcs';
 import type { CompanionId, EventDef, Faction, Txt } from './storyTypes';
 
 /**
@@ -1065,6 +1066,9 @@ const BOSSES: EventDef[] = [
   },
 ];
 
-export const STORY_EVENTS: readonly EventDef[] = [...GENERIC, ...FOLLOW_UPS, ...REGIONAL, ...BOSSES];
+/** Хранители с помощью знакомых персонажей: выборы союзников идут первыми. */
+const BOSSES_WITH_ALLIES: EventDef[] = BOSSES.map((b) => ({ ...b, choices: [...(NPC_BOSS_CHOICES[b.id] ?? []), ...b.choices] }));
+
+export const STORY_EVENTS: readonly EventDef[] = [...GENERIC, ...FOLLOW_UPS, ...REGIONAL, ...NPC_EVENTS, ...BOSSES_WITH_ALLIES];
 
 export const storyEvent = (id: string): EventDef | undefined => STORY_EVENTS.find((e) => e.id === id);
