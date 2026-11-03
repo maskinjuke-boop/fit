@@ -71,7 +71,7 @@ function headField(female: boolean): (x: number, y: number, z: number) => number
       ellipsoid([0, -0.06, 0.098], [f ? 0.1 : 0.11, 0.092, 0.118]), // верхняя челюсть
       ellipsoid([0.1 + 0.012 * cb, -0.012, 0.098 + 0.006 * cb], [0.058 * (1 + 0.2 * cb), 0.038 * (1 + 0.2 * cb), 0.062 * (1 + 0.15 * cb)]), // скула
       roundCone([0.118 + 0.01 * cb, -0.006, 0.07], [0.152 + 0.008 * cb, 0.004, -0.03], 0.022, 0.019), // скуловая дуга
-      ellipsoid([0.07, -0.095, 0.098], f ? [0.076, 0.08, 0.092] : [0.072, 0.075, 0.085]), // щека
+      ellipsoid([0.07, -0.085, 0.095], f ? [0.078, 0.085, 0.092] : [0.072, 0.08, 0.085]), // щека
       ellipsoid([0.09 + 0.012 * jw, -0.1, 0.02], [0.05 * (1 + 0.15 * jw), 0.08, 0.085]), // жевательная мышца
       ellipsoid([0.06, -0.06, 0.06], [0.08, 0.07, 0.08]), // мягкие ткани щеки
       ellipsoid([0, f ? -0.143 : -0.148, 0.122], [0.068, 0.062, f ? 0.088 : 0.092]), // губной отдел
@@ -86,7 +86,8 @@ function headField(female: boolean): (x: number, y: number, z: number) => number
   );
   // Голова чуть выдвинута вперёд относительно шеи: центр свода — над осью шеи.
   return (x, y, z) => {
-    const ax = Math.abs(x);
+    // Гладкий модуль: без «шва» посередине лица.
+    const ax = Math.sqrt(x * x + 0.00004);
     const zz = z - 0.03;
     return smin(cranium(ax, y, zz), face(ax / (1 + 0.07 * fw), y, zz), 0.05);
   };
@@ -145,21 +146,168 @@ function baseRadius(d: THREE.Vector3, female: boolean): number {
 
 const g2 = (x: number, y: number, cx: number, cy: number, sx: number, sy: number): number => Math.exp(-(((x - cx) / sx) ** 2) - ((y - cy) / sy) ** 2);
 
+/** Линия смыкания губ (y) — на трети расстояния от основания носа до подбородка. */
+const mouthY = (female: boolean): number => (female ? -0.144 : -0.15);
+const lipW = (female: boolean): number => (female ? 0.037 : 0.039) * (1 + 0.06 * F.lips);
+
+/** Высота верхней губы над линией рта: «лук Купидона» с ложбинкой посередине. */
+function upperLip(ax: number, female: boolean): number {
+  const q = Math.max(0, 1 - (ax / lipW(female)) ** 2);
+  return (female ? 0.0105 : 0.0085) * (1 + 0.3 * F.lips) * q ** 0.55 + 0.0022 * Math.exp(-(((ax - 0.0085) / 0.005) ** 2)) * q - 0.0016 * Math.exp(-((ax / 0.0035) ** 2));
+}
+
+/** Высота нижней губы под линией рта (она полнее и мягче очерчена). */
+function lowerLip(ax: number, female: boolean): number {
+  const q = Math.max(0, 1 - (ax / (lipW(female) * 0.93)) ** 2);
+  return (female ? 0.0155 : 0.012) * (1 + 0.3 * F.lips) * q ** 0.75;
+}
+
+/** Объём губ, линия смыкания и уголки рта. */
+function lips(x: number, y: number, female: boolean): number {
+  const ax = Math.abs(x);
+  const my = mouthY(female);
+  const W = lipW(female);
+  const qx = Math.max(0, 1 - (ax / W) ** 2);
+  if (qx <= 0 && Math.abs(y - my) > 0.02) return 0;
+  const full = 1 + 0.4 * F.lips;
+  let b = 0;
+  const hU = upperLip(ax, female);
+  if (hU > 0.0005) b += (female ? 0.0062 : 0.0042) * full * qx ** 0.5 * Math.exp(-((((y - my) / hU - 0.45) / 0.42) ** 2));
+  const hL = lowerLip(ax, female);
+  if (hL > 0.0005) b += (female ? 0.0085 : 0.0058) * full * qx ** 0.6 * Math.exp(-((((my - y) / hL - 0.5) / 0.45) ** 2));
+  b -= 0.0022 * Math.max(0, 1 - (ax / (W + 0.004)) ** 2) * Math.exp(-(((y - my) / 0.0016) ** 2));
+  b -= 0.0014 * g2(ax, y, W + 0.003, my + 0.001, 0.0035, 0.004);
+  return b;
+}
+
+/**
+ * Цвет губ: тонкий слой поверх кожи строго по контуру губ, края мягкие,
+ * по линии смыкания — темнее. Форму губ задаёт сама поверхность лица.
+ */
+const lipCache = new Map<boolean, THREE.BufferGeometry>();
+
+function lipPatch(female: boolean, m: THREE.MeshStandardMaterial): THREE.Mesh {
+  m.vertexColors = true;
+  m.transparent = true;
+  m.polygonOffset = true;
+  m.polygonOffsetFactor = -1;
+  m.polygonOffsetUnits = -4;
+  const hit = faceNeutral() ? lipCache.get(female) : undefined;
+  if (hit) return new THREE.Mesh(hit, m);
+  const geo = lipGeometry(female);
+  if (faceNeutral()) {
+    geo.userData.shared = true;
+    lipCache.set(female, geo);
+  }
+  return new THREE.Mesh(geo, m);
+}
+
+function lipGeometry(female: boolean): THREE.BufferGeometry {
+  const my = mouthY(female);
+  const W = lipW(female) + 0.004;
+  const NX = 44;
+  const NY = 28;
+  const y0 = my - 0.022;
+  const y1 = my + 0.018;
+  const pos: number[] = [];
+  const col: number[] = [];
+  const alpha: number[] = [];
+  const cl = (t: number): number => Math.min(1, Math.max(0, t));
+  const e = 0.0009;
+  for (let j = 0; j <= NY; j += 1) {
+    const y = y0 + ((y1 - y0) * j) / NY;
+    for (let i = 0; i <= NX; i += 1) {
+      const x = -W + (2 * W * i) / NX;
+      const ax = Math.abs(x);
+      const { p, n } = facePoint(x, y, female);
+      p.addScaledVector(n, 0.0005).add(v(0, HEAD_Y, 0));
+      pos.push(p.x, p.y, p.z);
+      const side = cl((lipW(female) - ax) / 0.002);
+      const hU = upperLip(ax, female);
+      const hL = lowerLip(ax, female);
+      const au = cl((y - my) / e + 0.5) * cl((hU - (y - my)) / e + 0.5) * side;
+      const al = cl((my - y) / e + 0.5) * cl((hL - (my - y)) / e + 0.5) * side;
+      const a = Math.max(au, al);
+      const dark = 1 - 0.5 * Math.exp(-(((y - my) / 0.0017) ** 2));
+      col.push(dark, dark, dark, a);
+      alpha.push(a);
+    }
+  }
+  const idx: number[] = [];
+  for (let j = 0; j < NY; j += 1) {
+    for (let i = 0; i < NX; i += 1) {
+      const a = j * (NX + 1) + i;
+      const b = a + 1;
+      const c = a + NX + 1;
+      const d = c + 1;
+      if (Math.max(alpha[a]!, alpha[b]!, alpha[c]!, alpha[d]!) <= 0.01) continue;
+      idx.push(a, b, d, a, d, c);
+    }
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 4));
+  geo.setIndex(idx);
+  geo.computeVertexNormals();
+  return geo;
+}
+
 /** Мелкие детали лица поверх костей (в координатах лица): глазницы, нос, ложбинка над губой. */
+/** Расстояние от точки (x, y) до отрезка a–b на плоскости лица. */
+function segDist(x: number, y: number, ax: number, ay: number, bx: number, by: number): number {
+  const dx = bx - ax;
+  const dy = by - ay;
+  const t = Math.max(0, Math.min(1, ((x - ax) * dx + (y - ay) * dy) / (dx * dx + dy * dy)));
+  return Math.hypot(x - ax - dx * t, y - ay - dy * t);
+}
+
+/**
+ * Нос по анатомии: спинка от переносицы, кончик из двух долек, колумелла, крылья
+ * со складкой вокруг. Части сливаются мягким максимумом (без «бугров» в местах стыка).
+ */
+function nose(x: number, y: number, female: boolean): number {
+  const n = 1 + 0.4 * F.nose;
+  const wide = 1 + 0.2 * F.nose;
+  const ax = Math.abs(x);
+  // Спинка: невысокая у переносицы, к кончику выше и чуть шире.
+  const along = smooth(0.045, -0.05, y);
+  const ridgeH = (0.004 + (female ? 0.015 : 0.019) * along) * n;
+  const ridgeW = ((female ? 0.0085 : 0.0105) + 0.004 * along) * wide;
+  const ridge = ridgeH * Math.exp(-((ax / ridgeW) ** 2)) * smooth(0.055, 0.035, y) * smooth(-0.088, -0.06, y);
+  // Кончик: две дольки, снизу закругляется быстрее, чем сверху.
+  const ty = female ? -0.068 : -0.071;
+  const sy = y < ty ? 0.011 : 0.017;
+  const lobule = (female ? 0.033 : 0.04) * n * Math.exp(-(((ax - 0.004) / (0.0125 * wide)) ** 2) - ((y - ty) / sy) ** 2);
+  // Колумелла — перегородка под кончиком.
+  const col = 0.014 * n * Math.exp(-((ax / 0.0055) ** 2) - ((y + 0.083) / 0.007) ** 2);
+  // Крылья носа.
+  const wx = (female ? 0.0165 : 0.02) * wide;
+  const ala = (female ? 0.0072 : 0.0092) * n * Math.exp(-(((ax - wx) / 0.0092) ** 2) - ((y + 0.079) / 0.0082) ** 2);
+  const p = 4;
+  return (ridge ** p + lobule ** p + col ** p + ala ** p) ** (1 / p);
+}
+
+/** Мелкие детали лица поверх костей (в координатах лица): глазницы, нос, щёки, складки. */
 function faceDetail(x: number, y: number, z: number, female: boolean): number {
   if (z < 0.08) return 0;
   const k = smooth(0.08, 0.15, z);
-  const ns = 1 + 0.4 * F.nose;
-  let b = 0;
-  for (const sx of [-1, 1]) {
-    b -= 0.013 * g2(x, y, sx * 0.084, 0.022, 0.034, 0.024); // глазницы
-    b += (female ? 0.01 : 0.014) * ns * g2(x, y, sx * (female ? 0.019 : 0.023) * (1 + 0.2 * F.nose), -0.083, 0.011, 0.011); // крылья носа
-    if (!female) b -= 0.003 * g2(x, y, sx * 0.085, -0.075, 0.03, 0.025); // впадина под скулой
-  }
-  // Женский нос — узкая прямая спинка и аккуратный чуть вздёрнутый кончик.
-  b += (female ? 0.019 : 0.022) * ns * g2(x, y, 0, -0.02, (female ? 0.01 : 0.013) * (1 + 0.15 * F.nose), 0.05); // спинка носа
-  b += (female ? 0.034 : 0.044) * ns * g2(x, y, 0, female ? -0.069 : -0.072, female ? 0.014 : 0.017, female ? 0.016 : 0.019); // кончик носа
-  b -= 0.003 * g2(x, y, 0, -0.118, 0.011, 0.012); // ложбинка над губой
+  const ax = Math.abs(x);
+  let b = nose(x, y, female) + lips(x, y, female);
+  // Складка вокруг крыла носа отделяет его от щеки.
+  const wx = (female ? 0.0165 : 0.02) * (1 + 0.2 * F.nose);
+  const r = Math.hypot(ax - wx, (y + 0.08) * 0.95);
+  b -= 0.0015 * Math.exp(-(((r - 0.011) / 0.003) ** 2)) * smooth(wx - 0.006, wx + 0.004, ax);
+  b -= 0.003 * Math.exp(-((x / 0.022) ** 2) - ((y - 0.05) / 0.014) ** 2); // переносица чуть глубже
+  b -= 0.013 * g2(ax, y, 0.084, 0.022, 0.034, 0.024); // глазницы
+  b -= 0.002 * g2(ax, y, 0.06, -0.006, 0.026, 0.008); // носослёзная борозда
+  // Скуловая «подушечка» — объём щеки под глазом.
+  b += (female ? 0.0075 : 0.005) * g2(ax, y, 0.058, -0.038, 0.03, 0.026);
+  // Носогубная складка — от крыла носа к уголку рта, у женской фигуры мягче.
+  const fold = segDist(ax, y, 0.028, -0.084, 0.048, -0.146);
+  b -= (female ? 0.0016 : 0.0026) * Math.exp(-((fold / 0.0055) ** 2));
+  if (!female) b -= 0.0025 * g2(ax, y, 0.085, -0.075, 0.03, 0.025); // впадина под скулой
+  b -= 0.003 * g2(ax, y, 0, -0.116, 0.008, 0.011); // ложбинка над губой
+  b += 0.0012 * g2(ax, y, 0.0065, -0.116, 0.003, 0.011); // её края (фильтрум)
   return b * k;
 }
 
@@ -201,7 +349,7 @@ export const HAIRLINE: Record<'short' | 'long' | 'pony', Hairline> = {
   pony: [[0, 0.26], [0.16, 0.31], [0.3, 0.43], [0.5, 0.47], [0.75, 0.55], [1, 0.58]],
 };
 
-function lineAt(line: Hairline, t: number): number {
+export function lineAt(line: Hairline, t: number): number {
   for (let i = 1; i < line.length; i += 1) {
     const [t0, v0] = line[i - 1]!;
     const [t1, v1] = line[i]!;
@@ -217,7 +365,8 @@ function lineAt(line: Hairline, t: number): number {
  * Волосы по форме черепа с естественной линией роста: от макушки до линии hairline
  * (или полоса от угла from до линии — то, что видно из-под шапки).
  */
-export function hairCap(off: number, line: Hairline, female: boolean, from = 0): THREE.BufferGeometry {
+/** taper — насколько волосы тоньше у линии роста, чем на макушке (0 — одинаковой толщины). */
+export function hairCap(off: number, line: Hairline, female: boolean, from = 0, taper = 0): THREE.BufferGeometry {
   const geo = new THREE.SphereGeometry(1, 72, 24, 0, Math.PI * 2, 0, 1);
   const pos = geo.getAttribute('position');
   const p = new THREE.Vector3();
@@ -231,7 +380,7 @@ export function hairCap(off: number, line: Hairline, female: boolean, from = 0):
     const end = Math.max(from + 0.001, lineAt(line, Math.abs(phi) / Math.PI));
     const th = from + t0 * (end - from);
     d.set(Math.sin(th) * Math.sin(phi), Math.cos(th), Math.sin(th) * Math.cos(phi));
-    surface(d, female, p).addScaledVector(d, off);
+    surface(d, female, p).addScaledVector(d, off * (1 - taper * t0 * t0));
     pos.setXYZ(i, p.x, p.y, p.z);
   }
   geo.computeVertexNormals();
@@ -285,15 +434,28 @@ function skullGeometry(female: boolean, blush: number): THREE.BufferGeometry {
 }
 
 function buildSkull(female: boolean, blush: number): THREE.BufferGeometry {
-  const W = 144;
-  const H = 108;
+  const W = 200;
+  const H = 150;
   const geo = new THREE.SphereGeometry(1, W, H);
   const pos = geo.getAttribute('position');
   const d = new THREE.Vector3();
   const p = new THREE.Vector3();
   const colors: number[] = [];
+  // Вершины сгущены к лицу (в ~3 раза плотнее спереди), реже — на затылке:
+  // нос, губы и складки получают подробную сетку без лишних вершин сзади.
+  const FRONT_U = 0.25;
+  const FACE_V = 0.56;
   for (let i = 0; i < pos.count; i += 1) {
-    d.fromBufferAttribute(pos, i).normalize();
+    const ix = i % (W + 1);
+    const iy = Math.floor(i / (W + 1));
+    let su = ix / W - FRONT_U;
+    su -= Math.round(su);
+    const u = FRONT_U + su - (0.7 / (2 * Math.PI)) * Math.sin(2 * Math.PI * su);
+    const vv = iy / H;
+    const v2 = vv - (0.6 / (2 * Math.PI)) * Math.sin(2 * Math.PI * (vv - FACE_V)) * Math.sin(Math.PI * vv);
+    const ph = u * Math.PI * 2;
+    const th = v2 * Math.PI;
+    d.set(-Math.cos(ph) * Math.sin(th), Math.cos(th), Math.sin(ph) * Math.sin(th)).normalize();
     surface(d, female, p);
     pos.setXYZ(i, p.x, p.y, p.z);
     // Лёгкий румянец на щеках и тень в глазницах — цветом вершин.
@@ -529,27 +691,9 @@ export function buildHead(figure: Figure, skinBase: string, skinShade: string, h
   // Губы: у женской фигуры — с блеском (лаковый слой).
   const lipM = female ? phys(lipColor, 0.38, { clearcoat: 0.7, clearcoatRoughness: 0.22, sheen: 0.2, sheenColor: new THREE.Color('#ff9aa8') }) : phys(lipColor, 0.55, { sheen: 0.15 });
   // Рот на трети расстояния от основания носа до подбородка.
-  const my = female ? -0.144 : -0.15;
-  for (const sx of [-1, 1]) {
-    const upperPts = [
-      // «Лук Купидона»: ложбинка посередине, два пика и плавный спуск к уголкам.
-      [0, my + 0.0105],
-      [0.009, my + 0.0145],
-      [0.023, my + 0.0095],
-      [0.04, my + 0.004],
-    ].map(([x, y]) => at(x! * sx, y!, 0.0015, female));
-    group.add(new THREE.Mesh(taperTube(new THREE.CatmullRomCurve3(upperPts), (female ? 0.0086 : 0.0066) * (1 + 0.35 * F.lips), (female ? 0.003 : 0.0026) * (1 + 0.3 * F.lips), 16, 8), lipM));
-  }
-  const lowerC = facePoint(0, my - 0.011, female);
-  const lower = mesh(new THREE.SphereGeometry(1, 20, 12), lipM, undefined, female ? [0.032, 0.012, 0.012] : [0.028, 0.008, 0.009]);
-  lower.position.copy(lowerC.p).addScaledVector(lowerC.n, 0.001).add(v(0, HEAD_Y, 0));
-  lower.lookAt(lower.position.clone().add(lowerC.n));
-  lower.rotateX(Math.PI / 2);
-  // y — насколько губа выступает над лицом, z — её высота.
-  lower.scale.set((female ? 0.031 : 0.028) * (1 + 0.08 * F.lips), (female ? 0.0095 : 0.007) * (1 + 0.35 * F.lips), (female ? 0.0125 : 0.0095) * (1 + 0.35 * F.lips));
-  group.add(lower);
-  const line = [-0.044, -0.022, 0, 0.022, 0.044].map((x) => at(x, my + 0.003 + Math.abs(x) * 0.12, 0.003, female));
-  group.add(new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(line), 20, female ? 0.0032 : 0.0026, 6), mat(female ? '#5a2a26' : '#6e3a32', 0.8)));
+  const my = mouthY(female);
+  // Губы вылеплены на лице (объём, линия смыкания, уголки), цвет — тонкий слой по их контуру.
+  group.add(lipPatch(female, lipM));
 
   // Уши.
   for (const sx of [-1, 1]) {
