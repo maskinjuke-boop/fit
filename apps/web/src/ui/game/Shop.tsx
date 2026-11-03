@@ -1,7 +1,7 @@
 import { useState, type MouseEvent } from 'react';
 import { canBuy, equipmentBonus } from '../../game/engine';
 import { useGame } from '../../game/GameContext';
-import { ITEMS, RARITY_COLOR, SLOTS, itemById, type ItemDef, type Slot } from '../../game/items';
+import { BAG_CAPACITY, ITEMS, RARITY_COLOR, SLOTS, itemById, type ItemDef, type Slot } from '../../game/items';
 import { levelOf } from '../../game/levels';
 import type { GameState } from '../../game/state';
 import { useI18n, type I18nKey } from '../../i18n';
@@ -161,24 +161,29 @@ export function InventorySection({ state }: { state: GameState }) {
           );
         })}
       </ul>
-      {state.inventory.length > 0 && (
-        <>
-          <p className="muted small">{t('ownedItems')}</p>
-          <ul className="bag-grid">
-            {state.inventory.map((id) => {
-              const def = itemById(id);
-              return (
-                <li key={id}>
-                  <button className={`bag-cell ${equippedIds.includes(id) ? 'on' : ''}`} onClick={() => setOpen(id)} title={itemName(t, id)} aria-label={itemName(t, id)} style={def ? { borderColor: RARITY_COLOR[def.rarity] + '66' } : undefined}>
-                    <ItemImage itemId={id} color={color} figure={figure} size={52} />
-                    {equippedIds.includes(id) && <span className="bag-check">✓</span>}
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
-        </>
-      )}
+      <div className="card-head">
+        <p className="muted small">{t('ownedItems')}</p>
+        <span className="muted small">{tf('bagCount', { n: state.inventory.length, max: BAG_CAPACITY })}</span>
+      </div>
+      <ul className="bag-grid">
+        {state.inventory.map((id) => {
+          const def = itemById(id);
+          return (
+            <li key={id}>
+              <button className={`bag-cell ${equippedIds.includes(id) ? 'on' : ''}`} onClick={() => setOpen(id)} title={itemName(t, id)} aria-label={itemName(t, id)} style={def ? { borderColor: RARITY_COLOR[def.rarity] + '66' } : undefined}>
+                <ItemImage itemId={id} color={color} figure={figure} size={52} />
+                {equippedIds.includes(id) && <span className="bag-check">✓</span>}
+              </button>
+            </li>
+          );
+        })}
+        {/* Свободные ячейки рюкзака: не меньше четырёх рядов, ряд всегда заполнен. */}
+        {Array.from({ length: Math.min(BAG_CAPACITY, Math.max(32, Math.ceil((state.inventory.length + 1) / 8) * 8)) - state.inventory.length }, (_, i) => (
+          <li key={`empty-${i}`}>
+            <span className="bag-cell empty" aria-hidden="true" />
+          </li>
+        ))}
+      </ul>
       {openItem && <ItemSheet state={state} item={openItem} onClose={() => setOpen(null)} />}
     </section>
   );

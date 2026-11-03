@@ -1260,8 +1260,8 @@ button {
   margin: 6px 0 0;
   padding: 0;
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(60px, 1fr));
-  gap: 8px;
+  grid-template-columns: repeat(auto-fill, minmax(52px, 1fr));
+  gap: 6px;
 }
 .bag-cell {
   position: relative;
@@ -1277,6 +1277,12 @@ button {
 }
 .bag-cell.on {
   box-shadow: inset 0 0 0 2px var(--good);
+}
+.bag-cell.empty {
+  display: block;
+  cursor: default;
+  border-style: dashed;
+  opacity: 0.45;
 }
 .bag-check {
   position: absolute;

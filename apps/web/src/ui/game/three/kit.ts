@@ -105,7 +105,7 @@ export function taperTube(curve: THREE.Curve<THREE.Vector3>, r0: number, r1: num
 
 // ─── Процедурные текстуры ───────────────────────────────────────────────
 
-type TexKind = 'fabric' | 'leather' | 'wood' | 'mail' | 'scales' | 'brushed' | 'hair' | 'planks' | 'iris';
+type TexKind = 'fabric' | 'leather' | 'wood' | 'mail' | 'scales' | 'brushed' | 'hair' | 'planks' | 'iris' | 'net' | 'lace';
 
 /** Детерминированный генератор случайных чисел — текстуры одинаковы при каждом запуске. */
 function rand(seed: number): () => number {
@@ -238,6 +238,35 @@ function draw(kind: TexKind): HTMLCanvasElement | null {
         const collar = rr < 0.5 ? 0.75 : 1;
         const limbal = rr > 0.86 ? 0.35 : 1;
         return (0.55 + s * 0.45) * collar * limbal;
+      });
+    }
+    case 'net': {
+      // Сетка «в ромбик» (белое — нити): используется как карта прозрачности.
+      const S = 128;
+      const n = 12;
+      return paint(S, (x, y) => {
+        const u = ((x + y) / S) * n;
+        const v = ((x - y + S) / S) * n;
+        const du = Math.abs(u - Math.round(u));
+        const dv = Math.abs(v - Math.round(v));
+        return Math.min(du, dv) < 0.11 ? 1 : 0;
+      });
+    }
+    case 'lace': {
+      // Кружево: мелкая сетка и цветочные кольца (белое — нити).
+      const S = 256;
+      const cell = S / 6;
+      return paint(S, (x, y) => {
+        const u = ((x + y) / S) * 24;
+        const v = ((x - y + S) / S) * 24;
+        const mesh = Math.min(Math.abs(u - Math.round(u)), Math.abs(v - Math.round(v))) < 0.08;
+        const cx = (x % cell) - cell / 2;
+        const cy = (y % cell) - cell / 2;
+        const r = Math.hypot(cx, cy) / (cell / 2);
+        const a = Math.atan2(cy, cx);
+        const petal = Math.abs(r - (0.55 + 0.18 * Math.cos(a * 5))) < 0.09 || r < 0.16;
+        const ring = Math.abs(r - 0.92) < 0.05;
+        return mesh || petal || ring ? 1 : 0;
       });
     }
     case 'hair': {

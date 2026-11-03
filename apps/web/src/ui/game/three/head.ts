@@ -116,7 +116,7 @@ function facePoint(x: number, y: number, female: boolean): { p: THREE.Vector3; n
 }
 
 /** Точка на лице в координатах головы (с HEAD_Y) с отступом вдоль нормали. */
-function at(x: number, y: number, lift: number, female: boolean): THREE.Vector3 {
+export function at(x: number, y: number, lift: number, female: boolean): THREE.Vector3 {
   const { p, n } = facePoint(x, y, female);
   return p.addScaledVector(n, lift).add(v(0, HEAD_Y, 0));
 }

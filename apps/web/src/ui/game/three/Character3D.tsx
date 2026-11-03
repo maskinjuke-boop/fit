@@ -250,7 +250,7 @@ export default function Character3D({ color, appearance, equipped, height = 260,
   useEffect(() => {
     if (failed) return;
     let alive = true;
-    const garments = garmentsFor(appearance.figure, equipped.body, equipped.head);
+    const garments = garmentsFor(appearance.figure, equipped);
     const apply = (): void => {
       if (alive) api.current?.setCharacter(buildCharacter(appearance, color, equipped), color);
     };

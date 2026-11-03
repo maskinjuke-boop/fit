@@ -62,7 +62,8 @@ function useSnapshot(key: string, make: (m: SnapModule) => Promise<string>, init
 
 const itemKey = (id: string, color: string, figure: Figure): string => {
   const slot = itemById(id)?.slot;
-  return `item|${id}|${color}|${slot === 'body' ? figure : '-'}`;
+  // Одежда, обувь, перчатки и украшения строятся по фигуре; уборы и оружие — нет.
+  return `item|${id}|${color}|${slot === 'head' || slot === 'weapon' || slot === 'offhand' ? '-' : figure}`;
 };
 
 /** Иконка предмета, отрисованная из его 3D-модели. */

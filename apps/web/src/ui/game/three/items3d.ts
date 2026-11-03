@@ -68,12 +68,6 @@ export function outfitPlan(id: string | undefined, figure: Figure): OutfitPlan {
   }
 }
 
-/** Слои одежды самого предмета (для иконки магазина). */
-export function itemGarments(id: string, figure: Figure): GarmentId[] {
-  const plan = outfitPlan(id, figure);
-  return [plan.top, plan.bottom, ...(plan.layers ?? [])].filter((g): g is GarmentId => Boolean(g));
-}
-
 export type Shoes = 'boots' | 'sneakers' | 'sandals';
 const SHOES: Record<string, Shoes> = {
   tracksuit: 'sneakers',
@@ -84,26 +78,11 @@ const SHOES: Record<string, Shoes> = {
 export const shoesFor = (bodyItem: string | undefined): Shoes => (bodyItem && SHOES[bodyItem]) || 'boots';
 /** Высота верха обуви. */
 export const shoeTop = (shape: BodyShape, kind: Shoes): number => shape.ankle.y + (kind === 'boots' ? 0.27 : kind === 'sneakers' ? 0.045 : 0.02);
-const SHOE_GARMENTS: Record<Shoes, GarmentId[]> = { boots: ['boots', 'sole'], sneakers: ['sneakers', 'sole'], sandals: ['sandals', 'sole'] };
 
 /** Головные уборы с частью, лежащей на плечах (капюшон с накидкой). */
 export const HEAD_GARMENTS: Record<string, GarmentId[]> = {
   ranger_hood: ['mantle'],
 };
-
-/** Все слои, которые понадобятся для героя (тело + одежда + накидка головного убора). */
-export function garmentsFor(figure: Figure, bodyItem: string | undefined, headItem?: string): GarmentId[] {
-  const plan = outfitPlan(bodyItem, figure);
-  const def = defaultPlan(figure);
-  const top = plan.top === undefined ? def.top : plan.top;
-  const list: GarmentId[] = [];
-  if (top) list.push(top);
-  list.push(plan.bottom ?? def.bottom);
-  list.push(...(plan.layers ?? []));
-  if (headItem) list.push(...(HEAD_GARMENTS[headItem] ?? []));
-  list.push(...SHOE_GARMENTS[shoesFor(bodyItem)]);
-  return list;
-}
 
 /** Ткань накидки головного убора. */
 export const headGarmentMat = (id: string): Mat => (id === 'ranger_hood' ? M.cloth('#44704a', 5) : M.cloth('#666', 5));
@@ -123,24 +102,24 @@ const HS = HEAD_SCALE;
  * Высота на корпусе: смещение от линии пояса, заданное для прежнего (более длинного) корпуса,
  * в пропорциях модели MakeHuman — от пояса до основания шеи корпус короче.
  */
-const U = (o: number): number => TORSO_Y + o * 0.84;
+export const U = (o: number): number => TORSO_Y + o * 0.84;
 
 /** Радиус сечения головы на высоте y над её центром. */
-const headR = (y: number): number => Math.sqrt(Math.max(0.001, HEAD_R * HEAD_R - (y / HS.y) ** 2));
+export const headR = (y: number): number => Math.sqrt(Math.max(0.001, HEAD_R * HEAD_R - (y / HS.y) ** 2));
 
 /** Повязка-обруч, плотно облегающая голову на высоте y. */
-function headBand(y: number, height: number, off: number, m: Mat): THREE.Mesh {
+export function headBand(y: number, height: number, off: number, m: Mat): THREE.Mesh {
   const top = headR(y + height / 2) + off;
   const bottom = headR(y - height / 2) + off;
   const me = mesh(new THREE.CylinderGeometry(top, bottom, height, 48, 1, true), m, [0, HEAD_Y + y, 0], [HS.x, 1, HS.z]);
   return me;
 }
 
-function dome(r: number, theta: number, m: Mat, y = 0.01): THREE.Mesh {
+export function dome(r: number, theta: number, m: Mat, y = 0.01): THREE.Mesh {
   return mesh(new THREE.SphereGeometry(r, 40, 16, 0, Math.PI * 2, 0, theta), m, [0, HEAD_Y + y, -0.01], [HS.x, HS.y, HS.z]);
 }
 
-function star(outer: number, inner: number, depth: number, m: Mat): THREE.Mesh {
+export function star(outer: number, inner: number, depth: number, m: Mat): THREE.Mesh {
   const s = new THREE.Shape();
   for (let i = 0; i < 10; i += 1) {
     const a = (i / 10) * Math.PI * 2 + Math.PI / 2;
@@ -155,7 +134,7 @@ function star(outer: number, inner: number, depth: number, m: Mat): THREE.Mesh {
 }
 
 /** Объект, повёрнутый «лицом» наружу от центра головы, в точке на сфере. */
-function onHead(o: THREE.Object3D, y: number, angle: number, off = 0.01): THREE.Object3D {
+export function onHead(o: THREE.Object3D, y: number, angle: number, off = 0.01): THREE.Object3D {
   const r = headR(y) + off;
   o.position.set(Math.sin(angle) * r * HS.x, HEAD_Y + y, Math.cos(angle) * r * HS.z);
   o.rotation.y = angle;
@@ -366,7 +345,7 @@ export function buildHeadItem(id: string, ctx: ItemCtx): THREE.Group {
 
 // ─── Одежда ─────────────────────────────────────────────────────────────
 
-function cape(m: Mat, shape: BodyShape): THREE.Mesh {
+export function cape(m: Mat, shape: BodyShape): THREE.Mesh {
   const w = shape.figure === 'female' ? 0.92 : 1;
   m.side = THREE.DoubleSide;
   const c = new THREE.Mesh(new THREE.CylinderGeometry(0.34 * w, 0.6 * w, 1.3, 32, 6, true, Math.PI * 0.55, Math.PI * 0.9), m);
@@ -387,7 +366,7 @@ function cape(m: Mat, shape: BodyShape): THREE.Mesh {
   return c;
 }
 
-function pauldron(shape: BodyShape, sx: number, m: Mat, spikes?: Mat): THREE.Object3D[] {
+export function pauldron(shape: BodyShape, sx: number, m: Mat, spikes?: Mat): THREE.Object3D[] {
   const out: THREE.Object3D[] = [];
   const s = shape.figure === 'female' ? 0.84 : 1;
   const p = shape.shoulder;
@@ -409,16 +388,16 @@ function pauldron(shape: BodyShape, sx: number, m: Mat, spikes?: Mat): THREE.Obj
   return out;
 }
 
-const pauldrons = (shape: BodyShape, m: Mat, spikes?: Mat): THREE.Object3D[] => [...pauldron(shape, -1, m, spikes), ...pauldron(shape, 1, m, spikes)];
+export const pauldrons = (shape: BodyShape, m: Mat, spikes?: Mat): THREE.Object3D[] => [...pauldron(shape, -1, m, spikes), ...pauldron(shape, 1, m, spikes)];
 
 /** Строчка/кант на передней поверхности одежды с отступом off. */
-function seam(shape: BodyShape, pts: Array<[number, number]>, r: number, m: Mat, off: number): THREE.Mesh {
+export function seam(shape: BodyShape, pts: Array<[number, number]>, r: number, m: Mat, off: number): THREE.Mesh {
   const curve = new THREE.CatmullRomCurve3(pts.map(([x, y]) => onTorso(shape, x, y, off, r * 0.6)));
   return new THREE.Mesh(new THREE.TubeGeometry(curve, 40, r, 6), m);
 }
 
 /** Широкий манжет у кисти (мантия, кимоно). */
-function wideCuffs(shape: BodyShape, m: Mat, trim: Mat): THREE.Object3D[] {
+export function wideCuffs(shape: BodyShape, m: Mat, trim: Mat): THREE.Object3D[] {
   const out: THREE.Object3D[] = [];
   for (const sx of [-1, 1]) {
     const e = v(shape.elbow.x * sx, shape.elbow.y, shape.elbow.z);
@@ -438,7 +417,7 @@ function wideCuffs(shape: BodyShape, m: Mat, trim: Mat): THREE.Object3D[] {
 }
 
 /** Ободок на запястье (манжета куртки). */
-function cuffs(shape: BodyShape, m: Mat): THREE.Object3D[] {
+export function cuffs(shape: BodyShape, m: Mat): THREE.Object3D[] {
   return [-1, 1].map((sx) => {
     const e = v(shape.elbow.x * sx, shape.elbow.y, shape.elbow.z);
     const w = v(shape.wrist.x * sx, shape.wrist.y, shape.wrist.z);
@@ -450,7 +429,7 @@ function cuffs(shape: BodyShape, m: Mat): THREE.Object3D[] {
 }
 
 /** Птеруги — кожаные полосы юбки гладиатора по кругу бёдер. */
-function pteruges(shape: BodyShape, m: Mat, stud: Mat): THREE.Object3D[] {
+export function pteruges(shape: BodyShape, m: Mat, stud: Mat): THREE.Object3D[] {
   const out: THREE.Object3D[] = [];
   const y = TORSO_Y - 0.1;
   const s = section(shape.figure, y);
@@ -634,7 +613,7 @@ export const WEAPON_POSE: Record<string, [number, number, number]> = {
   hunter_bow: [0, 0, 0],
 };
 
-function grip(len: number, r: number): THREE.Mesh {
+export function grip(len: number, r: number): THREE.Mesh {
   return limb(v(0, -len / 2, 0), v(0, len / 2, 0), r, M.leather('#3d2a1c', 1));
 }
 

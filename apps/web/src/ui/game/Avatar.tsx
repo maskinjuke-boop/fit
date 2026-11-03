@@ -196,6 +196,8 @@ function headBack(id: string | undefined): ReactNode {
 }
 
 /** Область рисунка каждого предмета для отдельной иконки (x y ширина высота в координатах портрета). */
+const SLOT_GLYPH: Record<Slot, string> = { head: '🎩', neck: '📿', body: '👙', back: '🦋', hands: '🧤', legs: '🩳', feet: '👢', weapon: '🗡️', offhand: '🛡️' };
+
 const ICON_VIEW: Record<string, string> = {
   headband: '66 60 80 30',
   leather_cap: '60 28 80 58',
@@ -247,6 +249,17 @@ export function ItemIcon({ itemId, color, size = 72 }: { itemId: string; color: 
   const url = (name: string): string => `url(#${id(name)})`;
   const item = itemById(itemId);
   if (!item) return null;
+  // Векторного рисунка нет (новые предметы) — значок слота, пока не готова 3D-картинка.
+  if (!(itemId in ICON_VIEW)) {
+    return (
+      <svg width={size} height={size} viewBox="0 0 100 100" role="img" className="item-icon">
+        <circle cx="50" cy="50" r="40" fill={color} opacity="0.18" />
+        <text x="50" y="64" fontSize="42" textAnchor="middle">
+          {SLOT_GLYPH[item.slot]}
+        </text>
+      </svg>
+    );
+  }
   const view = (ICON_VIEW[itemId] ?? '0 0 200 200').split(' ').map(Number);
   const [x = 0, y = 0, w = 200, h = 200] = view;
   // Квадратная иконка: дополняем меньшую сторону полями.

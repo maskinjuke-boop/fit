@@ -185,6 +185,17 @@ export const GARMENT_IDS = [
   'sneakers',
   'sole',
   'sandals',
+  // Откровенные и облегающие вещи (новые предметы).
+  'bikini_top',
+  'tube_top',
+  'bikini_bottom',
+  'micro_shorts',
+  'corset',
+  'stockings',
+  'harness',
+  'bodysuit',
+  'thigh_boots',
+  'knee_boots',
 ] as const;
 export type GarmentId = (typeof GARMENT_IDS)[number];
 
@@ -249,6 +260,8 @@ function specs(figure: Figure): Record<GarmentId, GarmentSpec> {
   const scoop = ellipsoid([0, neckY - 0.01, bs.zFront + 0.03], [0.12, 0.13, 0.16]);
   const backScoop = ellipsoid([0, neckY - 0.01, bs.zBack - 0.01], [0.11, 0.1, 0.12]);
   const armhole = ellipsoid([s.x - 0.04, s.y - 0.01, s.z], [0.085, 0.13, 0.17]);
+  // Чашка купальника — треугольник вокруг соска (у мужской фигуры — условная точка).
+  const cupShape = ellipsoid([nip[0], nip[1] + 0.005, nip[2] - 0.03], female ? [0.072, 0.075, 0.12] : [0.06, 0.06, 0.1]);
   const braFront = ellipsoid([0, nip[1] + 0.19, nip[2] + 0.05], [0.06, 0.12, 0.12]);
   const cleavage = ellipsoid([0, nip[1] + 0.17, nip[2] + 0.06], [0.04, 0.1, 0.1]);
   /** Вырез «лодочкой» спереди, и шея открыта со всех сторон. */
@@ -363,6 +376,71 @@ function specs(figure: Figure): Record<GarmentId, GarmentSpec> {
     boots: { off: 0.014, min: shoeBox[0], max: shoeBox[1], mask: shoe(ankle + 0.27) },
     sneakers: { off: 0.012, min: shoeBox[0], max: shoeBox[1], mask: shoe(ankle + 0.045) },
     sole: { off: 0.022, min: shoeBox[0], max: [0.42, 0.08, 0.36], mask: shoe(0.028) },
+    // Купальный лиф: треугольные чашки, завязки под грудью и на шее (у мужской фигуры не используется).
+    bikini_top: {
+      off: 0.011,
+      min: torsoBox[0],
+      max: torsoBox[1],
+      mask: (x, y, z, p) => {
+        const ax = Math.abs(x);
+        const cup = cupShape.d(ax, y, z);
+        const string = Math.max(Math.abs(y - (nip[1] - 0.075)) - 0.008, -0.02 - cup * 0);
+        return Math.max(Math.min(cup, string, halter(ax, y, z) - 0.008), torsoOnly(p));
+      },
+    },
+    // Бандо: полоса ткани вокруг груди без бретелей.
+    tube_top: { off: 0.012, min: torsoBox[0], max: torsoBox[1], mask: (_x, y, _z, p) => Math.max(slab(y, nip[1] - 0.085, nip[1] + 0.07), torsoOnly(p)) },
+    // Плавки с высоким вырезом на бёдрах: спереди ниже пупка, по бокам выше.
+    bikini_bottom: {
+      off: 0.011,
+      min: [-0.46, L.crotch - 0.12, -0.32],
+      max: [0.46, T + 0.06, 0.32],
+      mask: (x, y, _z, p) => {
+        const ax = Math.abs(x);
+        const lo = L.crotch - 0.035 + Math.max(0, ax - 0.035) * 1.15;
+        return Math.max(slab(y, lo, T - 0.1 + Math.min(0.05, ax * 0.3)), legOrHips(p));
+      },
+    },
+    micro_shorts: { off: 0.012, min: [-0.46, L.crotch - 0.15, -0.32], max: [0.46, T + 0.06, 0.32], mask: (_x, y, _z, p) => Math.max(slab(y, L.crotch - 0.075, T - 0.03), notArm(p)) },
+    // Корсет: от талии до груди, поверх топа.
+    corset: { off: 0.02, min: torsoBox[0], max: torsoBox[1], mask: (_x, y, _z, p) => Math.max(slab(y, T - 0.07, nip[1] - 0.07), torsoOnly(p)) },
+    // Чулки: стопа и нога до середины бедра.
+    stockings: { off: 0.005, min: [-0.42, -0.06, -0.3], max: [0.42, knee + 0.3, 0.36], mask: (_x, y, _z, p) => Math.max(y - (knee + 0.24), legOnly(p)) },
+    // Портупея: ремни крест-накрест на груди и спине, ошейник и пояс.
+    harness: {
+      off: 0.022,
+      min: torsoBox[0],
+      max: torsoBox[1],
+      mask: (x, y, z, p) => {
+        const ax = Math.abs(x);
+        const line = (x0: number, y0: number, x1: number, y1: number): number => {
+          const dx = x1 - x0;
+          const dy = y1 - y0;
+          const t = Math.max(0, Math.min(1, ((x - x0) * dx + (y - y0) * dy) / (dx * dx + dy * dy)));
+          return Math.hypot(x - x0 - dx * t, y - y0 - dy * t) - 0.011;
+        };
+        const cross = Math.min(line(s.x - 0.07, neckY - 0.03, -0.14, T + 0.06), line(-(s.x - 0.07), neckY - 0.03, 0.14, T + 0.06));
+        const belt = Math.abs(y - (T + 0.05)) - 0.016;
+        const collar = Math.max(Math.abs(y - (neckY - 0.035)) - 0.011, ax - 0.13);
+        const front = Math.max(ax - 0.009, slab(y, nip[1] - 0.02, neckY - 0.03), -z);
+        return Math.max(Math.min(cross, belt, collar, front), torsoOnly(p));
+      },
+    },
+    // Слитный купальник: открытые плечи, глубокий вырез и высокий вырез на бёдрах.
+    bodysuit: {
+      off: 0.011,
+      min: [-0.46, L.crotch - 0.12, -0.32],
+      max: [0.46, NECK_WORLD + 0.05, 0.34],
+      mask: (x, y, z, p) => {
+        const ax = Math.abs(x);
+        const upper = Math.max(slab(y, T - 0.12, NECK_WORLD), notArm(p), -scoop.d(ax, y, z) + 0.015, -backScoop.d(ax, y, z) - 0.02, -armhole.d(ax, y, z));
+        const lo = L.crotch - 0.035 + Math.max(0, ax - 0.035) * 1.25;
+        const lower = Math.max(slab(y, lo, T), legOrHips(p));
+        return Math.min(upper, lower);
+      },
+    },
+    thigh_boots: { off: 0.016, min: [-0.42, -0.06, -0.3], max: [0.42, knee + 0.3, 0.36], mask: shoe(knee + 0.22) },
+    knee_boots: { off: 0.015, min: [-0.42, -0.06, -0.3], max: [0.42, knee + 0.1, 0.36], mask: shoe(knee - 0.03) },
     sandals: {
       off: 0.01,
       min: shoeBox[0],

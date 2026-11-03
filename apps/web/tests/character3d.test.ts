@@ -136,7 +136,7 @@ describe('Вылепленное тело и одежда', () => {
     const outfits = [undefined, ...ITEMS.filter((i) => i.slot === 'body').map((i) => i.id)];
     const p = new Vector3();
     for (const body of outfits) {
-      const layers = garmentsFor('female', body).map((g) => garmentGeometry('female', g));
+      const layers = garmentsFor('female', { body }).map((g) => garmentGeometry('female', g));
       for (const [x, y, z] of skin) {
         // Ближайшая точка одежды перед кожей.
         let best = Infinity;

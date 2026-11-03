@@ -3,9 +3,8 @@ import { itemById, type Slot } from '../../../game/items';
 import type { Appearance, Figure } from '../../../game/state';
 import { prepare } from './anatomy';
 import { HEAD_CENTER_WORLD, HEAD_GROW } from './body';
-import { buildCharacter, buildItemModel, disposeObject, garmentsFor } from './buildCharacter';
+import { buildCharacter, buildItemModel, disposeObject, garmentsFor, iconFigure, itemGarments } from './buildCharacter';
 import { loadHairTexture } from './hairMesh';
-import { HEAD_GARMENTS, itemGarments } from './items3d';
 import { createStudio, enableShadows, setupRenderer, type Studio } from './studio';
 
 /**
@@ -134,7 +133,12 @@ function shoot(scene: THREE.Scene, cam: THREE.Camera, size: number, keyTarget: T
 
 const VIEW: Record<Slot, THREE.Vector3> = {
   head: new THREE.Vector3(0.55, 0.35, 1),
+  neck: new THREE.Vector3(0.3, 0.25, 1),
   body: new THREE.Vector3(0.45, 0.15, 1),
+  back: new THREE.Vector3(0.6, 0.25, -1),
+  hands: new THREE.Vector3(0.7, 0.15, 1),
+  legs: new THREE.Vector3(0.4, 0.1, 1),
+  feet: new THREE.Vector3(0.6, 0.45, 1),
   weapon: new THREE.Vector3(0.15, 0.05, 1),
   offhand: new THREE.Vector3(-0.35, 0.12, 1),
 };
@@ -143,8 +147,11 @@ const VIEW: Record<Slot, THREE.Vector3> = {
 export async function renderItem(id: string, color: string, figure: Figure, size = 192, priority = 0): Promise<string> {
   // Одежда лепится заранее и порциями — очередь рендера не ждёт тяжёлых вычислений.
   const slot = itemById(id)?.slot;
-  if (slot === 'body') await prepare(figure, itemGarments(id, figure), false);
-  if (slot === 'head' && HEAD_GARMENTS[id]) await prepare(figure, HEAD_GARMENTS[id], false);
+  if (slot) {
+    const fig = iconFigure(id, slot, figure);
+    const g = itemGarments(id, slot, fig);
+    if (g.length) await prepare(fig, g, false);
+  }
   return enqueue(() => {
     const { studio: st } = ensure();
     const item = itemById(id);
@@ -168,7 +175,7 @@ export async function renderItem(id: string, color: string, figure: Figure, size
 
 /** Портрет героя по пояс для шапки и списков. */
 export async function renderPortrait(appearance: Appearance, color: string, equipped: Partial<Record<Slot, string>>, size = 160): Promise<string> {
-  await Promise.all([prepare(appearance.figure, garmentsFor(appearance.figure, equipped.body, equipped.head)), loadHairTexture(appearance.hair)]);
+  await Promise.all([prepare(appearance.figure, garmentsFor(appearance.figure, equipped)), loadHairTexture(appearance.hair)]);
   return enqueue(() => {
     const { studio: st } = ensure();
     const parts = buildCharacter(appearance, color, equipped);
