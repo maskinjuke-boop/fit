@@ -150,6 +150,11 @@ export function buildCharacter(appearance: Appearance, color: string, equipped: 
   const torso = new THREE.Group();
   const bodySkin = M.skin(skinTone.base);
   bodySkin.vertexColors = true;
+  // Полоса шеи под краем головы начинается прямо от шва: тело чуть «отодвинуто» по глубине,
+  // чтобы на шве всегда была видна голова (без мерцания полосы сквозь кожу).
+  bodySkin.polygonOffset = true;
+  bodySkin.polygonOffsetFactor = 1;
+  bodySkin.polygonOffsetUnits = 2;
   torso.add(new THREE.Mesh(bodyGeometry(figure, [Boolean(equipped.weapon), Boolean(equipped.offhand)]), bodySkin));
   const shirt = M.cloth(shade(color, 0.62), 8);
   const pants = M.cloth(female ? '#2f3646' : '#2d3440', 8);

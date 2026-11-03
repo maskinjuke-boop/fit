@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { sliderValue, type Appearance, type BodyPart } from '../../../game/state';
-import { type BodyShape } from './body';
+import { NECK_WORLD, type BodyShape } from './body';
 import { landmarks } from './bodyMesh';
 
 /**
@@ -121,7 +121,8 @@ export function bodyMorph(shape: BodyShape, a: Pick<Appearance, 'body'>): Morph 
     }
     // Шея.
     if (m.neck) {
-      const g = smooth(cy - 0.04, cy + 0.06, loc.y) * smooth(0.13, 0.08, Math.hypot(loc.x, loc.z + 0.01)) * torsoW;
+      // К шву с головой (верх шеи) утолщение сходит на нет — шея и голова стыкуются без ступеньки.
+      const g = smooth(cy - 0.04, cy + 0.06, loc.y) * smooth(NECK_WORLD, NECK_WORLD - 0.07, loc.y) * smooth(0.13, 0.08, Math.hypot(loc.x, loc.z + 0.01)) * torsoW;
       d.x += loc.x * 0.28 * m.neck * g;
       d.z += (loc.z + 0.01) * 0.28 * m.neck * g;
     }

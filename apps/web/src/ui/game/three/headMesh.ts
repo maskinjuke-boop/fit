@@ -238,8 +238,10 @@ export function rayRadiusTable(pos: Float32Array, NT: number, NP: number): Float
  * Одно сглаживающее деление по Лупу: каждый треугольник — на четыре, вершины сдвигаются
  * к среднему соседей. Голова становится гладкой вблизи (подбородок, крылья носа, веки)
  * без лишних вершин в исходных данных. scalar — величина на вершинах (вес губ), делится линейно.
+ * fixed — вершины, которые не двигаются (кольцо шва шеи): рёбра между ними делятся пополам,
+ * поэтому шов у головы и тела после деления совпадает точно.
  */
-export function loopSubdivide(pos: Float32Array, tris: ArrayLike<number>, scalar: Float32Array): { pos: Float32Array; tris: Uint32Array; scalar: Float32Array } {
+export function loopSubdivide(pos: Float32Array, tris: ArrayLike<number>, scalar: Float32Array, fixed?: Uint8Array): { pos: Float32Array; tris: Uint32Array; scalar: Float32Array } {
   const n = pos.length / 3;
   const edge = new Map<number, number>();
   const opp = new Map<number, number[]>();
@@ -269,7 +271,7 @@ export function loopSubdivide(pos: Float32Array, tris: ArrayLike<number>, scalar
     nb[b]!.push(a);
     edge.set(kk, e);
     for (let c = 0; c < 3; c += 1) {
-      if (o.length === 2) out[e * 3 + c] = 0.375 * (pos[a * 3 + c]! + pos[b * 3 + c]!) + 0.125 * (pos[o[0]! * 3 + c]! + pos[o[1]! * 3 + c]!);
+      if (o.length === 2 && !(fixed?.[a] && fixed[b])) out[e * 3 + c] = 0.375 * (pos[a * 3 + c]! + pos[b * 3 + c]!) + 0.125 * (pos[o[0]! * 3 + c]! + pos[o[1]! * 3 + c]!);
       else out[e * 3 + c] = 0.5 * (pos[a * 3 + c]! + pos[b * 3 + c]!);
     }
     if (o.length !== 2) boundary[a] = boundary[b] = 1;
@@ -279,7 +281,7 @@ export function loopSubdivide(pos: Float32Array, tris: ArrayLike<number>, scalar
   for (let i = 0; i < n; i += 1) {
     sc[i] = scalar[i]!;
     const m = nb[i]!.length;
-    if (boundary[i] || m < 3) {
+    if (boundary[i] || fixed?.[i] || m < 3) {
       for (let c = 0; c < 3; c += 1) out[i * 3 + c] = pos[i * 3 + c]!;
       continue;
     }
@@ -303,4 +305,57 @@ export function loopSubdivide(pos: Float32Array, tris: ArrayLike<number>, scalar
     w += 12;
   }
   return { pos: out, tris: idx, scalar: sc };
+}
+
+/** Номера вершин кольца шва шеи (нижний край головы) и нормали в них по всей модели. */
+export function headRing(female: boolean): { idx: Uint16Array; n: Float32Array } {
+  return { idx: u16(HEAD_DATA.ring), n: Float32Array.from(new Int8Array(bytes(HEAD_DATA[sexOf(female)].ringN).buffer), (q) => q / 127) };
+}
+
+/**
+ * Нормали вершин кольца шва (и середин рёбер между ними после деления) — одинаковые
+ * у головы и тела, чтобы на шее не было линии освещения.
+ */
+export function applyRingNormals(geo: THREE.BufferGeometry, idx: ArrayLike<number>, n: Float32Array): number[] {
+  const nor = geo.getAttribute('normal');
+  const ring = new Map<number, number>();
+  for (let k = 0; k < idx.length; k += 1) {
+    ring.set(idx[k]!, k);
+    nor.setXYZ(idx[k]!, n[k * 3]!, n[k * 3 + 1]!, n[k * 3 + 2]!);
+  }
+  // Середины рёбер кольца (после деления): вершина рядом с двумя вершинами кольца ровно
+  // посередине между ними — нормаль как среднее нормалей концов.
+  const tri = geo.index!;
+  const pos = geo.getAttribute('position');
+  const near = new Map<number, Set<number>>();
+  for (let t = 0; t < tri.count; t += 3) {
+    const v = [tri.getX(t), tri.getX(t + 1), tri.getX(t + 2)];
+    for (const m of v) {
+      if (ring.has(m)) continue;
+      for (const r of v) {
+        if (!ring.has(r)) continue;
+        let set = near.get(m);
+        if (!set) near.set(m, (set = new Set()));
+        set.add(r);
+      }
+    }
+  }
+  const acc = new Map<number, THREE.Vector3>();
+  const pa = new THREE.Vector3();
+  const pb = new THREE.Vector3();
+  const pm = new THREE.Vector3();
+  for (const [m, set] of near) {
+    if (set.size !== 2) continue;
+    const [a, b] = [...set] as [number, number];
+    pa.fromBufferAttribute(pos, a);
+    pb.fromBufferAttribute(pos, b);
+    pm.fromBufferAttribute(pos, m);
+    if (pm.distanceTo(pa.lerp(pb, 0.5)) > 1e-5) continue;
+    const ka = ring.get(a)!;
+    const kb = ring.get(b)!;
+    acc.set(m, new THREE.Vector3(n[ka * 3]! + n[kb * 3]!, n[ka * 3 + 1]! + n[kb * 3 + 1]!, n[ka * 3 + 2]! + n[kb * 3 + 2]!).normalize());
+  }
+  for (const [m, d] of acc) nor.setXYZ(m, d.x, d.y, d.z);
+  nor.needsUpdate = true;
+  return [...ring.keys(), ...acc.keys()];
 }

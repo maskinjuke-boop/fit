@@ -3,7 +3,7 @@ import { FACE_PARTS, sliderValue, type Appearance, type FacePart, type Figure } 
 import { HEAD_R, HEAD_SCALE, HEAD_Y } from './body';
 import { M, mat, mesh, shade, taperTube, tex, v } from './kit';
 import { mergeGeometries } from './sdf';
-import { eyeAnchor, eyeScale, headPositions, headTris, lipWeights, loopSubdivide, mouthAnchor, rayRadiusTable } from './headMesh';
+import { applyRingNormals, eyeAnchor, eyeScale, headRing, headPositions, headTris, lipWeights, loopSubdivide, mouthAnchor, rayRadiusTable } from './headMesh';
 import { strands } from './strands';
 
 /**
@@ -143,13 +143,18 @@ function skullGeometry(female: boolean, blush: number): THREE.BufferGeometry {
 
 function buildSkull(female: boolean, blush: number): THREE.BufferGeometry {
   const lw = lipWeights(female);
-  const sub = loopSubdivide(headPositions(female, F), headTris(), Float32Array.from(lw, (x) => x / 255));
+  const ring = headRing(female);
+  const fixed = new Uint8Array(lw.length);
+  for (const i of ring.idx) fixed[i] = 1;
+  const sub = loopSubdivide(headPositions(female, F), headTris(), Float32Array.from(lw, (x) => x / 255), fixed);
   const pos = sub.pos;
   const lip = sub.scalar;
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
   geo.setIndex(new THREE.BufferAttribute(pos.length / 3 < 65536 ? Uint16Array.from(sub.tris) : sub.tris, 1));
   geo.computeVertexNormals();
+  // Шов шеи: нормали кольца — как у тела в тех же точках.
+  applyRingNormals(geo, ring.idx, ring.n);
   // Цвет вершин (множитель к цвету кожи): румянец на щеках, тень в глазницах, губы.
   const { c: eye } = eyeAnchor(female);
   const lipTint = female ? [0.84, 0.5, 0.58] : [0.9, 0.7, 0.68];

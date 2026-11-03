@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import type { Figure } from '../../../game/state';
 import { BODY_DATA } from './bodyData';
-import { loopSubdivide } from './headMesh';
+import { applyRingNormals, headRing, loopSubdivide } from './headMesh';
 
 /**
  * Тело — готовая модель MakeHuman (makehumancommunity.org, CC0) в игровой позе (руки опущены),
@@ -98,17 +98,24 @@ export function bodyRenderGeometry(figure: Figure, ao?: (x: number, y: number, z
   const flag = new Float32Array(base.length / 3);
   for (let i = 0; i < over.length; i += 1) flag[over[i]!] = 1;
   for (let i = 0; i < tris.length; i += 1) flag[tris[i]!] = 0;
-  const sub = loopSubdivide(base, all, flag);
+  // Кольцо шва шеи не сглаживается — совпадает с нижним краем головы.
+  const ringIdx = new Uint16Array(bytes(BODY_DATA.ring).buffer);
+  const fixed = new Uint8Array(base.length / 3);
+  for (const i of ringIdx) fixed[i] = 1;
+  const sub = loopSubdivide(base, all, flag, fixed);
   const geo = new THREE.BufferGeometry();
   const pos = sub.pos;
   geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
   geo.setIndex(new THREE.BufferAttribute(pos.length / 3 < 65536 ? Uint16Array.from(sub.tris) : sub.tris, 1));
   geo.computeVertexNormals();
+  const ring = headRing(figure === 'female');
+  applyRingNormals(geo, ringIdx, ring.n);
   const nor = geo.getAttribute('normal');
   const n = pos.length / 3;
   for (let i = 0; i < n; i += 1) {
+    // Вся полоса над швом (и середины рёбер у самого шва) уходит под кожу головы.
     const f = sub.scalar[i]!;
-    if (f > 0.99) {
+    if (f > 0.01) {
       pos[i * 3] = pos[i * 3]! - nor.getX(i) * 0.003;
       pos[i * 3 + 1] = pos[i * 3 + 1]! - nor.getY(i) * 0.003;
       pos[i * 3 + 2] = pos[i * 3 + 2]! - nor.getZ(i) * 0.003;
@@ -129,7 +136,9 @@ export function bodyRenderGeometry(figure: Figure, ao?: (x: number, y: number, z
     if (ay > ax * 1.4 && ay > az * 1.4) uv.set([x * 4, z * 4], i * 2);
     else if (ax > az) uv.set([z * 4, y * 4], i * 2);
     else uv.set([x * 4, y * 4], i * 2);
-    const a = ao ? ao(x, y, z, nx, ny, nz) : 1;
+    // У шва шеи затенения нет — цвет кожи совпадает с головой.
+    const seam = Math.min(1, Math.max(0, (y - (BODY_DATA.NECK_WORLD - 0.07)) / 0.05));
+    const a = ao ? 1 + (ao(x, y, z, nx, ny, nz) - 1) * (1 - seam * seam * (3 - 2 * seam)) : 1;
     // Тени в складках кожи чуть тёплые (подповерхностное рассеяние).
     col[i * 3] = a ** 0.75;
     col[i * 3 + 1] = a ** 1.05;

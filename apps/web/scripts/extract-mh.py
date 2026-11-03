@@ -202,6 +202,15 @@ for g in ('female','male'):
     head[g]={'pos':b64(q16(Q,HSC)),'eye':[round(float(x),5) for x in tf(ec)],'er':round(float(er*frames[g]['S']),5),
       'mouth':{k:round(v_,5) for k,v_ in mo.items()},'lip':b64(np.round(lipw*255).astype('u1'))}
     print(g,'head y',Q[:,1].min().round(3),Q[:,1].max().round(3),'eye',np.round(tf(ec),4),'er',round(er*frames[g]['S'],4))
+    # Нормали кольца среза по всей сетке (голова + тело): у головы и тела на шве одинаковое освещение.
+    VN=np.zeros_like(v)
+    for f in faces['body']:
+        q=v[f]; n=np.cross(q[1]-q[0],q[2]-q[0])
+        if len(f)==4: n=n+np.cross(q[2]-q[0],q[3]-q[0])
+        for i in f: VN[i]+=n
+    RN=VN[cutRing]; RN/=np.linalg.norm(RN,axis=1,keepdims=True)
+    head[g]['ringN']=b64(np.round(RN*127).astype('i1'))
+head['ring']=b64(np.array([hMap[i] for i in cutRing],dtype='<u2'))
 SL={
  'faceWidth':(['head/head-scale-horiz-incr'],['head/head-scale-horiz-decr']),
  'cheekbones':(['cheek/l-cheek-bones-incr','cheek/r-cheek-bones-incr'],['cheek/l-cheek-bones-decr','cheek/r-cheek-bones-decr']),
@@ -227,7 +236,7 @@ with open(f'{OUT}/headData.ts','w') as fo:
 BSC=2.6
 part=np.where(ARMW>0.5,1,np.where(LEGW>0.5,2,0))[bUsed]   # 0 корпус, 1 рука, 2 нога
 body={'n':len(bUsed),'tris':b64(np.array(bTris,dtype='<u2')),'overlap':b64(np.array(oTris,dtype='<u2')),'part':b64(part.astype('u1')),'scale':BSC,
-      'NECK_Y':round(NECK_Y,5),'NECK_WORLD':round(NECK_WORLD,5),'HEAD_GROW':GROW}
+      'ring':b64(np.array([bMap[i] for i in cutRing],dtype='<u2')),'NECK_Y':round(NECK_Y,5),'NECK_WORLD':round(NECK_WORLD,5),'HEAD_GROW':GROW}
 for g in ('female','male'):
     v=V[g]; J=joints(v); f=frames[g]
     Q=bodyTf(g,v[bUsed])
