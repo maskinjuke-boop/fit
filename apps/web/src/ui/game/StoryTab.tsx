@@ -7,12 +7,19 @@ import { NPC_MAX, NPC_IDS, FACTIONS, type Choice, type EventDef, type NpcId, typ
 import { NPCS, NPC_TIER_NAME, npcTier } from '../../game/storyNpcs';
 import type { ExerciseId } from '../../tracking/exercise';
 import { useI18n, type I18nKey, type Lang } from '../../i18n';
-import { HeroPortrait, ItemImage } from './Renders';
+import { HeroPortrait, ItemImage, MonsterImage } from './Renders';
+import { MONSTERS, MONSTER_IDS, heroCombat } from '../../game/combat';
+import type { BattleLine, MonsterId } from '../../game/storyTypes';
+import { useEffect, useRef, useState } from 'react';
 import { exName } from './text';
 
 /** Текст события с подстановками ({npc} и т. п.). */
 function fill(text: Txt, lang: Lang, ev: EventDef | undefined, vars: Record<string, number>): string {
   return text[lang].replace(/\{(\w+)\}/g, (_, key: string) => {
+    if (key === 'monster' && ev?.monsters) {
+      const m = ev.monsters[vars.monster ?? 0];
+      return m ? MONSTERS[m].name[lang] : key;
+    }
     const list = ev?.vars?.[key];
     const v = list?.[vars[key] ?? 0];
     return v ? v[lang] : key;
@@ -59,6 +66,7 @@ function ChoiceButton({ state, choice, onPick }: { state: GameState; choice: Cho
         {choice.check && !locked ? <span className="badge">{tf('storyChance', { n: Math.round(checkChance(state, choice.check) * 100) })} · {t(`stat.${choice.check.stat}` as I18nKey)}</span> : null}
         {plan && !locked ? <span className="badge trial">{tf('storyTrialBadge', { n: plan.target, ex: exName(t, plan.exercise) })}</span> : null}
         {choice.gamble && !locked ? <span className="badge">🎲</span> : null}
+        {choice.fight && !locked ? <span className="badge trial">⚔️ {t('battleTitle')}</span> : null}
         {locked && choice.requires ? <span className="badge muted">{tf('storyNeeds', { what: requirementText(choice.requires, lang, t) })}</span> : null}
       </span>
     </button>
@@ -281,6 +289,156 @@ function Journal({ state }: { state: GameState }) {
   );
 }
 
+function Bar({ n, max, cls }: { n: number; max: number; cls: string }) {
+  return (
+    <div className={`hp-bar ${cls}`}>
+      <div style={{ width: `${Math.max(0, Math.min(100, (n / max) * 100))}%` }} />
+      <span>
+        {n}/{max}
+      </span>
+    </div>
+  );
+}
+
+function lineText(l: BattleLine, m: string, tf: (k: I18nKey, v: Record<string, string | number>) => string): string {
+  return tf(`bl.${l.who}.${l.kind}` as I18nKey, { m, n: l.n ?? 0 });
+}
+
+/** Экран боя: монстр и герой, полоски здоровья, журнал и действия. */
+function BattleView({ state, onTrain }: { state: GameState; onTrain(exercise: ExerciseId): void }) {
+  const { t, tf, lang } = useI18n();
+  const { story } = useGame();
+  const b = state.story.battle!;
+  const m = MONSTERS[b.monster];
+  const h = heroCombat(state);
+  const name = m.name[lang];
+  // Встряска: монстр — когда по нему попали, герой — когда попали по герою.
+  const [shake, setShake] = useState<'monster' | 'hero' | null>(null);
+  const prev = useRef({ hp: b.hp, hero: b.heroHp });
+  useEffect(() => {
+    const p = prev.current;
+    if (b.hp < p.hp) setShake('monster');
+    else if (b.heroHp < p.hero) setShake('hero');
+    prev.current = { hp: b.hp, hero: b.heroHp };
+    const id = setTimeout(() => setShake(null), 450);
+    return () => clearTimeout(id);
+  }, [b.hp, b.heroHp]);
+  const last = b.log[b.log.length - 1];
+  return (
+    <section className={`card story-event battle ${m.boss ? 'boss' : ''}`}>
+      {m.boss && <span className="boss-badge">{t('storyBoss')}</span>}
+      <h2>
+        ⚔️ {name}
+      </h2>
+      <p className="muted small">
+        {m.lore[lang]}
+        {m.special ? ` · ${t(`sp.${m.special}` as I18nKey)}` : ''}
+      </p>
+      <div className="arena">
+        <div className={`fighter monster ${shake === 'monster' ? 'hit' : ''} ${b.result === 'won' ? 'dead' : ''}`}>
+          <MonsterImage id={b.monster} size={170} />
+          <Bar n={b.hp} max={b.maxHp} cls="enemy" />
+          {last && last.who === 'hero' && last.n && (last.kind === 'hit' || last.kind === 'crit' || last.kind === 'power') ? (
+            <span key={b.round + last.kind} className={`dmg ${last.kind}`}>
+              −{last.n}
+            </span>
+          ) : null}
+        </div>
+        <div className="vs">VS</div>
+        <div className={`fighter hero ${shake === 'hero' ? 'hit' : ''} ${b.result === 'lost' ? 'dead' : ''}`}>
+          <HeroPortrait color={state.character.color} appearance={state.character.appearance} equipped={state.equipped} size={120} />
+          <Bar n={b.heroHp} max={b.heroMax} cls="ally" />
+          <span className="muted tiny">
+            ⚔ {h.atk} · 🛡 {h.def} · ✦ {Math.round(h.crit * 100)}% · ↯ {Math.round(h.dodge * 100)}%
+          </span>
+        </div>
+      </div>
+      {b.charging && !b.result && <p className="notice">{tf('battleCharging', { m: name })}</p>}
+      {b.poison > 0 && !b.result && <p className="muted small">🟢 {tf('battlePoisoned', { n: b.poison })}</p>}
+      <ul className="battle-log">
+        {[...b.log].reverse().slice(0, 5).map((l, i) => (
+          <li key={`${b.round}-${i}`} className={`${l.who} ${l.kind}`}>
+            {lineText(l, name, tf)}
+          </li>
+        ))}
+      </ul>
+      {b.result ? (
+        <>
+          <h2 className={b.result === 'won' ? 'good' : 'bad'}>{b.result === 'won' ? `🏆 ${t('battleWon')}` : b.result === 'lost' ? `🪦 ${t('battleLost')}` : `🏃 ${t('battleFled')}`}</h2>
+          <button className="btn primary wide" onClick={() => story.finishBattle()}>
+            {t('battleContinue')} →
+          </button>
+        </>
+      ) : b.power ? (
+        <div className="power">
+          <p>
+            💥 {tf('battlePowerProgress', { p: b.power.progress, n: b.power.target, ex: exName(t, b.power.exercise) })}
+          </p>
+          <div className="bar">
+            <div className="bar-fill" style={{ width: `${Math.round((b.power.progress / b.power.target) * 100)}%` }} />
+          </div>
+          <div className="row">
+            <button className="btn" onClick={() => story.battle('attack')}>
+              ⚔️ {t('battleAttack')}
+            </button>
+            <button className="btn primary" onClick={() => onTrain(b.power!.exercise)}>
+              ▶ {t('battlePowerGo')}
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="battle-actions">
+          <button className="btn primary" onClick={() => story.battle('attack')}>
+            ⚔️ {t('battleAttack')}
+          </button>
+          <button className="btn power-btn" onClick={() => story.battle('power')} title={t('battlePowerHint')}>
+            💥 {t('battlePower')}
+          </button>
+          <button className="btn" onClick={() => story.battle('block')}>
+            🛡️ {t('battleBlock')}
+          </button>
+          <button className="btn" disabled={b.potions <= 0} onClick={() => story.battle('potion')}>
+            🧪 {t('battlePotion')} ×{b.potions}
+          </button>
+          <button className="btn" disabled={Boolean(m.boss)} title={m.boss ? t('battleNoFleeBoss') : undefined} onClick={() => story.battle('flee')}>
+            🏃 {t('battleFlee')}
+          </button>
+        </div>
+      )}
+    </section>
+  );
+}
+
+/** Побеждённые монстры. */
+function Bestiary({ state }: { state: GameState }) {
+  const { t, lang } = useI18n();
+  const met = MONSTER_IDS.filter((id) => state.story.bestiary[id]);
+  return (
+    <details className="card bestiary">
+      <summary>
+        <h2>
+          {t('storyBestiary')} <span className="muted small">{met.length}/{MONSTER_IDS.length}</span>
+        </h2>
+      </summary>
+      {met.length === 0 ? (
+        <p className="muted">{t('storyBestiaryEmpty')}</p>
+      ) : (
+        <ul>
+          {met.map((id: MonsterId) => (
+            <li key={id}>
+              <MonsterImage id={id} size={64} />
+              <div>
+                <b>{MONSTERS[id].name[lang]}</b> <span className="muted small">× {state.story.bestiary[id]}</span>
+                <div className="muted small">{MONSTERS[id].lore[lang]}</div>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </details>
+  );
+}
+
 /** Вкладка «История»: путешествие со случайными событиями и выбором. */
 export function StoryTab({ state, onTrain }: { state: GameState; onTrain(exercise: ExerciseId): void }) {
   const { t, tf, lang } = useI18n();
@@ -318,6 +476,9 @@ export function StoryTab({ state, onTrain }: { state: GameState; onTrain(exercis
               <button className="btn primary" onClick={() => story.travel()}>
                 👣 {t('storyTravel')} · −1 ⚡
               </button>
+              <button className="btn" onClick={() => story.hunt()} title={t('storyHuntHint')}>
+                🏹 {t('storyHunt')} · −1 ⚡
+              </button>
               {st.resolve < st.maxResolve && (
                 <button className="btn" onClick={() => story.camp()}>
                   🔥 {t('storyCamp')} · {t('storyCampHint')}
@@ -345,6 +506,8 @@ export function StoryTab({ state, onTrain }: { state: GameState; onTrain(exercis
         </section>
       )}
 
+      {st.status === 'battle' && st.battle && <BattleView state={state} onTrain={onTrain} />}
+
       {st.status === 'trial' && st.trial && (
         <section className="card story-event trial">
           <div className="story-icon">{storyEvent(st.trial.event)?.icon ?? '💪'}</div>
@@ -369,7 +532,7 @@ export function StoryTab({ state, onTrain }: { state: GameState; onTrain(exercis
 
       {st.status === 'outcome' && st.last && (
         <section className={`card story-event outcome ${st.last.ok ? 'ok' : 'fail'}`}>
-          <div className="story-icon">{storyEvent(st.last.event)?.icon}</div>
+          {st.last.monster ? <MonsterImage id={st.last.monster} size={110} className={st.last.ok ? 'dead' : ''} /> : <div className="story-icon">{storyEvent(st.last.event)?.icon}</div>}
           <h2>{st.last.ok ? `✓ ${t('storySuccess')}` : `✗ ${t('storyFail')}`}</h2>
           {(() => {
             const npc = storyEvent(st.last.event)?.npc;
@@ -412,6 +575,7 @@ export function StoryTab({ state, onTrain }: { state: GameState; onTrain(exercis
       )}
 
       <Acquaintances state={state} />
+      <Bestiary state={state} />
       <Journal state={state} />
     </div>
   );

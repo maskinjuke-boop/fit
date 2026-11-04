@@ -69,11 +69,11 @@ describe('Содержимое истории', () => {
     for (const e of STORY_EVENTS) {
       const choiceIds = new Set(e.choices.map((c) => c.id));
       expect(choiceIds.size).toBe(e.choices.length);
-      for (const key of [...e.text.ru.matchAll(/\{(\w+)\}/g)].map((m) => m[1]!)) expect(Object.keys(e.vars ?? {})).toContain(key);
+      for (const key of [...e.text.ru.matchAll(/\{(\w+)\}/g)].map((m) => m[1]!)) expect([...Object.keys(e.vars ?? {}), ...(e.monsters ? ['monster'] : [])]).toContain(key);
       for (const c of e.choices) {
         if (c.trial) expect(EXERCISE_GAME[c.trial.exercise]).toBeTruthy();
         if (c.check) expect(STATS).toContain(c.check.stat);
-        if (c.check || c.trial || c.gamble) expect(c.fail).toBeTruthy();
+        if (c.check || c.trial || c.gamble || c.fight) expect(c.fail).toBeTruthy();
         if (c.success.effect.title) expect(STORY_TITLES[c.success.effect.title]).toBeTruthy();
       }
       // В каждом событии есть вариант без особых требований — путь не может зайти в тупик.

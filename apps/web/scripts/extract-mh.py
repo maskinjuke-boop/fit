@@ -98,16 +98,47 @@ def fist(v,side,sign=1):
     k2=bone(J,f'finger2-1.{side}')[0]; k5=bone(J,f'finger5-1.{side}')[0]
     Np=np.cross(k2-wr,k5-wr)*sign*(1 if side=='L' else -1); Np/=np.linalg.norm(Np)
     tf={}
-    for n,angs in ((2,(1.25,1.6,1.0)),(3,(1.3,1.65,1.0)),(4,(1.35,1.65,1.0)),(5,(1.4,1.6,1.0)),(1,(0.35,0.6,0.5))):
+    def chain(n,ax0,angs):
         R=np.eye(3); off=np.zeros(3)   # x -> R x + off (накопленная трансформация цепочки)
+        res={}
         for j in (1,2,3):
             b=f'finger{n}-{j}.{side}'; h,t=bone(J,b)
-            hp=R@h+off; d=R@(t-h)
-            ax=np.cross(d,Np) if n!=1 else np.cross(d,Np)*0.7+np.cross(k5-k2,Np)*0.3
-            Rj=rotAxis(ax,angs[j-1])
+            hp=R@h+off
+            Rj=rotAxis(R@ax0,angs[j-1])
             # новая трансформация: x -> Rj (R x + off - hp) + hp
             R=Rj@R; off=Rj@(off-hp)+hp
-            tf[b]=(R.copy(),off.copy())
+            res[b]=(R.copy(),off.copy())
+        return res
+    for n,angs in ((2,(1.25,1.6,1.0)),(3,(1.3,1.65,1.0)),(4,(1.35,1.65,1.0)),(5,(1.4,1.6,1.0))):
+        # Ось сгиба пальца — одна для всех суставов (поперёк пальца в плоскости ладони); она
+        # не меняется при сгибе, поэтому после первого сустава не вырождается.
+        h0,t0=bone(J,f'finger{n}-1.{side}')
+        tf.update(chain(n,np.cross(t0-h0,Np),angs))
+    # Большой палец обхватывает рукоять с другой стороны и ложится на средние фаланги
+    # указательного и среднего: ось и углы подбираются перебором под эту цель.
+    def tip(res,n):
+        b=f'finger{n}-3.{side}'; R,o=res[b]; return R@bone(J,b)[1]+o
+    def mid(res,n):
+        b=f'finger{n}-2.{side}'; R,o=res[b]; return R@bone(J,b)[1]+o
+    target=(mid(tf,2)*0.6+mid(tf,3)*0.4)
+    h0,t0=bone(J,f'finger1-1.{side}')
+    across=(k5-k2)/np.linalg.norm(k5-k2)
+    d0=(t0-h0)/np.linalg.norm(t0-h0)
+    best=None
+    for a in np.linspace(-1,1,9):
+        for c in np.linspace(-1,1,9):
+            ax=np.cross(d0,Np)+a*across+c*Np
+            if np.linalg.norm(ax)<1e-6: continue
+            for k in np.linspace(0.2,1.6,15):
+                for k2_ in (0.3,0.6,0.9):
+                    res=chain(1,ax,(k,k2_,k2_*0.8))
+                    p=tip(res,1)
+                    err=np.linalg.norm(p-target)
+                    # Кончик не должен уходить внутрь ладони.
+                    if (p-wr)@Np < (target-wr)@Np-0.05: err+=1
+                    if best is None or err<best[0]: best=(err,res)
+    print("thumb", side, round(float(best[0]),3), "finger len", round(float(np.linalg.norm(t0-h0)),3))
+    tf.update(best[1])
     acc=np.zeros_like(v); ws=np.zeros(len(v))
     for b,(R,o) in tf.items():
         for i,w in WT.get(b,[]): acc[i]+=w*(v[i]@R.T+o); ws[i]+=w

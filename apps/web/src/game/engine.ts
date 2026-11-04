@@ -22,6 +22,7 @@ import { QUESTS, effectiveObjective, objectiveTarget, questById, type QuestDef }
 import { checkAchievements } from './achievements';
 import { addXp, grantReward } from './progress';
 import { storyNewDay, storyOnRep } from './story';
+import type { MonsterId } from './storyTypes';
 import { emptyDay, type Character, type DayStats, type GameState } from './state';
 
 export type GameEvent =
@@ -38,6 +39,7 @@ export type GameEvent =
   | { kind: 'streakLost' }
   | { kind: 'storyEnergy'; energy: number }
   | { kind: 'storyTrialDone'; event: string }
+  | { kind: 'storyPowerStrike'; monster: MonsterId }
   | { kind: 'achievement'; id: string; xp: number; gold: number };
 
 export type ShopError = 'owned' | 'level' | 'gold' | 'unknown';

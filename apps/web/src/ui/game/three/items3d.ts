@@ -51,15 +51,15 @@ export function outfitPlan(id: string | undefined, figure: Figure): OutfitPlan {
     case 'plate_armor':
     case 'champion_armor':
       return { layers: ['cuirass', 'bracers'] };
-    case 'tracksuit':
+    case 'gambeson':
       return { top: 'tee_long', bottom: 'pants' };
-    case 'kimono':
+    case 'monk_habit':
       return { top: 'robe_top', bottom: 'pants' };
     case 'dragon_armor':
       return { layers: ['mail', 'bracers'] };
-    case 'sport_set':
+    case 'huntress_leathers':
       return { top: female ? 'sports_bra' : 'tank', bottom: 'shorts' };
-    case 'fitness_set':
+    case 'ranger_garb':
       return { top: female ? 'crop_top' : 'tee_fitted', bottom: 'leggings' };
     case 'gladiator_armor':
       return { top: female ? 'breastplate' : null, bottom: 'briefs', layers: ['greaves', 'bracers'] };
@@ -70,9 +70,6 @@ export function outfitPlan(id: string | undefined, figure: Figure): OutfitPlan {
 
 export type Shoes = 'boots' | 'sneakers' | 'sandals';
 const SHOES: Record<string, Shoes> = {
-  tracksuit: 'sneakers',
-  sport_set: 'sneakers',
-  fitness_set: 'sneakers',
   gladiator_armor: 'sandals',
 };
 export const shoesFor = (bodyItem: string | undefined): Shoes => (bodyItem && SHOES[bodyItem]) || 'boots';
@@ -92,7 +89,7 @@ export const HEAD_COVER: Record<string, 'hat' | 'helm'> = {
   leather_cap: 'hat',
   ranger_hood: 'hat',
   wizard_hat: 'hat',
-  sports_cap: 'hat',
+  feathered_cap: 'hat',
   iron_helm: 'helm',
   horned_helm: 'helm',
 };
@@ -149,8 +146,7 @@ export function buildHeadItem(id: string, ctx: ItemCtx): THREE.Group {
   switch (id) {
     case 'headband': {
       const cm = M.cloth(color, 8);
-      g.add(headBand(0.075, 0.075, 0.012, cm));
-      g.add(headBand(0.075, 0.016, 0.016, M.cloth('#f4f4f4', 8)));
+      g.add(headBand(0.075, 0.06, 0.012, cm));
       const knot = mesh(new THREE.SphereGeometry(0.035, 14, 10), cm, [0.07, HEAD_Y + 0.07, -0.255]);
       g.add(knot, limb(v(0.08, HEAD_Y + 0.06, -0.27), v(0.15, HEAD_Y - 0.1, -0.31), 0.018, cm), limb(v(0.06, HEAD_Y + 0.06, -0.27), v(0.08, HEAD_Y - 0.13, -0.3), 0.018, cm));
       break;
@@ -249,19 +245,27 @@ export function buildHeadItem(id: string, ctx: ItemCtx): THREE.Group {
       g.add(mesh(new THREE.SphereGeometry(0.04, 14, 10), M.gold(), [0, HEAD_Y + 0.37, -0.01]));
       break;
     }
-    case 'sports_cap': {
-      const cm = M.cloth(color, 6, 0.85);
-      g.add(dome(HEAD_R + 0.03, Math.PI * 0.44, cm, 0.03));
-      g.add(mesh(new THREE.SphereGeometry(0.025, 12, 10), cm, [0, HEAD_Y + 0.33, -0.01]));
-      const visorM = M.cloth(shade(color, 0.7), 6, 0.8);
-      visorM.side = THREE.DoubleSide;
-      const visor = mesh(new THREE.CylinderGeometry(0.17, 0.17, 0.014, 32, 1, false, -Math.PI / 2, Math.PI), visorM, [0, HEAD_Y + 0.12, 0.2], [1.05, 1, 1.25]);
-      visor.rotation.x = 0.34;
-      g.add(visor);
-      const logo = onHead(mesh(new THREE.CircleGeometry(0.042, 24), M.cloth('#f4f4f4', 2)), 0.19, 0, 0.036);
-      logo.rotation.x = -0.72;
-      g.add(logo);
-      g.add(ring(headR(0.1) + 0.03, 0.012, M.cloth(shade(color, 0.7), 6), HEAD_Y + 0.1, HS.x, HS.z));
+    case 'feathered_cap': {
+      // Мягкая шапка с отворотом и длинным пером.
+      const cm = M.cloth(color, 6, 0.9);
+      const b = mesh(new THREE.SphereGeometry(HEAD_R + 0.045, 32, 16, 0, Math.PI * 2, 0, Math.PI * 0.5), cm, [0.02, HEAD_Y + 0.07, -0.01], [HS.x * 1.05, 0.95, HS.z * 1.05]);
+      b.rotation.z = -0.12;
+      g.add(b);
+      const cuff = M.cloth(shade(color, 0.6), 6, 0.9);
+      g.add(headBand(0.1, 0.06, 0.035, cuff));
+      const quill = new THREE.CatmullRomCurve3([v(0.17, HEAD_Y + 0.14, -0.04), v(0.23, HEAD_Y + 0.3, -0.12), v(0.22, HEAD_Y + 0.45, -0.26), v(0.15, HEAD_Y + 0.52, -0.38)]);
+      g.add(new THREE.Mesh(taperTube(quill, 0.006, 0.002, 20, 6), mat('#f2ead8', 0.6)));
+      const vane = M.cloth('#c62828', 3, 0.7);
+      vane.side = THREE.DoubleSide;
+      for (let i = 1; i < 14; i += 1) {
+        const t = i / 14;
+        const q = quill.getPoint(t);
+        const d = quill.getTangent(t);
+        const f = mesh(new THREE.SphereGeometry(1, 10, 6), vane, [q.x, q.y, q.z], [0.008, 0.045, 0.03 * Math.sin(Math.PI * Math.min(1, t * 1.1)) + 0.008]);
+        f.quaternion.setFromUnitVectors(v(0, 1, 0), d);
+        g.add(f);
+      }
+      g.add(mesh(new THREE.SphereGeometry(0.018, 10, 8), M.gold(), [0.165, HEAD_Y + 0.12, 0.0]));
       break;
     }
     case 'flower_wreath': {
@@ -510,34 +514,47 @@ export function buildBodyItem(id: string, ctx: ItemCtx): Outfit {
       if (champ) g.add(mesh(new THREE.OctahedronGeometry(0.05), M.gem('#d23a4a', 0.5), [0, U(0.46), frontZ(shape.figure, 0, U(0.46), 0.034) + 0.03]));
       break;
     }
-    case 'tracksuit': {
-      const dark = shade(color, 0.45);
-      out.top = M.cloth(color, 8, 0.75);
-      out.bottom = M.cloth(dark, 8, 0.75);
-      g.add(seam(shape, [[0, top - 0.02], [0, U(0.3)], [0, TORSO_Y - 0.04]], 0.007, M.chrome(), 0.02));
-      g.add(band(shape, TORSO_Y - 0.04, 0.026, M.cloth(dark, 6), 0.028));
-      const collar = new THREE.Mesh(new THREE.CylinderGeometry(shape.neckR + 0.03, shape.neckR + 0.05, 0.09, 32, 1, true), M.cloth(dark, 6));
+    case 'gambeson': {
+      // Стёганый гамбезон: ряды простёжки, шнуровка спереди, кожаный пояс.
+      const dark = shade(color, 0.55);
+      out.top = M.cloth(color, 10, 0.95);
+      out.bottom = M.cloth('#4a3a2c', 8, 0.9);
+      const stitch = M.cloth(shade(color, 0.7), 4);
+      for (let i = 0; i < 7; i += 1) {
+        const y = U(0.06 + i * 0.075);
+        if (y > top - 0.03) break;
+        g.add(seam(shape, [[-0.22, y], [-0.1, y], [0, y], [0.1, y], [0.22, y]], 0.004, stitch, 0.012));
+      }
+      g.add(seam(shape, [[0, top - 0.02], [0, U(0.3)], [0, TORSO_Y - 0.04]], 0.006, M.leather('#3d2a1c', 2), 0.02));
+      for (let i = 0; i < 6; i += 1) {
+        const y = U(0.12 + i * 0.075);
+        const c = onTorso(shape, 0, y, 0.004, 0.024);
+        g.add(mesh(new THREE.SphereGeometry(0.009, 8, 6), M.bronze(), [c.x, c.y, c.z]));
+      }
+      g.add(band(shape, U(0.03), 0.03, M.leather('#3d2a1c', 3), 0.03));
+      g.add(buckle(U(0.03), 0.06, M.bronze()));
+      const collar = new THREE.Mesh(new THREE.CylinderGeometry(shape.neckR + 0.03, shape.neckR + 0.05, 0.07, 32, 1, true), M.cloth(dark, 6));
       collar.material.side = THREE.DoubleSide;
       collar.position.y = U(0.66);
       g.add(collar);
-      for (const sx of [-1, 1]) g.add(seam(shape, [[0.17 * sx, top - 0.03], [0.2 * sx, U(0.35)], [0.19 * sx, TORSO_Y + 0.0]], 0.009, M.cloth('#f4f4f4', 4), 0.02));
       g.add(...cuffs(shape, M.cloth(dark, 6)));
       break;
     }
-    case 'kimono': {
-      const gi = M.cloth('#f3f1ea', 10);
-      out.top = gi;
-      out.bottom = M.cloth('#f3f1ea', 10);
-      g.add(skirt(shape, gi, [[0.27, 0.02], [0.3, -0.14], [0.32, -0.3], [0, -0.3]]));
-      // Запах кимоно: левая пола поверх правой.
-      g.add(seam(shape, [[-0.12, top - 0.01], [-0.02, U(0.42)], [0.12, U(0.12)]], 0.015, M.cloth('#d9d4c6', 6), 0.022));
-      g.add(seam(shape, [[0.12, top - 0.01], [0.04, U(0.44)]], 0.011, M.cloth('#d9d4c6', 6), 0.022));
-      const belt = M.cloth('#1d1d22', 6);
-      g.add(band(shape, U(0.05), 0.04, belt, 0.04));
+    case 'monk_habit': {
+      // Ряса из грубой шерсти, подпоясанная верёвкой с узлами.
+      const wool = M.cloth('#5d4632', 12, 0.98);
+      out.top = wool;
+      out.bottom = M.cloth('#5d4632', 12, 0.98);
+      g.add(skirt(shape, wool, [[0.27, 0.02], [0.3, -0.14], [0.32, -0.3], [0, -0.3]]));
+      const rope = M.cloth('#c9b38a', 3, 0.9);
+      g.add(band(shape, U(0.05), 0.016, rope, 0.04));
       const fz = frontZ(shape.figure, 0, U(0.05), 0.06);
-      g.add(mesh(new THREE.SphereGeometry(0.04, 12, 10), belt, [0.04, U(0.05), fz], [1.3, 0.9, 0.8]));
-      g.add(limb(v(0.04, U(0.03), fz), v(0.0, TORSO_Y - 0.15, fz + 0.01), 0.022, belt), limb(v(0.05, U(0.03), fz), v(0.11, TORSO_Y - 0.13, fz), 0.022, belt));
-      g.add(...wideCuffs(shape, gi, M.cloth('#e6e2d6', 6)));
+      g.add(mesh(new THREE.SphereGeometry(0.026, 12, 10), rope, [0.05, U(0.05), fz]));
+      for (const [x1, len] of [[0.03, 0.34], [0.08, 0.28]] as const) {
+        g.add(limb(v(0.05, U(0.04), fz), v(x1, U(0.04) - len, fz + 0.02), 0.011, rope, 8));
+        for (const k of [0.45, 0.95]) g.add(mesh(new THREE.SphereGeometry(0.018, 10, 8), rope, [0.05 + (x1 - 0.05) * k, U(0.04) - len * k, fz + 0.02 * k]));
+      }
+      g.add(...wideCuffs(shape, wool, M.cloth('#4a3626', 10)));
       break;
     }
     case 'dragon_armor': {
@@ -555,18 +572,24 @@ export function buildBodyItem(id: string, ctx: ItemCtx): Outfit {
       });
       break;
     }
-    case 'sport_set': {
-      out.top = M.cloth(color, 12, 0.6);
-      out.bottom = M.cloth(shade(color, 0.32), 12, 0.65);
-      // Резинка шорт и логотип.
-      g.add(band(shape, TORSO_Y + 0.0, 0.008, M.cloth('#f4f4f4', 4), 0.016));
+    case 'huntress_leathers': {
+      // Кожаный лиф и шорты охотницы, пояс с ножнами.
+      out.top = M.leather('#6b4428', 3);
+      out.bottom = M.leather('#4a2f1f', 3);
+      g.add(band(shape, TORSO_Y + 0.0, 0.022, M.leather('#2a1d14', 3), 0.026));
+      g.add(buckle(TORSO_Y, 0.05, M.bronze()));
+      const sc = onTorso(shape, -0.17, TORSO_Y - 0.06, 0.004, 0.04);
+      g.add(limb(sc, sc.clone().add(v(-0.02, -0.2, 0.01)), 0.018, M.leather('#2a1d14', 2)));
       break;
     }
-    case 'fitness_set': {
-      out.top = M.cloth(shade(color, 1.25), 12, 0.65);
-      out.bottom = M.cloth(shade(color, 0.42), 12, 0.6);
-      g.add(band(shape, U(0.05), 0.02, M.cloth(color, 4), 0.016));
-      // Боковые полосы леггинсов.
+    case 'ranger_garb': {
+      // Рубаха цвета героя, кожаные штаны и пояс следопыта.
+      out.top = M.cloth(shade(color, 0.9), 10, 0.9);
+      out.bottom = M.leather('#5a3a22', 3);
+      g.add(band(shape, U(0.04), 0.024, M.leather('#3d2a1c', 3), 0.02));
+      g.add(buckle(U(0.04), 0.05, M.bronze()));
+      const strap = new THREE.CatmullRomCurve3([[-0.2, top + 0.02], [-0.08, U(0.45)], [0.06, U(0.25)], [0.17, U(0.06)]].map(([x, y]) => onTorso(shape, x!, y!, 0.004, 0.014)));
+      g.add(new THREE.Mesh(new THREE.TubeGeometry(strap, 40, 0.014, 6), M.leather('#3d2a1c', 3)));
       break;
     }
     case 'gladiator_armor': {
@@ -606,8 +629,6 @@ export function buildBodyItem(id: string, ctx: ItemCtx): Outfit {
 
 /** Наклон оружия в руке: [x, y, z] радиан. */
 export const WEAPON_POSE: Record<string, [number, number, number]> = {
-  iron_dumbbell: [0, 0.3, 0.15],
-  jump_rope: [0.1, 0, 0],
   spear: [0.12, 0, 0.04],
   magic_wand: [0.55, 0, 0],
   hunter_bow: [0, 0, 0],
@@ -632,23 +653,28 @@ export function buildWeapon(id: string, ctx: ItemCtx): THREE.Group {
       }
       break;
     }
-    case 'iron_dumbbell': {
-      const bar = limb(v(-0.22, 0, 0), v(0.22, 0, 0), 0.022, M.chrome());
-      g.add(bar);
-      for (const sx of [-1, 1]) {
-        for (const [off, r] of [[0.15, 0.1], [0.2, 0.085]] as const) {
-          const plate = mesh(new THREE.CylinderGeometry(r, r, 0.045, 32), M.iron(), [off * sx, 0, 0]);
-          plate.rotation.z = Math.PI / 2;
-          g.add(plate);
-          const rim = new THREE.Mesh(new THREE.TorusGeometry(r, 0.008, 6, 32), M.chrome());
-          rim.position.set((off + 0.023) * sx, 0, 0);
-          rim.rotation.y = Math.PI / 2;
-          g.add(rim);
-        }
-        const collar = mesh(new THREE.CylinderGeometry(0.035, 0.035, 0.03, 16), M.chrome(), [0.115 * sx, 0, 0]);
-        collar.rotation.z = Math.PI / 2;
-        g.add(collar);
+    case 'mace': {
+      // Шестопёр: окованная рукоять и стальное навершие с перьями.
+      g.add(limb(v(0, -0.14, 0), v(0, 0.5, 0), 0.02, M.wood('#4a2f1f', 1, 3)));
+      g.add(grip(0.2, 0.024));
+      g.add(mesh(new THREE.SphereGeometry(0.03, 12, 10), M.iron(), [0, -0.15, 0]));
+      g.add(mesh(new THREE.CylinderGeometry(0.035, 0.03, 0.2, 12), M.iron(), [0, 0.52, 0]));
+      for (let i = 0; i < 7; i += 1) {
+        const a = (i / 7) * Math.PI * 2;
+        const f = new THREE.Shape();
+        f.moveTo(0, -0.08);
+        f.lineTo(0.05, -0.04);
+        f.lineTo(0.07, 0.02);
+        f.lineTo(0.03, 0.09);
+        f.lineTo(0, 0.1);
+        f.closePath();
+        const geo = new THREE.ExtrudeGeometry(f, { depth: 0.008, bevelEnabled: true, bevelThickness: 0.004, bevelSize: 0.004, bevelSegments: 1 });
+        geo.translate(0.02, 0, -0.004);
+        const fl = mesh(geo, M.steel(), [0, 0.55, 0]);
+        fl.rotation.y = a;
+        g.add(fl);
       }
+      g.add(cone(v(0, 0.64, 0), v(0, 0.72, 0), 0.03, 0.002, M.steel(), 8));
       break;
     }
     case 'bronze_sword':
@@ -703,18 +729,32 @@ export function buildWeapon(id: string, ctx: ItemCtx): THREE.Group {
       });
       break;
     }
-    case 'jump_rope': {
-      const hm = M.cloth(ctx.color, 2, 0.5);
-      const handles: Array<[THREE.Vector3, THREE.Vector3]> = [
-        [v(-0.025, 0.1, 0.01), v(-0.04, -0.08, 0.01)],
-        [v(0.03, 0.1, -0.01), v(0.05, -0.08, -0.01)],
-      ];
-      for (const [a, b] of handles) {
-        g.add(limb(a, b, 0.026, hm));
-        g.add(mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.02, 12), M.chrome(), [b.x, b.y - 0.02, b.z]));
+    case 'flail': {
+      // Кистень: рукоять, цепь из звеньев и шипастый шар.
+      g.add(limb(v(0, -0.14, 0), v(0, 0.3, 0), 0.022, M.wood('#5a3a22', 1, 3)));
+      g.add(grip(0.18, 0.025));
+      g.add(mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.04, 12), M.iron(), [0, 0.31, 0]));
+      const chain = new THREE.CatmullRomCurve3([v(0, 0.34, 0), v(-0.06, 0.42, 0), v(-0.15, 0.44, 0), v(-0.24, 0.38, 0)]);
+      const n = 9;
+      for (let i = 0; i < n; i += 1) {
+        const t = (i + 0.5) / n;
+        const q = chain.getPointAt(t);
+        const link = mesh(new THREE.TorusGeometry(0.016, 0.0045, 6, 12), M.darkSteel(), [q.x, q.y, q.z], [1, 1.5, 1]);
+        link.quaternion.setFromUnitVectors(v(0, 1, 0), chain.getTangentAt(t));
+        if (i % 2) link.rotateY(Math.PI / 2);
+        g.add(link);
       }
-      const rope = new THREE.CatmullRomCurve3([v(-0.04, -0.1, 0.01), v(-0.08, -0.35, 0.05), v(-0.02, -0.62, 0.08), v(0.08, -0.6, 0.06), v(0.1, -0.32, 0.02), v(0.05, -0.1, -0.01)]);
-      g.add(new THREE.Mesh(new THREE.TubeGeometry(rope, 48, 0.009, 6), mat('#d8dde6', 0.45)));
+      const ball = v(-0.27, 0.33, 0);
+      g.add(mesh(new THREE.IcosahedronGeometry(0.065, 2), M.iron(), [ball.x, ball.y, ball.z]));
+      const ico = new THREE.IcosahedronGeometry(1, 0).getAttribute('position');
+      const seen = new Set<string>();
+      for (let i = 0; i < ico.count; i += 1) {
+        const d = v(ico.getX(i), ico.getY(i), ico.getZ(i)).normalize();
+        const key = d.toArray().map((x) => x.toFixed(2)).join();
+        if (seen.has(key)) continue;
+        seen.add(key);
+        g.add(cone(ball.clone().addScaledVector(d, 0.055), ball.clone().addScaledVector(d, 0.11), 0.02, 0.002, M.steel(), 6));
+      }
       break;
     }
     case 'spear': {
@@ -823,22 +863,45 @@ export function buildOffhand(id: string, ctx: ItemCtx): THREE.Group {
       for (const [cx, cy] of [[-0.09, 0.2], [0.13, 0.2], [-0.09, -0.1], [0.13, -0.1]] as const) g.add(mesh(new THREE.BoxGeometry(0.04, 0.04, 0.092), M.gold(), [cx, cy, 0.08]));
       break;
     }
-    case 'kettlebell': {
-      const iron = M.iron();
-      g.add(mesh(new THREE.SphereGeometry(0.15, 32, 20), iron, [0, -0.2, 0.02], [1, 0.95, 1]));
-      g.add(mesh(new THREE.CylinderGeometry(0.1, 0.11, 0.03, 24), iron, [0, -0.335, 0.02]));
-      g.add(mesh(new THREE.TorusGeometry(0.085, 0.024, 10, 24, Math.PI), iron, [0, -0.07, 0.02]));
-      const label = mesh(new THREE.CircleGeometry(0.045, 24), mat(color, 0.5), [0, -0.19, 0.172]);
-      g.add(label);
+    case 'war_horn': {
+      // Турий рог с медными кольцами и мундштуком, на кожаном ремне.
+      const horn = mat('#d9c7a3', 0.45);
+      const curve = new THREE.CatmullRomCurve3([v(0, -0.2, 0.06), v(0.05, -0.05, 0.07), v(0.04, 0.12, 0.07), v(-0.04, 0.26, 0.07), v(-0.14, 0.32, 0.07)]);
+      g.add(new THREE.Mesh(taperTube(curve, 0.014, 0.075, 32, 16), horn));
+      for (const t of [0.15, 0.55, 0.97]) {
+        const q = curve.getPointAt(t);
+        const r = 0.014 + (0.075 - 0.014) * t;
+        const b = mesh(new THREE.TorusGeometry(r + 0.004, 0.007, 8, 28), M.bronze(), [q.x, q.y, q.z]);
+        b.quaternion.setFromUnitVectors(v(0, 0, 1), curve.getTangentAt(t));
+        g.add(b);
+      }
+      const end = curve.getPointAt(1);
+      const mouth = mesh(new THREE.CircleGeometry(0.07, 24), mat('#2a1d14', 0.9), [end.x, end.y, end.z]);
+      mouth.quaternion.setFromUnitVectors(v(0, 0, 1), curve.getTangentAt(1));
+      g.add(mouth);
+      g.add(cone(v(0, -0.2, 0.06), v(0.0, -0.25, 0.06), 0.012, 0.016, M.bronze(), 10));
+      g.add(new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3([curve.getPointAt(0.15), v(0.08, -0.05, 0.02), v(0.06, 0.2, 0.02), curve.getPointAt(0.97)]), 24, 0.006, 6), M.leather('#3d2a1c', 2)));
       break;
     }
-    case 'shaker': {
-      const body = mat(color, 0.25, 0, { transparent: true, opacity: 0.85 });
-      g.add(mesh(new THREE.CylinderGeometry(0.075, 0.068, 0.3, 32), body, [0, 0.02, 0.06]));
-      g.add(mesh(new THREE.CylinderGeometry(0.068, 0.066, 0.16, 32), mat('#efe6d6', 0.8), [0, -0.05, 0.06]));
-      g.add(mesh(new THREE.CylinderGeometry(0.08, 0.078, 0.07, 32), mat('#1f2329', 0.4), [0, 0.2, 0.06]));
-      g.add(mesh(new THREE.CylinderGeometry(0.022, 0.03, 0.05, 16), mat('#1f2329', 0.4), [0.03, 0.26, 0.06]));
-      for (let i = 0; i < 4; i += 1) g.add(mesh(new THREE.TorusGeometry(0.076, 0.002, 4, 32, Math.PI * 0.5), mat('#ffffff', 0.4), [0, -0.08 + i * 0.05, 0.06]).rotateX(Math.PI / 2).rotateZ(Math.PI * 0.75));
+    case 'healing_flask': {
+      // Круглая стеклянная фляга с алым зельем, пробкой и шнуром.
+      const glass = mat('#e9f4f0', 0.05, 0, { transparent: true, opacity: 0.35 });
+      const prof = [
+        [0, -0.13],
+        [0.06, -0.125],
+        [0.1, -0.08],
+        [0.11, -0.02],
+        [0.09, 0.04],
+        [0.035, 0.08],
+        [0.03, 0.15],
+        [0.036, 0.16],
+      ].map(([r, y]) => new THREE.Vector2(r, y));
+      g.add(mesh(new THREE.LatheGeometry(prof, 32), glass, [0, -0.06, 0.06]));
+      const potion = M.glow(color, 0.5);
+      g.add(mesh(new THREE.SphereGeometry(0.098, 24, 16, 0, Math.PI * 2, Math.PI * 0.32, Math.PI * 0.68), potion, [0, -0.08, 0.06]));
+      g.add(mesh(new THREE.CylinderGeometry(0.03, 0.026, 0.05, 12), M.wood('#a07040'), [0, 0.11, 0.06]));
+      g.add(ring(0.034, 0.005, M.leather('#5a3820', 2), 0.06).translateZ(0.06));
+      g.add(limb(v(0.03, 0.06, 0.06), v(0.06, -0.02, 0.07), 0.004, M.leather('#5a3820', 2), 6));
       break;
     }
     case 'torch': {

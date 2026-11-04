@@ -1,6 +1,6 @@
 import type { ExerciseId } from '../tracking/exercise';
 import type { Archetype, FitnessLevel, MuscleGroup, StatId } from './config';
-import type { Slot } from './items';
+import { renamedItem, type Slot } from './items';
 import { migrateStory, newStory } from './story';
 import type { StoryState } from './storyTypes';
 
@@ -162,8 +162,9 @@ export function migrate(raw: GameState): GameState {
   return {
     ...s,
     character: { ...s.character, appearance: { ...DEFAULT_APPEARANCE, ...(s.character.appearance ?? {}) } },
-    inventory: s.inventory ?? [],
-    equipped: s.equipped ?? {},
+    // Современные вещи заменены средневековыми — переводим старые id.
+    inventory: [...new Set((s.inventory ?? []).map(renamedItem))],
+    equipped: Object.fromEntries(Object.entries(s.equipped ?? {}).map(([slot, id]) => [slot, id ? renamedItem(id) : id])) as GameState['equipped'],
     story: migrateStory(s.story),
     achievements: s.achievements ?? {},
   };

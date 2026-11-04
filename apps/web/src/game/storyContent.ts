@@ -1,5 +1,5 @@
 import { NPC_BOSS_CHOICES, NPC_EVENTS } from './storyNpcs';
-import type { CompanionId, EventDef, Faction, Txt } from './storyTypes';
+import type { Choice, CompanionId, EventDef, Faction, MonsterId, Txt } from './storyTypes';
 
 /**
  * Содержимое режима истории: регионы, спутники, титулы и события.
@@ -928,6 +928,13 @@ const BOSSES: EventDef[] = [
     text: t('Огромный медведь-хранитель преграждает выход из леса.', 'A huge guardian bear blocks the way out of the forest.'),
     choices: [
       {
+        id: 'battle',
+        label: t('Сразиться с медведем', 'Fight the bear'),
+        fight: 'bear',
+        success: ok('Медведь повержен и уходит в чащу зализывать раны. Путь из леса открыт.', 'The bear is beaten and limps into the thicket. The way out of the forest is open.', { clear: true, title: 'forest_friend', xp: 120 }),
+        fail: ok('Медведь отшвырнул вас. Нужно набраться сил.', 'The bear threw you back. Gather your strength.', { resolve: -3 }),
+      },
+      {
         id: 'calm',
         label: t('Попросить пропустить', 'Ask to pass'),
         requires: { rep: ['forest', 2] },
@@ -964,6 +971,13 @@ const BOSSES: EventDef[] = [
     text: t('Каменный великан охраняет перевал.', 'A stone giant guards the pass.'),
     choices: [
       {
+        id: 'battle',
+        label: t('Расколоть великана', 'Shatter the giant'),
+        fight: 'stone_giant',
+        success: ok('Великан рассыпался грудой камней. Перевал свободен!', 'The giant crumbles into a heap of stones. The pass is free!', { clear: true, title: 'pass_breaker', xp: 150 }),
+        fail: ok('Каменный кулак сбил вас с ног.', 'A stone fist knocked you down.', { resolve: -3 }),
+      },
+      {
         id: 'golem',
         label: t('Голем поговорит с родичем', 'Let the golem talk to its kin'),
         requires: { companion: 'golem' },
@@ -994,6 +1008,13 @@ const BOSSES: EventDef[] = [
     text: t('Ведьма топей требует платы за выход.', 'The marsh witch demands payment to let you out.'),
     choices: [
       {
+        id: 'battle',
+        label: t('Сразиться с ведьмой', 'Fight the witch'),
+        fight: 'witch',
+        success: ok('Ведьма с визгом растаяла в тумане. Топи отпускают вас.', 'The witch shrieks and melts into the fog. The marsh lets you go.', { clear: true, title: 'marsh_walker', xp: 150 }),
+        fail: ok('Чары ведьмы оказались сильнее.', 'The witch\'s spells were stronger.', { resolve: -3 }),
+      },
+      {
         id: 'fairy',
         label: t('Фея развеет чары', 'The fairy breaks the spell'),
         requires: { companion: 'fairy' },
@@ -1017,6 +1038,13 @@ const BOSSES: EventDef[] = [
     title: t('Песчаный змей', 'The sand serpent'),
     text: t('Из дюн поднимается исполинский змей.', 'A gigantic serpent rises from the dunes.'),
     choices: [
+      {
+        id: 'battle',
+        label: t('Биться со змеем', 'Battle the serpent'),
+        fight: 'sand_serpent',
+        success: ok('Змей повержен и уполз в глубины дюн.', 'The serpent is beaten and sinks into the dunes.', { clear: true, title: 'dune_runner', xp: 200 }),
+        fail: ok('Кольца змея едва не задушили вас.', 'The serpent\'s coils nearly crushed you.', { resolve: -3 }),
+      },
       {
         id: 'outrun',
         label: t('Обогнать змея', 'Outrun the serpent'),
@@ -1042,6 +1070,13 @@ const BOSSES: EventDef[] = [
     text: t('Тёмный чемпион ждёт в тронном зале. Последняя битва!', 'The Dark Champion awaits in the throne room. The final battle!'),
     choices: [
       {
+        id: 'battle',
+        label: t('Сразиться с чемпионом', 'Fight the champion'),
+        fight: 'dark_champion',
+        success: ok('Последний удар — и тьма рассеялась. Вы — легенда!', 'One last blow and the darkness is gone. You are a legend!', { victory: true, title: 'legend', xp: 400 }),
+        fail: ok('Чемпион отбросил вас. Тьма ещё сильна.', 'The champion threw you back. The darkness is still strong.', { resolve: -3 }),
+      },
+      {
         id: 'parley',
         label: t('Убедить сдаться', 'Convince him to yield'),
         requires: { rep: ['order', 4] },
@@ -1066,9 +1101,80 @@ const BOSSES: EventDef[] = [
   },
 ];
 
+// ─── Монстры: засады и охота ────────────────────────────────────────────
+
+const AMBUSH_TEXT: readonly Txt[] = [
+  t('Из чащи на тропу выходит {monster}. Отступать некуда.', '{monster} steps out of the thicket onto the path. There is nowhere to retreat.'),
+  t('На узком уступе вас поджидает {monster}.', '{monster} lies in wait on a narrow ledge.'),
+  t('Из тумана над трясиной поднимается {monster}.', '{monster} rises from the fog over the bog.'),
+  t('Песок вздымается, и из-под дюны выбирается {monster}.', 'The sand heaves and {monster} crawls out of a dune.'),
+  t('В тёмном коридоре цитадели путь преграждает {monster}.', '{monster} bars the way in a dark corridor of the citadel.'),
+];
+const AMBUSH_ICON = ['🌲', '⛰️', '🌫️', '🏜️', '🏰'];
+const AMBUSH_MONSTERS: Record<number, MonsterId[]> = {
+  0: ['wolf', 'giant_spider', 'goblin'],
+  1: ['bandit', 'troll'],
+  2: ['bog_zombie', 'giant_toad', 'slime'],
+  3: ['scorpion', 'mummy'],
+  4: ['skeleton_knight', 'wraith'],
+};
+
+const ambushChoices = (region: number): Choice[] => [
+  {
+    id: 'fight',
+    label: t('Принять бой', 'Fight'),
+    fight: true,
+    success: ok('Монстр повержен. Вы обыскиваете его логово.', 'The monster is slain. You search its lair.', { gold: 25, xp: 40, ...(region === 0 ? { rep: { forest: 1 } } : region === 4 ? { rep: { order: 1 } } : {}) }),
+    fail: ok('Монстр взял верх. Вы еле унесли ноги.', 'The monster got the upper hand. You barely escaped.', { resolve: -2 }),
+  },
+  {
+    id: 'sneak',
+    label: t('Проскользнуть мимо', 'Slip past'),
+    check: { stat: 'legs', diff: 3 },
+    success: ok('Вы бесшумно обошли монстра.', 'You crept past the monster without a sound.', {}),
+    fail: ok('Монстр заметил вас и задел, прежде чем вы скрылись.', 'The monster spotted you and struck before you got away.', { resolve: -2 }),
+  },
+  {
+    id: 'bait',
+    label: t('Бросить приманку', 'Throw some bait'),
+    cost: 30,
+    success: ok('Монстр занят приманкой, а вы уже далеко.', 'The monster is busy with the bait, and you are long gone.', {}),
+  },
+];
+
+const AMBUSHES: EventDef[] = [0, 1, 2, 3, 4].map((region) => ({
+  id: `ambush_${region}`,
+  icon: AMBUSH_ICON[region]!,
+  regions: [region],
+  weight: 1.3,
+  title: t('Засада!', 'Ambush!'),
+  text: AMBUSH_TEXT[region]!,
+  monsters: AMBUSH_MONSTERS[region]!,
+  choices: ambushChoices(region),
+}));
+
+/** Охота: бой вне тропы (событие не выпадает случайно — только по кнопке «Охота»). */
+const HUNT: EventDef = {
+  id: 'hunt',
+  icon: '🏹',
+  regions: [],
+  noStep: true,
+  title: t('Охота', 'Hunt'),
+  text: t('Вы сходите с тропы в поисках добычи.', 'You leave the path in search of prey.'),
+  choices: [
+    {
+      id: 'fight',
+      label: t('Охота', 'Hunt'),
+      success: ok('Добыча ваша: трофеи и пара монет.', 'The prey is yours: trophies and a few coins.', { gold: 30, xp: 45 }),
+      fail: ok('Охотник стал добычей. Вы еле доползли до лагеря.', 'The hunter became the prey. You barely crawled back to camp.', { resolve: -2 }),
+    },
+    { id: 'flee', label: t('Бегство', 'Flee'), success: ok('Вы отступили, потеряв немного сил.', 'You retreated, losing some strength.', { resolve: -1 }) },
+  ],
+};
+
 /** Хранители с помощью знакомых персонажей: выборы союзников идут первыми. */
 const BOSSES_WITH_ALLIES: EventDef[] = BOSSES.map((b) => ({ ...b, choices: [...(NPC_BOSS_CHOICES[b.id] ?? []), ...b.choices] }));
 
-export const STORY_EVENTS: readonly EventDef[] = [...GENERIC, ...FOLLOW_UPS, ...REGIONAL, ...NPC_EVENTS, ...BOSSES_WITH_ALLIES];
+export const STORY_EVENTS: readonly EventDef[] = [...GENERIC, ...FOLLOW_UPS, ...REGIONAL, ...AMBUSHES, ...NPC_EVENTS, ...BOSSES_WITH_ALLIES, HUNT];
 
 export const storyEvent = (id: string): EventDef | undefined => STORY_EVENTS.find((e) => e.id === id);

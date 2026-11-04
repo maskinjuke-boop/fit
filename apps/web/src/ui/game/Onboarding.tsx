@@ -44,7 +44,7 @@ export function Onboarding() {
             <Hero3D
               color={COLORS[1]}
               appearance={{ ...DEFAULT_APPEARANCE, figure: 'female', hair: 'ponytail', hairColor: 3, skin: 2 }}
-              equipped={{ body: 'tracksuit', weapon: 'jump_rope', offhand: 'shaker' }}
+              equipped={{ body: 'gambeson', weapon: 'flail', offhand: 'healing_flask' }}
               height={230}
               interactive={false}
             />

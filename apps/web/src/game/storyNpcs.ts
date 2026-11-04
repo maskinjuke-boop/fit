@@ -55,7 +55,7 @@ export const NPCS: Record<NpcId, NpcDef> = {
     bio: t('Ворчливый великан с золотыми руками. Двадцать лет назад ушёл из Ордена и не любит об этом говорить.', 'A grumpy giant with golden hands. Left the Order twenty years ago and hates talking about it.'),
     color: '#b5651d',
     appearance: look({ figure: 'male', skin: 3, hair: 'buzz', hairColor: 5, beard: true }),
-    equipped: { body: 'open_vest', legs: 'ripped_jeans', feet: 'combat_boots', hands: 'leather_gloves', weapon: 'war_hammer' },
+    equipped: { body: 'open_vest', legs: 'riding_breeches', feet: 'soldier_boots', hands: 'leather_gloves', weapon: 'war_hammer' },
     faction: 'order',
     lines: [
       t('«Ещё шаг — и узнаешь, каков молот в деле».', '"One more step and you\'ll learn what a hammer is for."'),
@@ -89,7 +89,7 @@ export const NPCS: Record<NpcId, NpcDef> = {
     bio: t('Поёт в каждой таверне от леса до пустыни и в каждой оставляет разбитое сердце.', 'Sings in every tavern from forest to desert and leaves a broken heart in each.'),
     color: '#b57bff',
     appearance: look({ figure: 'male', skin: 0, hair: 'long', hairColor: 3, eyes: 1 }),
-    equipped: { head: 'beret', body: 'open_vest', legs: 'harem_pants', feet: 'silk_slippers', neck: 'silk_scarf', offhand: 'war_fan' },
+    equipped: { head: 'beret', body: 'open_vest', legs: 'harem_pants', feet: 'silk_slippers', neck: 'silk_scarf', offhand: 'lute' },
     lines: [
       t('«О тебе я сложу злую песенку».', '"I\'ll write a nasty little song about you."'),
       t('«Монетку барду — и песня станет громче!»', '"A coin for the bard — and the song gets louder!"'),
@@ -105,7 +105,7 @@ export const NPCS: Record<NpcId, NpcDef> = {
     bio: t('Загадочная и опасная. Сестра болотной ведьмы и её давняя соперница.', 'Mysterious and dangerous. Sister of the marsh witch and her old rival.'),
     color: '#7c4dff',
     appearance: look({ figure: 'female', skin: 0, hair: 'long', hairColor: 0, eyes: 3 }),
-    equipped: { head: 'lace_veil', body: 'latex_corset', legs: 'lace_garters', feet: 'latex_thigh_boots', hands: 'lace_gloves', neck: 'crystal_pendant', offhand: 'crystal_orb' },
+    equipped: { head: 'lace_veil', body: 'leather_corset', legs: 'lace_garters', feet: 'leather_thigh_boots', hands: 'lace_gloves', neck: 'crystal_pendant', offhand: 'crystal_orb' },
     lines: [
       t('«Я превращу тебя в жабу, и никто не заметит разницы».', '"I\'ll turn you into a toad, and no one will notice the difference."'),
       t('«Любопытная душа… Чего ищешь в моих топях?»', '"A curious traveller… What do you seek in my marsh?"'),

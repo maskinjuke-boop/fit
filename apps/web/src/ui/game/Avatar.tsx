@@ -212,31 +212,31 @@ const ICON_VIEW: Record<string, string> = {
   plate_armor: '14 140 172 74',
   champion_armor: '14 136 172 78',
   wooden_club: '124 34 64 180',
-  iron_dumbbell: '120 112 76 60',
+  mace: '120 112 76 60',
   bronze_sword: '108 36 74 176',
   steel_sword: '108 36 74 176',
   hunter_bow: '4 26 60 184',
   oak_staff: '130 10 60 204',
   wooden_shield: '4 142 72 72',
-  kettlebell: '16 140 54 68',
+  war_horn: '16 140 54 68',
   spell_tome: '10 150 66 58',
   iron_shield: '10 136 60 80',
-  sports_cap: '58 30 92 52',
+  feathered_cap: '58 30 92 52',
   flower_wreath: '62 50 76 30',
   horned_helm: '40 6 120 98',
   silver_tiara: '66 36 68 36',
-  tracksuit: '14 140 172 74',
-  kimono: '14 140 172 74',
-  sport_set: '40 140 120 74',
-  fitness_set: '14 140 172 74',
+  gambeson: '14 140 172 74',
+  monk_habit: '14 140 172 74',
+  huntress_leathers: '40 140 120 74',
+  ranger_garb: '14 140 172 74',
   gladiator_armor: '30 140 150 74',
   scale_mail: '14 140 172 74',
   dragon_armor: '10 132 180 82',
-  jump_rope: '120 96 70 116',
+  flail: '120 96 70 116',
   spear: '120 4 60 210',
   battle_axe: '112 30 80 182',
   magic_wand: '128 50 60 120',
-  shaker: '16 138 50 74',
+  healing_flask: '16 138 50 74',
   torch: '14 108 54 106',
   tower_shield: '6 120 70 94',
   crystal_orb: '12 138 60 70',
@@ -361,7 +361,7 @@ function Beard({ hair }: { hair: string }) {
 }
 
 /** Головные уборы, под которыми не виден пучок на макушке. */
-const HATS: readonly string[] = ['leather_cap', 'ranger_hood', 'wizard_hat', 'iron_helm', 'sports_cap', 'horned_helm'];
+const HATS: readonly string[] = ['leather_cap', 'ranger_hood', 'wizard_hat', 'iron_helm', 'feathered_cap', 'horned_helm'];
 
 function HairFront({ style, fill, color, covered }: { style: HairStyle; fill: string; color: string; covered: boolean }) {
   const shine = <path d="M84 46 Q100 39 116 46" fill="none" stroke={tone(color, 1.6)} strokeWidth="3" strokeLinecap="round" opacity="0.35" />;
@@ -492,12 +492,13 @@ function weaponBack(id: string | undefined, url: Url): ReactNode {
           <path d="M168 58 L172 68 L183 69 L174 76 L177 87 L168 81 L159 87 L162 76 L153 69 L164 68 Z" fill={url('gold')} stroke="#a8741c" strokeWidth="1" />
         </g>
       );
-    case 'jump_rope':
+    case 'flail':
       return (
         <g>
-          <path d="M150 124 C140 170 150 206 170 206 C190 206 186 170 172 124" fill="none" stroke="#d8dde6" strokeWidth="3" />
-          <rect x="144" y="100" width="10" height="28" rx="4" fill={url('gold')} />
-          <rect x="167" y="100" width="10" height="28" rx="4" fill={url('gold')} />
+          <path d="M150 196 L156 110" stroke="#5a3a22" strokeWidth="8" strokeLinecap="round" />
+          <path d="M156 108 Q166 90 178 96" fill="none" stroke="#4b535c" strokeWidth="3" strokeDasharray="4 2" />
+          <circle cx="182" cy="104" r="11" fill={url('steel')} stroke="#4b535c" strokeWidth="2" />
+          <path d="M182 88 L182 92 M196 104 L193 104 M182 120 L182 116 M168 104 L171 104" stroke="#4b535c" strokeWidth="3" />
         </g>
       );
     case 'oak_staff':
@@ -516,14 +517,11 @@ function weaponBack(id: string | undefined, url: Url): ReactNode {
 }
 
 function weaponFront(id: string | undefined): ReactNode {
-  if (id !== 'iron_dumbbell') return null;
+  if (id !== 'mace') return null;
   return (
     <g>
-      <path d="M126 150 L190 136" stroke="#c9ced4" strokeWidth="6" strokeLinecap="round" />
-      <rect x="128" y="132" width="12" height="32" rx="3" transform="rotate(-12 134 148)" fill="#2e3339" />
-      <rect x="142" y="136" width="8" height="24" rx="2" transform="rotate(-12 146 148)" fill="#40464e" />
-      <rect x="170" y="125" width="8" height="24" rx="2" transform="rotate(-12 174 137)" fill="#40464e" />
-      <rect x="180" y="121" width="12" height="32" rx="3" transform="rotate(-12 186 137)" fill="#2e3339" />
+      <path d="M150 196 L158 112" stroke="#4a2f1f" strokeWidth="7" strokeLinecap="round" />
+      <path d="M150 112 L158 92 L166 112 L158 128 Z" fill="#9aa3ad" stroke="#4b535c" strokeWidth="2" />
     </g>
   );
 }
@@ -538,26 +536,25 @@ const BUST = {
 function bodyItem(id: string | undefined, url: Url, color: string, skin?: string, female = false): ReactNode {
   const bare = skin ? <path d={female ? BUST.female : BUST.male} fill={skin} /> : null;
   switch (id) {
-    case 'sport_set':
+    case 'huntress_leathers':
       return (
         <g>
           {bare}
           {female ? (
-            <path d="M64 212 C62 194 66 180 74 172 L86 150 L94 151 L92 168 Q100 176 108 168 L106 151 L114 150 L126 172 C134 180 138 194 136 212 Z" fill={color} />
+            <path d="M64 212 C62 194 66 180 74 172 L86 150 L94 151 L92 168 Q100 176 108 168 L106 151 L114 150 L126 172 C134 180 138 194 136 212 Z" fill="#6b4428" />
           ) : (
-            <path d="M50 212 C50 186 58 170 70 162 L80 147 L90 149 Q100 166 110 149 L120 147 L130 162 C142 170 150 186 150 212 Z" fill={color} />
+            <path d="M50 212 C50 186 58 170 70 162 L80 147 L90 149 Q100 166 110 149 L120 147 L130 162 C142 170 150 186 150 212 Z" fill="#6b4428" />
           )}
-          <path d="M68 204 Q100 211 132 204" fill="none" stroke="#f4f4f4" strokeWidth="4" />
-          <path d="M92 168 Q100 176 108 168" fill="none" stroke="#f4f4f4" strokeWidth="2" />
+          <path d="M68 204 Q100 211 132 204" fill="none" stroke="#2a1d14" strokeWidth="4" />
         </g>
       );
-    case 'fitness_set':
+    case 'ranger_garb':
       return (
         <g>
           <path d={female ? BUST.female : BUST.male} fill={tone(color, 1.25)} />
           {skin && <path d="M80 147 Q100 178 120 147 Q100 156 80 147 Z" fill={skin} />}
           <path d="M80 147 Q100 178 120 147" fill="none" stroke={tone(color, 0.8)} strokeWidth="2.5" />
-          <path d="M46 180 L52 212 M154 180 L148 212" stroke={tone(color, 0.7)} strokeWidth="3" />
+          <path d="M60 150 L140 206" stroke="#3d2a1c" strokeWidth="5" />
         </g>
       );
     case 'gladiator_armor':
@@ -613,20 +610,21 @@ function bodyItem(id: string | undefined, url: Url, color: string, skin?: string
           <circle cx="138" cy="186" r="4" fill={url('gold')} />
         </g>
       );
-    case 'tracksuit':
+    case 'gambeson':
       return (
         <g>
           <path d="M18 212 C20 172 46 152 80 146 L100 152 L120 146 C154 152 180 172 182 212 Z" fill={color} />
-          <path d="M84 144 Q100 152 116 144 L118 154 Q100 162 82 154 Z" fill={tone(color, 0.55)} />
-          <path d="M100 156 L100 212" stroke="#d9dee4" strokeWidth="3" />
-          <path d="M40 176 L52 212 M160 176 L148 212" stroke="#f4f4f4" strokeWidth="5" />
+          {[168, 182, 196].map((y) => (
+            <path key={y} d={`M40 ${y} Q100 ${y + 6} 160 ${y}`} fill="none" stroke={tone(color, 0.7)} strokeWidth="2" />
+          ))}
+          <path d="M100 152 L100 212" stroke="#3d2a1c" strokeWidth="3" />
         </g>
       );
-    case 'kimono':
+    case 'monk_habit':
       return (
         <g>
-          <path d="M18 212 C20 172 46 152 80 146 Q100 156 120 146 C154 152 180 172 182 212 Z" fill="#f3f1ea" />
-          <path d="M80 146 L118 212 M120 146 L104 180" stroke="#cfc9b8" strokeWidth="6" fill="none" />
+          <path d="M18 212 C20 172 46 152 80 146 Q100 156 120 146 C154 152 180 172 182 212 Z" fill="#5d4632" />
+          <path d="M60 200 Q100 208 140 200" fill="none" stroke="#c9b38a" strokeWidth="4" />
         </g>
       );
     case 'scale_mail':
@@ -712,13 +710,12 @@ function headItem(id: string | undefined, url: Url, color: string): ReactNode {
           ))}
         </g>
       );
-    case 'sports_cap':
+    case 'feathered_cap':
       return (
         <g>
           <path d="M70 72 C70 46 84 36 100 36 C116 36 130 46 130 72 Q100 64 70 72 Z" fill={color} />
-          <path d="M66 74 Q100 62 134 74 C150 76 152 84 140 84 Q100 72 66 82 Z" fill={tone(color, 0.7)} />
-          <circle cx="100" cy="54" r="6" fill="#f4f4f4" />
-          <circle cx="100" cy="37" r="3" fill={tone(color, 0.7)} />
+          <path d="M66 74 Q100 62 134 74 L134 82 Q100 70 66 82 Z" fill={tone(color, 0.6)} />
+          <path d="M126 66 C140 50 146 30 140 14 C132 30 128 48 126 66 Z" fill="#c62828" />
         </g>
       );
     case 'flower_wreath':
@@ -798,13 +795,13 @@ function offhandItem(id: string | undefined, url: Url, color: string): ReactNode
           <path d="M18 164 L24 160 M18 194 L24 198" stroke={url('gold')} strokeWidth="3" />
         </g>
       );
-    case 'shaker':
+    case 'healing_flask':
       return (
         <g>
-          <rect x="28" y="150" width="28" height="56" rx="6" fill={color} opacity="0.9" />
-          <rect x="28" y="176" width="28" height="30" rx="4" fill="#efe6d6" opacity="0.85" />
-          <rect x="26" y="142" width="32" height="12" rx="3" fill="#1f2329" />
-          <rect x="44" y="136" width="8" height="8" rx="2" fill="#1f2329" />
+          <circle cx="42" cy="186" r="20" fill="#e9f4f0" opacity="0.5" />
+          <path d="M23 190 A20 20 0 0 0 61 190 Z" fill={color} />
+          <rect x="37" y="150" width="10" height="18" fill="#e9f4f0" opacity="0.6" />
+          <rect x="36" y="144" width="12" height="9" rx="2" fill="#a07040" />
         </g>
       );
     case 'torch':
@@ -834,15 +831,12 @@ function offhandItem(id: string | undefined, url: Url, color: string): ReactNode
           <circle cx="35" cy="160" r="3" fill="#ffffff" opacity="0.8" />
         </g>
       );
-    case 'kettlebell':
+    case 'war_horn':
       return (
         <g>
-          <path d="M28 170 C26 146 58 146 56 170" fill="none" stroke="#2e3339" strokeWidth="8" strokeLinecap="round" />
-          <circle cx="42" cy="184" r="22" fill="#3a4047" />
-          <ellipse cx="35" cy="177" rx="7" ry="4" fill="#ffffff" opacity="0.15" />
-          <text x="42" y="190" textAnchor="middle" fontSize="13" fontWeight="800" fill={color} fontFamily="system-ui, sans-serif">
-            16
-          </text>
+          <path d="M30 206 C50 196 58 170 46 140" fill="none" stroke="#d9c7a3" strokeWidth="6" strokeLinecap="round" />
+          <path d="M40 140 Q46 126 56 136 L50 150 Z" fill="#d9c7a3" />
+          <path d="M44 170 L56 170" stroke={url('gold')} strokeWidth="3" />
         </g>
       );
     default:

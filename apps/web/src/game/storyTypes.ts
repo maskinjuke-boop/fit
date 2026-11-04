@@ -19,6 +19,26 @@ export const NPC_IDS: readonly NpcId[] = ['lira', 'bram', 'sylvie', 'cassian', '
 export const NPC_MIN = -5;
 export const NPC_MAX = 10;
 
+/** Монстры: обычные в каждом регионе и хранители регионов. */
+export type MonsterId =
+  | 'wolf'
+  | 'giant_spider'
+  | 'goblin'
+  | 'bear'
+  | 'bandit'
+  | 'troll'
+  | 'stone_giant'
+  | 'bog_zombie'
+  | 'giant_toad'
+  | 'slime'
+  | 'witch'
+  | 'scorpion'
+  | 'mummy'
+  | 'sand_serpent'
+  | 'skeleton_knight'
+  | 'wraith'
+  | 'dark_champion';
+
 /** Последствия выбора. Золото и опыт масштабируются регионом. */
 export interface Effect {
   resolve?: number;
@@ -76,6 +96,8 @@ export interface Choice {
   trial?: { exercise: ExerciseId; reps: number };
   /** Исход решает случай 50/50 (гадалка, грибы, огоньки). */
   gamble?: boolean;
+  /** Бой с монстром (true — с монстром события, см. EventDef.monsters). Победа — успех. */
+  fight?: MonsterId | true;
   success: Outcome;
   fail?: Outcome;
 }
@@ -95,6 +117,10 @@ export interface EventDef {
   once?: boolean;
   /** Персонаж, с которым идёт разговор (портрет и отношение на карточке события). */
   npc?: NpcId;
+  /** Монстры события: один выбирается случайно и подставляется в {monster}. */
+  monsters?: MonsterId[];
+  /** Событие не продвигает по тропе (охота). */
+  noStep?: boolean;
   /** Подстановки: {npc} и т. п. — случайный вариант из списка. */
   vars?: Record<string, readonly Txt[]>;
   choices: Choice[];
@@ -126,9 +152,43 @@ export interface OutcomeView extends LogEntry {
   /** Фактические изменения (после масштабирования). */
   effect: Effect;
   loot?: string;
+  /** Бой, которым закончилось событие. */
+  monster?: MonsterId;
 }
 
-export type StoryStatus = 'idle' | 'event' | 'trial' | 'outcome' | 'ended';
+export type BattleAction = 'attack' | 'power' | 'block' | 'potion' | 'flee';
+
+/** Строка журнала боя (текст — в словаре интерфейса). */
+export interface BattleLine {
+  who: 'hero' | 'monster';
+  kind: 'hit' | 'crit' | 'power' | 'miss' | 'dodge' | 'blocked' | 'poison' | 'poisoned' | 'heal' | 'regen' | 'drain' | 'enrage' | 'charge' | 'heavy' | 'stun' | 'flee' | 'fleeFail' | 'armor';
+  n?: number;
+}
+
+/** Идущий бой. Пока идёт «мощный удар», монстр ждёт: удар наносится после повторов в тренировке. */
+export interface Battle {
+  monster: MonsterId;
+  hp: number;
+  maxHp: number;
+  heroHp: number;
+  heroMax: number;
+  round: number;
+  potions: number;
+  /** Ходов отравления героя. */
+  poison: number;
+  /** Монстр пропускает следующую атаку. */
+  stunned: boolean;
+  /** Хранитель готовит сокрушительный удар (на следующем ходу). */
+  charging: boolean;
+  enraged: boolean;
+  power: { exercise: ExerciseId; target: number; progress: number } | null;
+  log: BattleLine[];
+  /** Событие, из которого начался бой; null — охота. */
+  source: { event: string; choice: string } | null;
+  result: 'won' | 'lost' | 'fled' | null;
+}
+
+export type StoryStatus = 'idle' | 'event' | 'trial' | 'battle' | 'outcome' | 'ended';
 
 export interface StoryState {
   run: number;
@@ -160,4 +220,7 @@ export interface StoryState {
   started: boolean;
   /** Отношение знакомых персонажей к герою (сохраняется между путешествиями). */
   npcs: Partial<Record<NpcId, number>>;
+  battle: Battle | null;
+  /** Побеждённые монстры за всё время: id → число побед. */
+  bestiary: Partial<Record<MonsterId, number>>;
 }

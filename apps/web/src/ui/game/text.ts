@@ -69,6 +69,8 @@ export function eventText(t: T, tf: TF, e: GameEvent, lang: Lang = 'ru'): string
       return tf('ev.storyEnergy', { n: e.energy });
     case 'storyTrialDone':
       return t('ev.storyTrialDone');
+    case 'storyPowerStrike':
+      return t('ev.storyPowerStrike');
     case 'achievement': {
       const a = ACHIEVEMENTS.find((x) => x.id === e.id);
       return tf('ev.achievement', { name: a ? a.name[lang] : e.id });

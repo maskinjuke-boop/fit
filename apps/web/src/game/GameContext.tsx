@@ -20,7 +20,8 @@ import {
 import type { Slot } from './items';
 import { createState, type Appearance, type Character, type GameState } from './state';
 import { clearGame, loadGame, saveGame } from './storage';
-import { abandonTrial, camp, choose, proceed, startJourney, travel, type StoryResult } from './story';
+import { abandonTrial, battleAct, camp, choose, finishBattle, hunt, proceed, startJourney, travel, type StoryResult } from './story';
+import type { BattleAction, MonsterId } from './storyTypes';
 
 /** Действия режима администратора. */
 export interface AdminActions {
@@ -47,6 +48,9 @@ export interface StoryActions {
   choose(choiceId: string): GameEvent[];
   abandon(): GameEvent[];
   proceed(): GameEvent[];
+  hunt(monster?: MonsterId): GameEvent[];
+  battle(action: BattleAction): GameEvent[];
+  finishBattle(): GameEvent[];
 }
 
 interface Game {
@@ -213,6 +217,9 @@ export function GameProvider({ children }: { children: ReactNode }) {
       choose: (id) => storyRun((s) => choose(s, id)),
       abandon: () => storyRun(abandonTrial),
       proceed: () => storyRun(proceed),
+      hunt: (m) => storyRun((s) => hunt(s, m)),
+      battle: (a) => storyRun((s) => battleAct(s, a)),
+      finishBattle: () => storyRun(finishBattle),
     };
     return {
       state,

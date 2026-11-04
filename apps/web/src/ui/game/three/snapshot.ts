@@ -5,6 +5,9 @@ import { prepare } from './anatomy';
 import { HEAD_CENTER_WORLD, HEAD_GROW } from './body';
 import { buildCharacter, buildItemModel, disposeObject, garmentsFor, iconFigure, itemGarments } from './buildCharacter';
 import { loadHairTexture } from './hairMesh';
+import { HUMANOIDS, buildBeast } from './monsters';
+import type { MonsterId } from '../../../game/storyTypes';
+import { M, type Anim } from './kit';
 import { createStudio, enableShadows, setupRenderer, type Studio } from './studio';
 
 /**
@@ -199,3 +202,47 @@ export async function renderPortrait(appearance: Appearance, color: string, equi
   }, 2);
 }
 
+
+/** Монстр в полный рост (для экрана боя): гуманоиды — из модели героя, звери — процедурно. */
+export async function renderMonster(id: MonsterId, size = 320): Promise<string> {
+  const h = HUMANOIDS[id];
+  if (h) await Promise.all([prepare(h.appearance.figure, garmentsFor(h.appearance.figure, h.equipped)), loadHairTexture(h.appearance.hair)]);
+  return enqueue(() => {
+    const { studio: st } = ensure();
+    const anim: Anim[] = [];
+    let root: THREE.Object3D;
+    if (h) {
+      const parts = buildCharacter(h.appearance, h.color, h.equipped, { skin: h.skin });
+      anim.push(...parts.anim);
+      root = parts.root;
+      if (h.bandaged) {
+        // Бинты: тело — грубая ткань с полосами вместо кожи.
+        const body = parts.torso.children[0] as THREE.Mesh;
+        const wrap = M.cloth('#d8c9a3', 16, 0.97);
+        wrap.polygonOffset = true;
+        wrap.polygonOffsetFactor = 1;
+        wrap.polygonOffsetUnits = 2;
+        body.material = wrap;
+      }
+      root.scale.setScalar(h.scale);
+    } else {
+      root = buildBeast(id, anim);
+    }
+    const holder = new THREE.Group();
+    holder.add(root);
+    holder.rotation.y = -0.45;
+    for (const f of anim) f(0.4);
+    enableShadows(holder);
+    st.rim.color.set('#ff5a3c');
+    st.scene.environmentIntensity = 0.6;
+    st.scene.add(holder);
+    try {
+      const cam = frame(holder, new THREE.Vector3(0, 0.18, 1), 28, 0.9, size);
+      const c = new THREE.Box3().setFromObject(holder).getCenter(new THREE.Vector3());
+      return shoot(st.scene, cam, size, c);
+    } finally {
+      st.scene.remove(holder);
+      disposeObject(holder);
+    }
+  }, 2);
+}

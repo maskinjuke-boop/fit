@@ -1,13 +1,14 @@
 import type { ExerciseId } from '../tracking/exercise';
 import type { StatId } from './config';
 import type { GameEvent } from './engine';
+import { MONSTERS, battleTurn, heroCombat, newBattle, powerStrike, regionMonsters } from './combat';
 import { ITEMS, type Rarity } from './items';
 import { levelOf } from './levels';
 import { addXp } from './progress';
 import { rng } from './random';
 import type { GameState } from './state';
 import { COMPANIONS, MAX_COMPANIONS, REGIONS, REGION_STEPS, STORY_EVENTS, storyEvent } from './storyContent';
-import { NPC_MAX, NPC_MIN, type ActiveEvent, type Choice, type Effect, type EventDef, type Faction, type NpcId, type OutcomeView, type Requirement, type StoryState } from './storyTypes';
+import { NPC_MAX, NPC_MIN, type ActiveEvent, type BattleAction, type Choice, type MonsterId, type Effect, type EventDef, type Faction, type NpcId, type OutcomeView, type Requirement, type StoryState } from './storyTypes';
 
 /**
  * Режим истории: путешествие по пяти регионам. Каждый шаг — случайное событие,
@@ -51,13 +52,15 @@ export function newStory(): StoryState {
     titles: [],
     started: false,
     npcs: {},
+    battle: null,
+    bestiary: {},
   };
 }
 
 export function migrateStory(raw: Partial<StoryState> | undefined): StoryState {
   const base = newStory();
   if (!raw) return base;
-  return { ...base, ...raw, rep: { ...base.rep, ...(raw.rep ?? {}) }, npcs: { ...(raw.npcs ?? {}) } };
+  return { ...base, ...raw, rep: { ...base.rep, ...(raw.rep ?? {}) }, npcs: { ...(raw.npcs ?? {}) }, bestiary: { ...(raw.bestiary ?? {}) }, battle: raw.battle ?? null };
 }
 
 // ─── Масштабирование ───────────────────────────────────────────────────
@@ -153,6 +156,7 @@ function pickEvent(s: GameState): ActiveEvent {
   if (!chosen) chosen = STORY_EVENTS[0]!;
   const vars: Record<string, number> = {};
   for (const [key, list] of Object.entries(chosen.vars ?? {})) vars[key] = Math.floor(r() * list.length);
+  if (chosen.monsters) vars.monster = Math.floor(r() * chosen.monsters.length);
   return { id: chosen.id, vars };
 }
 
@@ -179,7 +183,7 @@ function clampRep(v: number): number {
 }
 
 /** Применяет исход выбора к состоянию (s уже скопировано). */
-function applyOutcome(s: GameState, ev: EventDef, choice: Choice, ok: boolean, vars: Record<string, number>, events: GameEvent[]): void {
+function applyOutcome(s: GameState, ev: EventDef, choice: Choice, ok: boolean, vars: Record<string, number>, events: GameEvent[], extraLoot = false): void {
   const st = s.story;
   const out = ok ? choice.success : (choice.fail ?? choice.success);
   const e = out.effect;
@@ -231,7 +235,7 @@ function applyOutcome(s: GameState, ev: EventDef, choice: Choice, ok: boolean, v
     }
   }
   let loot: string | undefined;
-  if (e.loot) {
+  if (e.loot || (ok && extraLoot)) {
     const id = rollLoot(s, r);
     if (id) {
       s.inventory.push(id);
@@ -253,7 +257,7 @@ function applyOutcome(s: GameState, ev: EventDef, choice: Choice, ok: boolean, v
     st.step = Math.min(REGION_STEPS, st.step + e.skip);
     applied.skip = e.skip;
   }
-  if (!ev.boss) st.step = Math.min(REGION_STEPS, st.step + 1);
+  if (!ev.boss && !ev.noStep) st.step = Math.min(REGION_STEPS, st.step + 1);
   if (e.clear) {
     // Хранитель региона повержен: награда и переход в следующий регион.
     const gold = Math.round(150 * (1 + st.region * 0.5));
@@ -292,9 +296,11 @@ function applyOutcome(s: GameState, ev: EventDef, choice: Choice, ok: boolean, v
   if (st.log.length > LOG_SIZE) st.log.splice(0, st.log.length - LOG_SIZE);
   const view: OutcomeView = { ...entry, effect: applied };
   if (loot) view.loot = loot;
+  if (st.battle) view.monster = st.battle.monster;
   st.last = view;
   st.event = null;
   st.trial = null;
+  st.battle = null;
   st.status = 'outcome';
 }
 
@@ -322,6 +328,7 @@ export function startJourney(state: GameState): StoryResult {
   st.titles = prev.titles;
   // Знакомые помнят героя и в новом путешествии.
   st.npcs = { ...prev.npcs };
+  st.bestiary = { ...prev.bestiary };
   st.started = true;
   s.story = st;
   return { state: s, events: [] };
@@ -359,6 +366,12 @@ export function choose(state: GameState, choiceId: string): StoryResult {
   const events: GameEvent[] = [];
   const vars = s.story.event?.vars ?? {};
   if (choice.cost) s.gold -= choice.cost;
+  if (choice.fight) {
+    const monster = choice.fight === true ? (ev.monsters?.[vars.monster ?? 0] ?? regionMonsters(s.story.region)[0]!) : choice.fight;
+    s.story.battle = newBattle(s, monster, { event: ev.id, choice: choice.id });
+    s.story.status = 'battle';
+    return { state: s, events };
+  }
   if (choice.trial) {
     const plan = trialPlan(s, choice.trial);
     s.story.trial = { event: ev.id, choice: choice.id, exercise: plan.exercise, target: plan.target, progress: 0 };
@@ -386,6 +399,65 @@ export function abandonTrial(state: GameState): StoryResult {
   return { state: s, events };
 }
 
+// ─── Бои ───────────────────────────────────────────────────────────────
+
+/** Событие охоты (не продвигает по тропе): исход боя без события. */
+export const HUNT_EVENT = 'hunt';
+
+/** Охота: за шаг пути — бой со случайным монстром региона (золото, опыт, иногда добыча). */
+export function hunt(state: GameState, monster?: MonsterId): StoryResult {
+  const st = state.story;
+  if (!st.started || st.status !== 'idle' || st.energy <= 0 || st.ending) return unchanged(state);
+  // Логово в мире: монстр открытого региона (не хранитель).
+  if (monster && (MONSTERS[monster].boss || MONSTERS[monster].region > st.region)) return unchanged(state);
+  const s = structuredClone(state);
+  const pool = regionMonsters(Math.min(s.story.region, REGIONS.length - 1));
+  const r = rng(`${s.character.id}:hunt:${s.story.run}:${s.story.stepsTotal}`);
+  s.story.energy -= 1;
+  s.story.battle = newBattle(s, monster ?? pool[Math.floor(r() * pool.length)]!, null);
+  s.story.status = 'battle';
+  return { state: s, events: [] };
+}
+
+const battleRng = (s: GameState): (() => number) => {
+  const b = s.story.battle!;
+  return rng(`${s.character.id}:battle:${s.story.run}:${s.story.stepsTotal}:${b.monster}:${b.round}:${b.power ? 'p' : ''}`);
+};
+
+/** Действие героя в бою. */
+export function battleAct(state: GameState, action: BattleAction): StoryResult {
+  const st = state.story;
+  if (st.status !== 'battle' || !st.battle || st.battle.result) return unchanged(state);
+  const s = structuredClone(state);
+  const b = s.story.battle!;
+  const err = battleTurn(b, heroCombat(s), action, battleRng(s), s.story.region, FITNESS_FACTOR[s.character.fitness]);
+  if (err) return unchanged(state);
+  return { state: s, events: [] };
+}
+
+/** Итог боя: победа — успех события (или награда охоты), поражение и бегство — неудача. */
+export function finishBattle(state: GameState): StoryResult {
+  const st = state.story;
+  const b = st.battle;
+  if (st.status !== 'battle' || !b || !b.result) return unchanged(state);
+  const s = structuredClone(state);
+  const events: GameEvent[] = [];
+  const won = b.result === 'won';
+  if (won) s.story.bestiary[b.monster] = (s.story.bestiary[b.monster] ?? 0) + 1;
+  const ev = storyEvent(b.source?.event ?? HUNT_EVENT);
+  const choice = ev?.choices.find((c) => c.id === (b.source ? b.source.choice : b.result === 'fled' ? 'flee' : 'fight'));
+  if (!ev || !choice) {
+    s.story.battle = null;
+    s.story.status = 'idle';
+    return { state: s, events };
+  }
+  // На охоте каждая четвёртая победа (по жребию) приносит добычу, над хранителем — всегда.
+  const r = rng(`${s.character.id}:spoils:${s.story.run}:${s.story.stepsTotal}`);
+  const extraLoot = won && (MONSTERS[b.monster].boss || (!b.source && r() < 0.25));
+  applyOutcome(s, ev, choice, won, s.story.event?.vars ?? {}, events, extraLoot);
+  return { state: s, events };
+}
+
 /** Закрыть экран исхода: дальше по тропе или к итогам путешествия. */
 export function proceed(state: GameState): StoryResult {
   const st = state.story;
@@ -410,6 +482,16 @@ export function storyOnRep(s: GameState, exercise: ExerciseId, xp: number, event
       events.push({ kind: 'storyEnergy', energy: st.energy });
     }
     if (st.energy >= MAX_ENERGY) st.energyXp = 0;
+  }
+  const b = st.battle;
+  if (st.status === 'battle' && b?.power && !b.result) {
+    const counts = exercise === b.power.exercise;
+    if (!counts) return;
+    b.power.progress += 1;
+    if (b.power.progress < b.power.target) return;
+    powerStrike(b, heroCombat(s), rng(`${s.character.id}:power:${st.run}:${st.stepsTotal}:${b.round}`));
+    events.push({ kind: 'storyPowerStrike', monster: b.monster });
+    return;
   }
   const trial = st.trial;
   if (st.status !== 'trial' || !trial) return;

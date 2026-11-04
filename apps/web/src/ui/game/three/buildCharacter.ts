@@ -9,7 +9,7 @@ import { buildHair, type Cover } from './hair';
 import { buildHead, setFace, type Lid } from './head';
 import { applyMorph, bodyMorph, bodyValues, heightScale } from './morph';
 import { HEAD_GARMENTS, defaultPlan, headGarmentMat, type ItemCtx, type Outfit } from './items3d';
-import { M, mesh, retile, shade, texKind, v, type Anim, type Mat } from './kit';
+import { M, limb, mesh, retile, shade, texKind, v, type Anim, type Mat } from './kit';
 
 export { disposeObject } from './kit';
 
@@ -32,7 +32,11 @@ export interface CharacterParts {
 // ─── Кисти ─────────────────────────────────────────────────────────────
 
 /** Наклон оружия в кулаке вверх от оси рукояти (рад): рукоять в кулаке смотрит вперёд. */
-const WEAPON_TILT: Record<string, number> = { spear: 1.15, hunter_bow: 1.3, magic_wand: 0.45, jump_rope: -1.2 };
+const WEAPON_TILT: Record<string, number> = { spear: 1.15, hunter_bow: 1.3, magic_wand: 0.45 };
+
+/** Щиты держат за рукоять с внутренней стороны; остальное во второй руке — как оружие. */
+const SHIELDS = new Set(['wooden_shield', 'iron_shield', 'tower_shield', 'buckler']);
+const OFFHAND_TILT: Record<string, number> = { torch: 1.2, lantern: 1.45, spell_tome: 1.45, crystal_orb: 1.45, healing_flask: 1.45, love_potion: 1.45, war_horn: 1.2, lute: 1.3 };
 
 /**
  * Точки хвата сжатых кистей модели и направление предмета в них: [правая, левая].
@@ -91,13 +95,18 @@ function headGarmentMeshes(figure: Figure, headItem: string): THREE.Mesh[] {
 
 // ─── Сборка ────────────────────────────────────────────────────────────
 
-export function buildCharacter(appearance: Appearance, color: string, equipped: Partial<Record<Slot, string>>): CharacterParts {
+/** Особые настройки (монстры-гуманоиды): свой цвет кожи. */
+export interface CharacterOptions {
+  skin?: { base: string; shade: string };
+}
+
+export function buildCharacter(appearance: Appearance, color: string, equipped: Partial<Record<Slot, string>>, opts: CharacterOptions = {}): CharacterParts {
   const root = new THREE.Group();
   setFace(appearance.face);
   const shape = bodyShape(appearance.figure);
   const figure = shape.figure;
   const female = figure === 'female';
-  const skinTone = SKIN_TONES[appearance.skin] ?? SKIN_TONES[1];
+  const skinTone = opts.skin ?? SKIN_TONES[appearance.skin] ?? SKIN_TONES[1];
   const hairColor = HAIR_COLORS[appearance.hairColor] ?? HAIR_COLORS[1];
   const eyeColor = EYE_COLORS[appearance.eyes ?? 0] ?? EYE_COLORS[0];
   const anim: Anim[] = [];
@@ -142,17 +151,26 @@ export function buildCharacter(appearance: Appearance, color: string, equipped: 
   if (equipped.weapon) {
     const w = weaponModel(equipped.weapon, ctx);
     w.position.copy(right.at);
-    if (equipped.weapon === 'iron_dumbbell') w.quaternion.setFromUnitVectors(v(1, 0, 0), right.axis);
-    else {
-      const t = WEAPON_TILT[equipped.weapon] ?? WEAPON_TILT_EXTRA[equipped.weapon] ?? 0.75;
-      w.quaternion.setFromUnitVectors(v(0, 1, 0), right.axis.clone().multiplyScalar(Math.cos(t)).add(v(0, Math.sin(t), 0)).normalize());
-    }
+    const t = WEAPON_TILT[equipped.weapon] ?? WEAPON_TILT_EXTRA[equipped.weapon] ?? 0.75;
+    w.quaternion.setFromUnitVectors(v(0, 1, 0), right.axis.clone().multiplyScalar(Math.cos(t)).add(v(0, Math.sin(t), 0)).normalize());
     torso.add(w);
     rigid.push({ obj: w, anchor: right.at.clone() });
   }
   if (equipped.offhand) {
-    const o = offhandModel(equipped.offhand, ctx);
+    const id = equipped.offhand;
+    const o = offhandModel(id, ctx);
     o.position.copy(left.at);
+    if (SHIELDS.has(id)) {
+      // Щит — снаружи предплечья, лицом в сторону; поперечная рукоять проходит через кулак.
+      o.quaternion.setFromAxisAngle(v(0, 1, 0), Math.PI / 2);
+      const strap = M.leather('#3d2a1c', 1);
+      o.add(limb(v(-0.07, 0, 0), v(0.07, 0, 0), 0.016, strap));
+      for (const x of [-0.07, 0.07]) o.add(limb(v(x, 0, 0), v(x, 0, 0.09), 0.012, strap));
+    } else {
+      // Остальное — рукоятью в кулаке, как оружие (наклон вверх от оси хвата).
+      const t = OFFHAND_TILT[id] ?? 0.9;
+      o.quaternion.setFromUnitVectors(v(0, 1, 0), left.axis.clone().multiplyScalar(Math.cos(t)).add(v(0, Math.sin(t), 0)).normalize());
+    }
     torso.add(o);
     rigid.push({ obj: o, anchor: left.at.clone() });
   }
@@ -234,8 +252,7 @@ export function buildItemModel(id: string, slot: Slot, color: string, forFigure:
     case 'weapon': {
       const w = weaponModel(id, ctx);
       // Длинное оружие — по диагонали, как на классических иконках.
-      w.rotation.z = id === 'iron_dumbbell' || id === 'jump_rope' || id === 'leather_whip' ? 0 : id === 'hunter_bow' ? -0.35 : -Math.PI / 4;
-      if (id === 'iron_dumbbell') w.rotation.set(0.3, 0.5, 0.35);
+      w.rotation.z = id === 'leather_whip' ? 0 : id === 'hunter_bow' ? -0.35 : -Math.PI / 4;
       object.add(w);
       break;
     }

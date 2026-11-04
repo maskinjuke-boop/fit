@@ -45,7 +45,7 @@ describe('3D-персонаж', () => {
   it('причёска не пропадает целиком под шапкой, кроме шлема', () => {
     for (const hair of HAIR_STYLES) {
       const bare = meshCount(buildCharacter({ ...DEFAULT_APPEARANCE, hair }, '#4da3ff', {}).root);
-      const capped = meshCount(buildCharacter({ ...DEFAULT_APPEARANCE, hair }, '#4da3ff', { head: 'sports_cap' }).root);
+      const capped = meshCount(buildCharacter({ ...DEFAULT_APPEARANCE, hair }, '#4da3ff', { head: 'feathered_cap' }).root);
       expect(capped).toBeGreaterThan(bare - 60);
     }
   });

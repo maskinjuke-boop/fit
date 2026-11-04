@@ -15,6 +15,7 @@ import { Onboarding } from './game/Onboarding';
 import { preloadItemImages } from './game/Renders';
 import { ShopTab } from './game/Shop';
 import { StoryTab } from './game/StoryTab';
+import { WorldTab } from './game/World';
 import { SessionSummary, type Session } from './game/SessionSummary';
 import { eventText } from './game/text';
 import { TrackingScreen } from './TrackingScreen';
@@ -122,6 +123,7 @@ export function App() {
       <div className="shell-body">
         {tab === 'home' && <HomeTab state={state} onTrain={() => setTab('train')} />}
         {tab === 'train' && <ExercisePicker embedded onPick={(def) => startExercise(def)} />}
+        {tab === 'world' && <WorldTab state={state} onOpenStory={() => setTab('story')} />}
         {tab === 'story' && <StoryTab state={state} onTrain={(id) => startExercise(getExercise(id), 'story')} />}
         {tab === 'quests' && <QuestsTab state={state} />}
         {tab === 'shop' && <ShopTab state={state} />}
