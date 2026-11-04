@@ -15,6 +15,7 @@ import {
   buildWeapon,
   cape,
   dome,
+  flask,
   grip,
   headBand,
   headR,
@@ -22,9 +23,11 @@ import {
   outfitPlan,
   pauldrons,
   pteruges,
+  shieldGrip,
   shoeTop,
   shoesFor,
   star,
+  weaponDown,
   type ItemCtx,
   type Outfit,
   type OutfitPlan,
@@ -1152,9 +1155,7 @@ export function headModel(id: string, ctx: ItemCtx): THREE.Group {
 }
 
 // ─── Оружие и вторая рука ───────────────────────────────────────────────
-
-/** Наклон новых видов оружия в кулаке (как у копья и скакалки). */
-export const WEAPON_TILT_EXTRA: Record<string, number> = { trident: 1.15, reaper_scythe: 1.1, leather_whip: -1.2 };
+// Договорённость о точке хвата и позы в кулаке — HoldPose и HOLD в items3d.ts.
 
 function blade(len: number, w: number, curve: number, m: Mat): THREE.Mesh {
   const s = new THREE.Shape();
@@ -1178,24 +1179,35 @@ function buildWeaponExtra(id: string, ctx: ItemCtx): THREE.Group | null {
       return g;
     }
     case 'leather_whip': {
+      // Рукоять в кулаке, ремень свисает с её конца и свёрнут кольцами (в плоскости XY — сбоку от бедра).
       g.add(grip(0.2, 0.02));
-      const pts: THREE.Vector3[] = [];
+      g.add(mesh(new THREE.SphereGeometry(0.024, 10, 8), M.leather('#2a1d14', 1), [0, -0.105, 0]));
+      const down = weaponDown(id);
+      const side = v(-down.y, down.x, 0);
+      const tip = v(0, 0.1, 0);
+      const c = tip.clone().addScaledVector(down, 0.15);
+      const pts: THREE.Vector3[] = [tip.clone(), tip.clone().addScaledVector(down, 0.04)];
+      const turns = 2.5;
       for (let i = 0; i <= 60; i += 1) {
         const t = i / 60;
-        const a = t * Math.PI * 5;
-        const r = 0.09 * (1 - t * 0.4);
-        // Свёрнутый кнут — кольца в плоскости рукояти, висят под кулаком.
-        pts.push(v(Math.cos(a) * r, 0.2 + Math.sin(a) * r, 0.006 * Math.sin(a * 3) + t * 0.025));
+        // Кольца начинаются сверху (у рукояти) и чуть сужаются.
+        const a = Math.PI + t * Math.PI * 2 * turns;
+        const r = 0.1 * (1 - t * 0.35);
+        pts.push(c.clone().addScaledVector(down, Math.cos(a) * r).addScaledVector(side, Math.sin(a) * r).add(v(0, 0, 0.008 * Math.sin(a * 3) + (t - 0.5) * 0.03)));
       }
-      g.add(new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 180, 0.009, 6), M.leather('#3b2a1e', 2)));
+      // Кончик ремня свисает из колец.
+      const last = pts[pts.length - 1]!;
+      pts.push(last.clone().addScaledVector(down, 0.08).addScaledVector(side, 0.02), last.clone().addScaledVector(down, 0.17).addScaledVector(side, 0.01));
+      g.add(new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 200, 0.009, 6), M.leather('#3b2a1e', 2)));
       return g;
     }
     case 'longsword': {
-      // Полуторный меч: длинная рукоять, прямая крестовина, обоюдоострый клинок с долом.
-      g.add(limb(v(0, -0.14, 0), v(0, 0.12, 0), 0.021, M.leather('#3d2a1c', 1)));
-      for (let i = 0; i < 6; i += 1) g.add(ring(0.023, 0.003, M.leather('#2a1d14', 1), -0.12 + i * 0.045));
-      g.add(mesh(new THREE.BoxGeometry(0.3, 0.032, 0.04), M.darkSteel(), [0, 0.14, 0]));
-      for (const sx of [-1, 1]) g.add(mesh(new THREE.SphereGeometry(0.024, 12, 10), M.darkSteel(), [0.15 * sx, 0.14, 0]));
+      // Полуторный меч: длинная рукоять (одной рукой держат ближе к навершию, крестовина
+      // не задевает запястье), прямая крестовина, обоюдоострый клинок с долом.
+      g.add(limb(v(0, -0.15, 0), v(0, 0.11, 0), 0.021, M.leather('#3d2a1c', 1)));
+      for (let i = 0; i < 6; i += 1) g.add(ring(0.023, 0.003, M.leather('#2a1d14', 1), -0.13 + i * 0.045));
+      g.add(mesh(new THREE.BoxGeometry(0.3, 0.032, 0.04), M.darkSteel(), [0, 0.13, 0]));
+      for (const sx of [-1, 1]) g.add(mesh(new THREE.SphereGeometry(0.024, 12, 10), M.darkSteel(), [0.15 * sx, 0.13, 0]));
       const s2 = new THREE.Shape();
       s2.moveTo(-0.032, 0);
       s2.lineTo(0.032, 0);
@@ -1205,13 +1217,14 @@ function buildWeaponExtra(id: string, ctx: ItemCtx): THREE.Group | null {
       s2.closePath();
       const geo = new THREE.ExtrudeGeometry(s2, { depth: 0.004, bevelEnabled: true, bevelThickness: 0.01, bevelSize: 0.008, bevelSegments: 1 });
       geo.translate(0, 0, -0.002);
-      g.add(mesh(geo, M.steel(), [0, 0.155, 0]));
-      g.add(mesh(new THREE.BoxGeometry(0.012, 0.6, 0.026), M.metal('#8c949e', 0.3), [0, 0.5, 0]));
-      g.add(mesh(new THREE.SphereGeometry(0.036, 16, 12), M.darkSteel(), [0, -0.16, 0], [1, 0.8, 1]));
+      g.add(mesh(geo, M.steel(), [0, 0.145, 0]));
+      g.add(mesh(new THREE.BoxGeometry(0.012, 0.6, 0.026), M.metal('#8c949e', 0.3), [0, 0.49, 0]));
+      g.add(mesh(new THREE.SphereGeometry(0.036, 16, 12), M.darkSteel(), [0, -0.17, 0], [1, 0.8, 1]));
       return g;
     }
     case 'war_hammer': {
       g.add(limb(v(0, -0.15, 0), v(0, 0.55, 0), 0.022, M.wood('#5a3a22', 1, 3)));
+      g.add(grip(0.16, 0.026));
       g.add(mesh(new THREE.BoxGeometry(0.26, 0.12, 0.12), M.iron(), [0, 0.6, 0]));
       g.add(cone(v(0.13, 0.6, 0), v(0.24, 0.6, 0), 0.05, 0.004, M.steel(), 4));
       g.add(mesh(new THREE.BoxGeometry(0.06, 0.14, 0.14), M.steel(), [-0.15, 0.6, 0]));
@@ -1219,7 +1232,7 @@ function buildWeaponExtra(id: string, ctx: ItemCtx): THREE.Group | null {
     }
     case 'trident': {
       const gold = M.gold();
-      g.add(limb(v(0, -0.6, 0), v(0, 0.75, 0), 0.016, M.wood('#5a3a22', 1, 4)));
+      g.add(limb(v(0, -0.82, 0), v(0, 0.75, 0), 0.016, M.wood('#5a3a22', 1, 4)));
       g.add(mesh(new THREE.BoxGeometry(0.2, 0.025, 0.025), gold, [0, 0.78, 0]));
       for (const x of [-0.09, 0, 0.09]) {
         g.add(limb(v(x, 0.78, 0), v(x, x === 0 ? 1.0 : 0.95, 0), 0.01, gold));
@@ -1228,15 +1241,17 @@ function buildWeaponExtra(id: string, ctx: ItemCtx): THREE.Group | null {
       return g;
     }
     case 'reaper_scythe': {
-      g.add(limb(v(0, -0.6, 0), v(0, 0.8, 0), 0.018, M.wood('#2a1f1a', 1, 4)));
+      // Коса смерти: длинное косовище, лезвие — над головой.
+      g.add(limb(v(0, -0.75, 0), v(0, 1.02, 0), 0.018, M.wood('#2a1f1a', 1, 4)));
       const s = new THREE.Shape();
       s.moveTo(0, 0);
       s.quadraticCurveTo(-0.25, 0.12, -0.6, -0.08);
       s.quadraticCurveTo(-0.3, 0.02, 0, -0.08);
       s.closePath();
       const geo = new THREE.ExtrudeGeometry(s, { depth: 0.004, bevelEnabled: true, bevelThickness: 0.006, bevelSize: 0.005, bevelSegments: 1 });
-      g.add(mesh(geo, M.darkSteel(), [0, 0.8, 0]));
-      g.add(mesh(new THREE.SphereGeometry(0.03, 12, 10), M.glow('#7c4dff', 1.2), [0, 0.82, 0]));
+      geo.translate(0, 0, -0.002);
+      g.add(mesh(geo, M.darkSteel(), [0, 1.02, 0]));
+      g.add(mesh(new THREE.SphereGeometry(0.03, 12, 10), M.glow('#7c4dff', 1.2), [0, 1.04, 0]));
       return g;
     }
     default:
@@ -1251,57 +1266,56 @@ function buildOffhandExtra(id: string, ctx: ItemCtx): THREE.Group | null {
   const { anim } = ctx;
   switch (id) {
     case 'buckler': {
-      const d = mesh(new THREE.CylinderGeometry(0.17, 0.17, 0.03, 40), M.steel(), [0.03, 0.06, 0.1]);
+      // Кулачный щит: рукоять за умбоном, щит — прямо перед кулаком.
+      const d = mesh(new THREE.CylinderGeometry(0.17, 0.17, 0.03, 40), M.steel(), [0, 0, 0.1]);
       d.rotation.x = Math.PI / 2;
-      g.add(d, mesh(new THREE.SphereGeometry(0.05, 18, 10, 0, Math.PI * 2, 0, Math.PI / 2), M.bronze(), [0.03, 0.06, 0.115]).rotateX(Math.PI / 2));
+      g.add(d, mesh(new THREE.SphereGeometry(0.05, 18, 10, 0, Math.PI * 2, 0, Math.PI / 2), M.bronze(), [0, 0, 0.115]).rotateX(Math.PI / 2));
       const rim = new THREE.Mesh(new THREE.TorusGeometry(0.17, 0.014, 8, 40), M.bronze());
-      rim.position.set(0.03, 0.06, 0.1);
-      g.add(rim);
+      rim.position.set(0, 0, 0.1);
+      g.add(rim, shieldGrip(0.085));
       return g;
     }
     case 'lute': {
-      // Лютня держится за грифом: корпус-«груша» снизу, колковая коробка отогнута назад.
+      // Лютню несут за гриф: гриф в кулаке, корпус-«груша» ниже, дека смотрит наружу (+Z),
+      // выпуклая спинка — к бедру; колковая коробка отогнута назад.
       const wood = M.wood('#8a5a30', 1, 2);
       const top = mat('#d9b27c', 0.6);
       top.side = THREE.DoubleSide;
-      const bowl = mesh(new THREE.SphereGeometry(0.15, 32, 16, Math.PI, Math.PI), wood, [0, -0.3, 0.06], [1, 1.35, 0.7]);
+      const by = -0.36;
+      const bowl = mesh(new THREE.SphereGeometry(0.15, 32, 16, Math.PI, Math.PI), wood, [0, by, 0.004], [1, 1.35, 0.5]);
       g.add(bowl);
-      g.add(mesh(new THREE.CircleGeometry(0.15, 40), top, [0, -0.3, 0.06], [1, 1.35, 1]));
-      g.add(mesh(new THREE.RingGeometry(0.025, 0.04, 24), mat('#3b2416', 0.7), [0, -0.24, 0.062]));
-      g.add(mesh(new THREE.CircleGeometry(0.025, 24), mat('#1a0f08', 0.9), [0, -0.24, 0.061]));
-      g.add(mesh(new THREE.BoxGeometry(0.05, 0.012, 0.012), M.wood('#3b2416'), [0, -0.4, 0.068]));
-      g.add(mesh(new THREE.BoxGeometry(0.045, 0.32, 0.03), M.wood('#5a3a22', 1, 2), [0, -0.0, 0.055]));
-      const box = mesh(new THREE.BoxGeometry(0.04, 0.12, 0.025), M.wood('#5a3a22'), [0, 0.2, 0.02]);
+      g.add(mesh(new THREE.CircleGeometry(0.15, 40), top, [0, by, 0.004], [1, 1.35, 1]));
+      g.add(mesh(new THREE.RingGeometry(0.025, 0.04, 24), mat('#3b2416', 0.7), [0, by + 0.06, 0.006]));
+      g.add(mesh(new THREE.CircleGeometry(0.025, 24), mat('#1a0f08', 0.9), [0, by + 0.06, 0.005]));
+      g.add(mesh(new THREE.BoxGeometry(0.05, 0.012, 0.012), M.wood('#3b2416'), [0, by - 0.1, 0.01]));
+      g.add(mesh(new THREE.BoxGeometry(0.045, 0.34, 0.03), M.wood('#5a3a22', 1, 2), [0, -0.05, 0]));
+      const box = mesh(new THREE.BoxGeometry(0.04, 0.12, 0.025), M.wood('#5a3a22'), [0, 0.16, -0.03]);
       box.rotation.x = -0.9;
       g.add(box);
-      for (let i = 0; i < 4; i += 1) g.add(limb(v(-0.012 + i * 0.008, -0.4, 0.07), v(-0.012 + i * 0.008, 0.155, 0.072), 0.0012, mat('#e8e2d0', 0.5), 4));
+      for (let i = 0; i < 4; i += 1) g.add(limb(v(-0.012 + i * 0.008, by - 0.1, 0.017), v(-0.012 + i * 0.008, 0.115, 0.017), 0.0012, mat('#e8e2d0', 0.5), 4));
       return g;
     }
     case 'lantern': {
+      // Фонарь висит на дужке: её верх проходит через кулак вдоль X.
       const iron = M.iron();
-      g.add(mesh(new THREE.TorusGeometry(0.05, 0.007, 6, 20, Math.PI), iron, [0, 0.0, 0.05]));
-      g.add(mesh(new THREE.CylinderGeometry(0.08, 0.09, 0.03, 6), iron, [0, -0.06, 0.05]));
-      g.add(mesh(new THREE.CylinderGeometry(0.075, 0.075, 0.16, 6, 1, true), mat('#ffe9b0', 0.1, 0, { transparent: true, opacity: 0.35, side: THREE.DoubleSide }), [0, -0.16, 0.05]));
-      g.add(mesh(new THREE.CylinderGeometry(0.09, 0.08, 0.03, 6), iron, [0, -0.255, 0.05]));
-      const flame = mesh(new THREE.SphereGeometry(0.03, 12, 10), new THREE.MeshBasicMaterial({ color: '#ffcc55', toneMapped: false }), [0, -0.16, 0.05], [1, 1.6, 1]);
+      g.add(mesh(new THREE.TorusGeometry(0.075, 0.007, 6, 24, Math.PI), iron, [0, -0.075, 0]));
+      g.add(mesh(new THREE.ConeGeometry(0.072, 0.05, 6), iron, [0, -0.1, 0]).rotateY(Math.PI / 6));
+      g.add(mesh(new THREE.CylinderGeometry(0.068, 0.075, 0.025, 6), iron, [0, -0.13, 0]).rotateY(Math.PI / 6));
+      g.add(mesh(new THREE.CylinderGeometry(0.064, 0.064, 0.15, 6, 1, true), mat('#ffe9b0', 0.1, 0, { transparent: true, opacity: 0.35, side: THREE.DoubleSide }), [0, -0.215, 0]).rotateY(Math.PI / 6));
+      for (let i = 0; i < 6; i += 1) {
+        const a = (i / 6) * Math.PI * 2;
+        g.add(limb(v(Math.sin(a) * 0.066, -0.14, Math.cos(a) * 0.066), v(Math.sin(a) * 0.066, -0.29, Math.cos(a) * 0.066), 0.005, iron, 6));
+      }
+      g.add(mesh(new THREE.CylinderGeometry(0.075, 0.068, 0.025, 6), iron, [0, -0.3, 0]).rotateY(Math.PI / 6));
+      const flame = mesh(new THREE.SphereGeometry(0.026, 12, 10), new THREE.MeshBasicMaterial({ color: '#ffcc55', toneMapped: false }), [0, -0.22, 0], [1, 1.6, 1]);
       g.add(flame);
       anim.push((t) => flame.scale.set(1 + Math.sin(t * 9) * 0.1, 1.6 + Math.sin(t * 13) * 0.2, 1));
       return g;
     }
     case 'love_potion': {
-      const glass = mat('#ffd6e8', 0.05, 0, { transparent: true, opacity: 0.4 });
-      const prof = [
-        [0, -0.1],
-        [0.08, -0.09],
-        [0.1, -0.03],
-        [0.08, 0.04],
-        [0.03, 0.07],
-        [0.028, 0.13],
-        [0.035, 0.14],
-      ].map(([r, y]) => new THREE.Vector2(r, y));
-      g.add(mesh(new THREE.LatheGeometry(prof, 32), glass, [0, -0.08, 0.06]));
-      g.add(mesh(new THREE.SphereGeometry(0.085, 24, 16, 0, Math.PI * 2, Math.PI * 0.35, Math.PI * 0.65), M.glow('#ff2d7a', 0.9), [0, -0.12, 0.06]));
-      g.add(mesh(new THREE.CylinderGeometry(0.03, 0.026, 0.04, 12), M.wood('#a07040'), [0, 0.08, 0.06]));
+      // Пузырёк с розовым зельем; держат за горлышко.
+      g.add(flask([[0, -0.25], [0.08, -0.24], [0.1, -0.18], [0.08, -0.11], [0.03, -0.075], [0.022, -0.05]], '#ffd6e8', M.glow('#ff2d7a', 0.9), 0.65));
+      g.add(ring(0.026, 0.005, M.gold(), 0.045));
       return g;
     }
     default:

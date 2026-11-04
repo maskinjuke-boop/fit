@@ -3,13 +3,13 @@ import type { Slot } from '../../../game/items';
 import type { Appearance, Figure } from '../../../game/state';
 import { EYE_COLORS, HAIR_COLORS, SKIN_TONES } from '../palette';
 import { band, bodyGeometry, frontZ, garmentGeometry, garmentOffset, landmarks, type GarmentId } from './anatomy';
-import { WEAPON_TILT_EXTRA, buildBack, iconFigure, buildHands, buildNeck, buildShoes, composeOutfit, garmentsFor, headCover, headModel, offhandModel, weaponModel } from './wardrobe';
-import { HEAD_GROW, NECK_WORLD, NECK_Y, TORSO_Y, bodyShape, type BodyShape } from './body';
+import { buildBack, iconFigure, buildHands, buildNeck, buildShoes, composeOutfit, garmentsFor, headCover, headModel, offhandModel, weaponModel } from './wardrobe';
+import { HEAD_GROW, NECK_WORLD, NECK_Y, TORSO_Y, bodyShape } from './body';
 import { buildHair, type Cover } from './hair';
 import { buildHead, setFace, type Lid } from './head';
 import { applyMorph, bodyMorph, bodyValues, heightScale } from './morph';
-import { HEAD_GARMENTS, defaultPlan, headGarmentMat, type ItemCtx, type Outfit } from './items3d';
-import { M, limb, mesh, retile, shade, texKind, v, type Anim, type Mat } from './kit';
+import { HEAD_GARMENTS, defaultPlan, headGarmentMat, holdPose, holdQuaternion, weaponDown, type ItemCtx, type Outfit } from './items3d';
+import { M, mesh, retile, shade, texKind, v, type Anim, type Mat } from './kit';
 
 export { disposeObject } from './kit';
 
@@ -31,22 +31,22 @@ export interface CharacterParts {
 
 // ─── Кисти ─────────────────────────────────────────────────────────────
 
-/** Наклон оружия в кулаке вверх от оси рукояти (рад): рукоять в кулаке смотрит вперёд. */
-const WEAPON_TILT: Record<string, number> = { spear: 1.15, hunter_bow: 1.3, magic_wand: 0.45 };
-
-/** Щиты держат за рукоять с внутренней стороны; остальное во второй руке — как оружие. */
-const SHIELDS = new Set(['wooden_shield', 'iron_shield', 'tower_shield', 'buckler']);
-const OFFHAND_TILT: Record<string, number> = { torch: 1.2, lantern: 1.45, spell_tome: 1.45, crystal_orb: 1.45, healing_flask: 1.45, love_potion: 1.45, war_horn: 1.2, lute: 1.3 };
-
 /**
  * Точки хвата сжатых кистей модели и направление предмета в них: [правая, левая].
  * Кисти — часть сетки тела (MakeHuman), держащая рука сжата в кулак.
  */
-type Grip = { at: THREE.Vector3; axis: THREE.Vector3 };
-function grips(shape: BodyShape): [Grip, Grip] {
-  const L = landmarks(shape.figure);
-  const g = (sx: number): Grip => ({ at: v(L.grip[0] * sx, L.grip[1], L.grip[2]), axis: v(L.gripAxis[0] * sx, L.gripAxis[1], L.gripAxis[2]).normalize() });
+type Grip = { at: THREE.Vector3; axis: THREE.Vector3; outward: THREE.Vector3 };
+export function grips(figure: Figure): [Grip, Grip] {
+  const L = landmarks(figure);
+  const g = (sx: number): Grip => ({ at: v(L.grip[0] * sx, L.grip[1], L.grip[2]), axis: v(L.gripAxis[0] * sx, L.gripAxis[1], L.gripAxis[2]).normalize(), outward: v(sx, 0, 0) });
   return [g(-1), g(1)];
+}
+
+/** Ставит предмет в кулак: точка хвата модели — в точку хвата кисти, поворот — по HOLD. */
+function holdInFist(o: THREE.Object3D, id: string, hand: Grip): void {
+  o.userData.held = id;
+  o.position.copy(hand.at);
+  o.quaternion.copy(holdQuaternion(hand.axis, hand.outward, holdPose(id)));
 }
 
 // ─── Одежда ────────────────────────────────────────────────────────────
@@ -137,7 +137,7 @@ export function buildCharacter(appearance: Appearance, color: string, equipped: 
 
   // Кисти, обувь и предметы в руках — вместе с телом.
   const rigid: Array<{ obj: THREE.Object3D; anchor: THREE.Vector3 }> = [];
-  const [right, left] = grips(shape);
+  const [right, left] = grips(figure);
   for (const o of buildShoes(shape, equipped, color, (id, m) => {
     const gm = m.clone();
     gm.vertexColors = true;
@@ -150,27 +150,14 @@ export function buildCharacter(appearance: Appearance, color: string, equipped: 
   if (equipped.back) torso.add(buildBack(equipped.back, ctx));
   if (equipped.weapon) {
     const w = weaponModel(equipped.weapon, ctx);
-    w.position.copy(right.at);
-    const t = WEAPON_TILT[equipped.weapon] ?? WEAPON_TILT_EXTRA[equipped.weapon] ?? 0.75;
-    w.quaternion.setFromUnitVectors(v(0, 1, 0), right.axis.clone().multiplyScalar(Math.cos(t)).add(v(0, Math.sin(t), 0)).normalize());
+    holdInFist(w, equipped.weapon, right);
     torso.add(w);
     rigid.push({ obj: w, anchor: right.at.clone() });
   }
   if (equipped.offhand) {
-    const id = equipped.offhand;
-    const o = offhandModel(id, ctx);
-    o.position.copy(left.at);
-    if (SHIELDS.has(id)) {
-      // Щит — снаружи предплечья, лицом в сторону; поперечная рукоять проходит через кулак.
-      o.quaternion.setFromAxisAngle(v(0, 1, 0), Math.PI / 2);
-      const strap = M.leather('#3d2a1c', 1);
-      o.add(limb(v(-0.07, 0, 0), v(0.07, 0, 0), 0.016, strap));
-      for (const x of [-0.07, 0.07]) o.add(limb(v(x, 0, 0), v(x, 0, 0.09), 0.012, strap));
-    } else {
-      // Остальное — рукоятью в кулаке, как оружие (наклон вверх от оси хвата).
-      const t = OFFHAND_TILT[id] ?? 0.9;
-      o.quaternion.setFromUnitVectors(v(0, 1, 0), left.axis.clone().multiplyScalar(Math.cos(t)).add(v(0, Math.sin(t), 0)).normalize());
-    }
+    // Щиты — снаружи кулака лицом наружу (рукоять поперёк), остальное — за рукоять, гриф или горлышко.
+    const o = offhandModel(equipped.offhand, ctx);
+    holdInFist(o, equipped.offhand, left);
     torso.add(o);
     rigid.push({ obj: o, anchor: left.at.clone() });
   }
@@ -251,8 +238,11 @@ export function buildItemModel(id: string, slot: Slot, color: string, forFigure:
       break;
     case 'weapon': {
       const w = weaponModel(id, ctx);
-      // Длинное оружие — по диагонали, как на классических иконках.
-      w.rotation.z = id === 'leather_whip' ? 0 : id === 'hunter_bow' ? -0.35 : -Math.PI / 4;
+      // Длинное оружие — по диагонали, как на классических иконках; кнут — как висит в руке.
+      if (id === 'leather_whip') {
+        const d = weaponDown(id);
+        w.rotation.z = -Math.PI / 2 - Math.atan2(d.y, d.x);
+      } else w.rotation.z = id === 'hunter_bow' ? -0.35 : -Math.PI / 4;
       object.add(w);
       break;
     }

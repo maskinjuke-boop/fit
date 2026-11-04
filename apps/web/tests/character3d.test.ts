@@ -1,11 +1,11 @@
-import { Box3, Vector3, type Mesh, type Object3D } from 'three';
+import { Box3, Matrix4, Vector3, type Mesh, type Object3D } from 'three';
 import { describe, expect, it } from 'vitest';
 import { ITEMS } from '../src/game/items';
 import { BODY_PARTS, DEFAULT_APPEARANCE, FACE_PARTS } from '../src/game/state';
 import { HAIR_STYLES, HAIR_COLORS, SKIN_TONES } from '../src/ui/game/palette';
 import { GARMENT_IDS, bodyGeometry, frontZ, garmentGeometry, isPrepared, prepare } from '../src/ui/game/three/anatomy';
 import { TORSO_Y } from '../src/ui/game/three/body';
-import { buildCharacter, buildItemModel, disposeObject, garmentsFor } from '../src/ui/game/three/buildCharacter';
+import { buildCharacter, buildItemModel, disposeObject, garmentsFor, grips } from '../src/ui/game/three/buildCharacter';
 import { landmarks } from '../src/ui/game/three/bodyMesh';
 import { isMeshHair, meshHairGeometry } from '../src/ui/game/three/hairMesh';
 import { eyeAnchor, headPositions, headTris, loopSubdivide, rayRadiusTable } from '../src/ui/game/three/headMesh';
@@ -72,6 +72,84 @@ describe('3D-персонаж', () => {
         disposeObject(c.root);
       }
     }
+  });
+
+  it('оружие и предметы второй руки лежат в кулаке за рукоять и не входят в тело', () => {
+    const held = ITEMS.filter((i) => i.slot === 'weapon' || i.slot === 'offhand');
+    expect(held.length).toBeGreaterThan(20);
+    const problems: string[] = [];
+    for (const figure of ['male', 'female'] as const) {
+      const body = bodyGeometry(figure, [true, true]);
+      const bp = body.getAttribute('position');
+      const bn = body.getAttribute('normal');
+      const [right, left] = grips(figure);
+      for (const item of held) {
+        const hand = item.slot === 'weapon' ? right : left;
+        const c = buildCharacter({ ...DEFAULT_APPEARANCE, figure }, '#4da3ff', { [item.slot]: item.id });
+        c.root.updateMatrixWorld(true);
+        let obj: Object3D | undefined;
+        c.torso.traverse((o) => {
+          if (o.userData.held === item.id) obj = o;
+        });
+        if (!obj) {
+          problems.push(`${figure} ${item.id}: нет модели в руке`);
+          continue;
+        }
+        // Точка хвата кулака — внутри рукояти: в начале координат модели есть тонкая деталь
+        // (рукоять, древко, ремень, дужка, горлышко), а не пустота или толстый корпус.
+        expect(obj.position.distanceTo(hand.at)).toBeLessThan(1e-6);
+        let handle = false;
+        obj.updateMatrixWorld(true);
+        const toModel = new Matrix4().copy(obj.matrixWorld).invert();
+        obj.traverse((o) => {
+          const m = o as Mesh;
+          if (!m.isMesh || handle) return;
+          const local = new Matrix4().multiplyMatrices(toModel, m.matrixWorld);
+          const toMesh = local.clone().invert();
+          const origin = new Vector3().applyMatrix4(toMesh);
+          m.geometry.computeBoundingBox();
+          if (!m.geometry.boundingBox!.clone().expandByScalar(0.004).containsPoint(origin)) return;
+          // Деталь тонкая (толщина рукояти — не больше 9 см), а не корпус предмета.
+          const size = m.geometry.boundingBox!.getSize(new Vector3()).multiply(m.scale);
+          if (Math.min(Math.abs(size.x), Math.abs(size.y), Math.abs(size.z)) < 0.09) handle = true;
+        });
+        if (!handle) problems.push(`${figure} ${item.id}: точка хвата не на рукояти`);
+        const p = new Vector3();
+        // Предмет не входит в тело (бёдра, туловище, руку) дальше чем на 1 см вне кулака и не уходит в землю.
+        let minY = 9;
+        let inside = 0;
+        obj.traverse((o) => {
+          const m = o as Mesh;
+          if (!m.isMesh) return;
+          const pos = m.geometry.getAttribute('position');
+          const step = Math.max(1, Math.floor(pos.count / 150));
+          for (let i = 0; i < pos.count; i += step) {
+            p.fromBufferAttribute(pos, i).applyMatrix4(m.matrixWorld);
+            minY = Math.min(minY, p.y);
+            if (p.distanceTo(hand.at) < 0.08) continue;
+            let best = Infinity;
+            let bi = 0;
+            for (let j = 0; j < bp.count; j += 1) {
+              const dx = bp.getX(j) - p.x;
+              const dy = bp.getY(j) - p.y;
+              const dz = bp.getZ(j) - p.z;
+              const d = dx * dx + dy * dy + dz * dz;
+              if (d < best) {
+                best = d;
+                bi = j;
+              }
+            }
+            if (best > 0.04 * 0.04) continue;
+            const depth = (p.x - bp.getX(bi)) * bn.getX(bi) + (p.y - bp.getY(bi)) * bn.getY(bi) + (p.z - bp.getZ(bi)) * bn.getZ(bi);
+            if (depth < -0.01) inside += 1;
+          }
+        });
+        if (inside > 0) problems.push(`${figure} ${item.id}: ${inside} точек внутри тела`);
+        if (minY < 0.08) problems.push(`${figure} ${item.id}: касается земли (y = ${minY.toFixed(2)})`);
+        disposeObject(c.root);
+      }
+    }
+    expect(problems).toEqual([]);
   });
 
   it('модель стоит на земле и помещается в кадр', () => {
