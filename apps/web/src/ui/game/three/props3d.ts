@@ -1,5 +1,7 @@
 import * as THREE from 'three';
 import { M, mat, mesh } from './kit';
+import type { Figure } from '../../../game/state';
+import { fistMorph } from './anatomy';
 import { handPose, type Motion, type Rig } from './rig';
 
 /** Середина ладони в осях кисти (как в rig.handPose). */
@@ -7,9 +9,9 @@ const PALM_LOCAL = { r: new THREE.Vector3(0.022, -0.075, 0.018), l: new THREE.Ve
 
 /**
  * Предметы в руках на время действия: книга, телефон, чашка, тарелка с вилкой, лопатка,
- * геймпад, VR-шлем на голове и т. п. Крепятся к костям кистей (в точке хвата кулака) или
- * к голове, появляются и исчезают плавно (масштаб), после действия прячутся. Модели
- * собираются один раз на персонажа и переиспользуются.
+ * геймпад, VR-шлем на голове и т. п. Крепятся к костям кистей (в точке хвата; держащая
+ * кисть сжимается) или к голове, появляются и исчезают плавно (масштаб), после действия
+ * прячутся. Модели собираются один раз на персонажа и переиспользуются.
  */
 
 export type PropKind =
@@ -52,35 +54,42 @@ interface Mount {
   rot: [number, number, number];
   off: [number, number, number];
   local?: boolean;
+  /**
+   * Насколько сжата держащая кисть: 0 — раскрытая ладонь (тарелка, блокнот лежат на ней),
+   * 1 — кулак (ручка, лопатка, совок). Точка крепления — от середины ладони к точке хвата кулака.
+   */
+  grip: number;
 }
 
 const MOUNT: Record<PropKind, Mount> = {
-  book: { at: 'both', rot: [-0.75, 0, 0], off: [0, 0.05, 0.03] },
-  phone: { at: 'r', rot: [-0.64, Math.PI, 0], off: [0.01, 0.03, 0.02] },
-  phone_ear: { at: 'r', rot: [0.35, Math.PI / 2, 0], off: [0.035, 0.03, 0.0] },
-  cup: { at: 'r', rot: [0, 0, 0], off: [0.01, -0.03, 0.03] },
-  shaker: { at: 'r', rot: [0, 0, 0], off: [0.01, -0.06, 0.03] },
-  plate: { at: 'l', rot: [0, 0, 0], off: [0.02, 0.03, 0.05] },
-  fork: { at: 'r', rot: [1.1, 0, 0], off: [0, 0.01, 0.0] },
-  sandwich: { at: 'r', rot: [0, 0, 0.3], off: [0.01, 0.03, 0.03] },
-  spatula: { at: 'r', rot: [2.0, 0, 0], off: [0, 0, 0] },
-  gamepad: { at: 'both', rot: [-0.35, 0, 0], off: [0, 0.03, 0.02] },
-  vr: { at: 'head', rot: [0, 0, 0], off: [0, 0.33, 0.2], local: true },
-  vr_l: { at: 'l', rot: [Math.PI / 2, 0, 0], off: [0, 0.04, 0.0], local: true },
-  vr_r: { at: 'r', rot: [Math.PI / 2, 0, 0], off: [0, 0.04, 0.0], local: true },
-  remote: { at: 'r', rot: [1.4, 0, 0], off: [0, 0.015, -0.02] },
-  popcorn: { at: 'l', rot: [0, 0, 0], off: [0.03, 0.03, 0.03] },
-  brush: { at: 'r', rot: [1.1, 0, 0], off: [0, 0, -0.02] },
-  palette: { at: 'l', rot: [-0.3, 0, 0], off: [0.02, 0.03, 0.05] },
-  notepad: { at: 'l', rot: [-0.6, 0, 0], off: [0.03, 0.03, 0.04] },
-  pen: { at: 'r', rot: [2.3, 0, 0], off: [0, 0, 0] },
-  teaser: { at: 'r', rot: [1.9, 0, 0], off: [0, 0, -0.02] },
-  treat: { at: 'r', rot: [0, 0, 0], off: [0, 0.02, 0.0] },
-  foodbag: { at: 'r', rot: [0, 0, 0], off: [0.02, 0.02, 0.03] },
-  scoop: { at: 'r', rot: [2.0, 0, 0], off: [0, 0, 0] },
-  glove_l: { at: 'l', rot: [0, 0, 0], off: [0.005, -0.065, 0.01], local: true },
-  glove_r: { at: 'r', rot: [0, 0, 0], off: [0.005, -0.065, 0.01], local: true },
-  flyers: { at: 'l', rot: [0, 0, 0], off: [0.02, 0.02, 0.03] },
+  book: { at: 'both', rot: [-0.75, 0, 0], off: [0, 0.05, 0.03], grip: 0.2 },
+  phone: { at: 'r', rot: [-0.64, Math.PI, 0], off: [0.01, 0.03, 0.02], grip: 0.5 },
+  phone_ear: { at: 'r', rot: [0.35, Math.PI / 2, 0], off: [0.035, 0.03, 0.0], grip: 0.55 },
+  cup: { at: 'r', rot: [0, 0, 0], off: [0.01, -0.03, 0.03], grip: 0.55 },
+  shaker: { at: 'r', rot: [0, 0, 0], off: [0.01, -0.06, 0.03], grip: 0.6 },
+  plate: { at: 'l', rot: [0, 0, 0], off: [0.02, 0.03, 0.05], grip: 0.1 },
+  fork: { at: 'r', rot: [1.1, 0, 0], off: [0, 0.01, 0.0], grip: 1 },
+  sandwich: { at: 'r', rot: [0, 0, 0.3], off: [0.01, 0.03, 0.03], grip: 0.45 },
+  spatula: { at: 'r', rot: [2.0, 0, 0], off: [0, 0, 0], grip: 1 },
+  gamepad: { at: 'both', rot: [-0.35, 0, 0], off: [0, 0.03, 0.02], grip: 0.6 },
+  vr: { at: 'head', rot: [0, 0, 0], off: [0, 0.33, 0.2], local: true, grip: 0 },
+  vr_l: { at: 'l', rot: [Math.PI / 2, 0, 0], off: [0, 0, 0], local: true, grip: 1 },
+  vr_r: { at: 'r', rot: [Math.PI / 2, 0, 0], off: [0, 0, 0], local: true, grip: 1 },
+  remote: { at: 'r', rot: [1.4, 0, 0], off: [0, 0.015, -0.02], grip: 0.85 },
+  popcorn: { at: 'l', rot: [0, 0, 0], off: [0.03, 0.03, 0.03], grip: 0.35 },
+  brush: { at: 'r', rot: [1.1, 0, 0], off: [0, 0, -0.02], grip: 1 },
+  palette: { at: 'l', rot: [-0.3, 0, 0], off: [0.02, 0.03, 0.05], grip: 0.15 },
+  notepad: { at: 'l', rot: [-0.6, 0, 0], off: [0.03, 0.03, 0.04], grip: 0.15 },
+  pen: { at: 'r', rot: [2.3, 0, 0], off: [0, 0, 0], grip: 1 },
+  teaser: { at: 'r', rot: [1.9, 0, 0], off: [0, 0, -0.02], grip: 1 },
+  // Угощение — на почти раскрытой ладони (кошка ест с руки).
+  treat: { at: 'r', rot: [0, 0, 0], off: [0, 0.02, 0.0], grip: 0.15 },
+  foodbag: { at: 'r', rot: [0, 0, 0], off: [0.02, 0.02, 0.03], grip: 0.8 },
+  scoop: { at: 'r', rot: [2.0, 0, 0], off: [0, 0, 0], grip: 1 },
+  // Перчатка — вокруг кулака (центр там же, где был у раскрытой кисти).
+  glove_l: { at: 'l', rot: [0, 0, 0], off: [0.06, -0.005, -0.01], local: true, grip: 1 },
+  glove_r: { at: 'r', rot: [0, 0, 0], off: [0.06, -0.005, -0.01], local: true, grip: 1 },
+  flyers: { at: 'l', rot: [0, 0, 0], off: [0.02, 0.02, 0.03], grip: 0.5 },
 };
 
 const cyl = (r0: number, r1: number, h: number, n = 14): THREE.CylinderGeometry => new THREE.CylinderGeometry(r1, r0, h, n);
@@ -236,22 +245,83 @@ function model(kind: PropKind): THREE.Group {
 interface PropState {
   obj: THREE.Group;
   want: number;
+  /** Пёрышко дразнилки (качается). */
+  feather: THREE.Object3D | null;
 }
 const store = new WeakMap<Rig, Map<PropKind, PropState>>();
 
+/** Сжатие кистей персонажа: сетки с морф-целями «кулак» и доли сжатия [правая, левая]. */
+interface Fists {
+  meshes: THREE.Mesh[];
+  k: [number, number];
+  want: [number, number];
+}
+const fists = new WeakMap<Rig, Fists>();
+
+/**
+ * Готовит сжатие кистей персонажа: сеткам тела и перчаток добавляются морф-цели «кулак»
+ * (правая и левая). Вызывается один раз (лучше заранее, при загрузке героя).
+ */
+export function prepareFists(rig: Rig): Fists {
+  let f = fists.get(rig);
+  if (f) return f;
+  f = { meshes: [], k: [0, 0], want: [0, 0] };
+  fists.set(rig, f);
+  rig.root.traverse((o) => {
+    const me = o as THREE.Mesh;
+    const info = me.userData?.fist as { figure: Figure; grips: [boolean, boolean]; idx?: Uint32Array } | undefined;
+    if (!me.isMesh || !info) return;
+    const fm = fistMorph(info.figure, info.grips);
+    // Общую (кэшированную) сетку не меняем — у персонажа своя копия.
+    if (me.geometry.userData.shared === true) {
+      me.geometry = me.geometry.clone();
+      me.geometry.userData = {};
+    }
+    const geo = me.geometry;
+    const pick = (src: Float32Array): THREE.BufferAttribute => {
+      const idx = info.idx;
+      if (!idx) return new THREE.BufferAttribute(src, 3);
+      const out = new Float32Array(idx.length * 3);
+      for (let i = 0; i < idx.length; i += 1) {
+        out[i * 3] = src[idx[i]! * 3]!;
+        out[i * 3 + 1] = src[idx[i]! * 3 + 1]!;
+        out[i * 3 + 2] = src[idx[i]! * 3 + 2]!;
+      }
+      return new THREE.BufferAttribute(out, 3);
+    };
+    geo.morphAttributes.position = [pick(fm.pos[0]), pick(fm.pos[1])];
+    geo.morphAttributes.normal = [pick(fm.nor[0]), pick(fm.nor[1])];
+    geo.morphTargetsRelative = true;
+    me.updateMorphTargets();
+    me.morphTargetInfluences = [0, 0];
+    f!.meshes.push(me);
+  });
+  return f;
+}
+
 const e = new THREE.Euler(0, 0, 0, 'YXZ');
 const qw = new THREE.Quaternion();
+const qi = new THREE.Quaternion();
 const off = new THREE.Vector3();
-const mid = new THREE.Vector3();
+const loc = new THREE.Vector3();
+const tmp = new THREE.Vector3();
+const anchorL = new THREE.Vector3();
+const anchorR = new THREE.Vector3();
+
+/** Точка крепления в осях кисти: от середины ладони к точке хвата кулака (по сжатию grip). */
+const anchorOf = (rig: Rig, hand: 'l' | 'r', grip: number, out: THREE.Vector3): THREE.Vector3 => out.copy(PALM_LOCAL[hand]).lerp(rig.grip[hand], grip);
 
 /**
  * Показать на время действия эти предметы (остальные плавно прячутся); null — убрать всё.
  * motion — поза действия: предметы ориентируются по ладоням в её исходной фазе.
+ * Кисти, держащие предметы, сжимаются (у тарелки и блокнота — ладонь почти раскрыта).
  */
 export function showProps(rig: Rig, kinds: readonly PropKind[] | null | undefined, motion?: Motion): void {
   let map = store.get(rig);
   if (!map) store.set(rig, (map = new Map()));
   for (const [k, st] of map) st.want = kinds?.includes(k) ? 1 : 0;
+  const fist = kinds?.length ? prepareFists(rig) : fists.get(rig);
+  if (fist) fist.want = [0, 0];
   if (!kinds?.length) return;
   const hands = motion ? handPose(rig, motion, 0) : null;
   for (const k of kinds) {
@@ -261,45 +331,60 @@ export function showProps(rig: Rig, kinds: readonly PropKind[] | null | undefine
       holder.add(model(k));
       holder.scale.setScalar(0.001);
       holder.visible = false;
-      map.set(k, (st = { obj: holder, want: 1 }));
+      map.set(k, (st = { obj: holder, want: 1, feather: holder.getObjectByName('feather') ?? null }));
     }
     const m = MOUNT[k];
     const holder = st.obj;
     const hand = m.at === 'l' ? 'l' : 'r';
+    if (fist && m.at !== 'head') {
+      if (m.at !== 'l') fist.want[0] = Math.max(fist.want[0], m.grip);
+      if (m.at !== 'r') fist.want[1] = Math.max(fist.want[1], m.grip);
+    }
     const bone = m.at === 'head' ? rig.head : rig.bones[hand === 'l' ? 'l_hand' : 'r_hand'];
     if (holder.parent !== bone) bone.add(holder);
     const sx = hand === 'l' ? -1 : 1;
+    anchorOf(rig, hand, m.grip, loc);
     if (m.local || !hands) {
-      // В осях кисти (от середины ладони) или головы.
+      // В осях кисти (от точки хвата) или головы.
       holder.position.set(m.off[0] * sx, m.off[1], m.off[2]);
-      if (m.at !== 'head') holder.position.add(PALM_LOCAL[hand]);
+      if (m.at !== 'head') holder.position.add(loc);
       holder.quaternion.setFromEuler(e.set(m.rot[0], m.rot[1] * sx, m.rot[2] * sx));
       continue;
     }
     // Нужный поворот в осях тела → в осях кисти (в исходной фазе позы).
     const h = hands[hand];
-    const inv = h.q.clone().invert();
+    qi.copy(h.q).invert();
     qw.setFromEuler(e.set(m.rot[0], m.rot[1] * sx, m.rot[2] * sx));
-    holder.quaternion.copy(inv).multiply(qw);
-    // Центр — ладонь (или середина между ладонями) плюс сдвиг; из осей тела — в оси кисти.
+    holder.quaternion.copy(qi).multiply(qw);
+    // Центр — точка хвата (или середина между точками хвата обеих кистей) плюс сдвиг в осях тела.
     off.set(m.off[0] * sx, m.off[1], m.off[2]);
-    if (m.at === 'both') off.add(mid.addVectors(hands.l.palm, hands.r.palm).multiplyScalar(0.5).sub(h.palm));
-    holder.position.copy(off.applyQuaternion(inv)).add(PALM_LOCAL[hand]);
+    if (m.at === 'both') {
+      anchorOf(rig, 'l', m.grip, anchorL).applyQuaternion(hands.l.q).add(hands.l.pos);
+      anchorOf(rig, 'r', m.grip, anchorR).applyQuaternion(hands.r.q).add(hands.r.pos);
+      tmp.addVectors(anchorL, anchorR).multiplyScalar(0.5).add(off).sub(h.pos);
+      holder.position.copy(tmp.applyQuaternion(qi));
+    } else holder.position.copy(off.applyQuaternion(qi)).add(loc);
   }
 }
 
-/** Плавное появление и исчезание предметов; t — время (с) для мелкой анимации (пёрышко). */
+/** Плавное появление и исчезание предметов и сжатие кистей; t — время (с) для мелкой анимации (пёрышко). */
 export function tickProps(rig: Rig, dt: number, t: number): void {
   const map = store.get(rig);
   if (!map) return;
   const k = 1 - Math.exp(-dt * 12);
-  for (const [kind, st] of map) {
+  for (const st of map.values()) {
     const s = st.obj.scale.x + (st.want - st.obj.scale.x) * k;
     st.obj.scale.setScalar(Math.max(0.001, s));
     st.obj.visible = s > 0.03;
-    if (kind === 'teaser' && st.obj.visible) {
-      const f = st.obj.getObjectByName('feather');
-      if (f) f.rotation.set(0.5 * Math.sin(t * 7), 0, 0.4 * Math.sin(t * 5.3));
-    }
+    if (st.feather && st.obj.visible) st.feather.rotation.set(0.5 * Math.sin(t * 7), 0, 0.4 * Math.sin(t * 5.3));
+  }
+  const f = fists.get(rig);
+  if (!f) return;
+  for (let i = 0; i < 2; i += 1) f.k[i] = f.k[i]! + (f.want[i]! - f.k[i]!) * k;
+  for (const me of f.meshes) {
+    const inf = me.morphTargetInfluences;
+    if (!inf) continue;
+    inf[0] = f.k[0];
+    inf[1] = f.k[1];
   }
 }

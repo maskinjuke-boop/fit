@@ -835,7 +835,10 @@ function handLayer(shape: BodyShape, grips: readonly [boolean, boolean], region:
   geo.setAttribute('uv', new THREE.BufferAttribute(UV, 2));
   geo.setIndex(keep.map((o) => map.get(o)!));
   geo.computeBoundingSphere();
-  return new THREE.Mesh(geo, m);
+  const me = new THREE.Mesh(geo, m);
+  // Перчатка сжимается вместе с кистью (props3d): номера её вершин в сетке тела.
+  me.userData.fist = { figure: shape.figure, grips, idx: Uint32Array.from(used) };
+  return me;
 }
 
 /** Предмет слота «руки»; grips — какие кисти сжаты (держат предмет). */

@@ -985,10 +985,10 @@ const PALM = new THREE.Vector3(0.022, -0.075, 0.018);
  * Положение и поворот ладоней в позе motion в момент t (в координатах тела, без наклона
  * всего тела): для крепления предметов так, чтобы в этой позе они смотрели как нужно.
  */
-export function handPose(rig: Rig, motion: Motion, t: number): Record<'l' | 'r', { q: THREE.Quaternion; palm: THREE.Vector3 }> {
+export function handPose(rig: Rig, motion: Motion, t: number): Record<'l' | 'r', { q: THREE.Quaternion; palm: THREE.Vector3; pos: THREE.Vector3 }> {
   const p = poseFor(motion, t, 0);
   const e = new THREE.Euler();
-  const side = (sd: 'l' | 'r'): { q: THREE.Quaternion; palm: THREE.Vector3 } => {
+  const side = (sd: 'l' | 'r'): { q: THREE.Quaternion; palm: THREE.Vector3; pos: THREE.Vector3 } => {
     const q = new THREE.Quaternion();
     const pos = rig.rest.root.clone();
     if (p.hip) pos.add(new THREE.Vector3(...p.hip));
@@ -1000,7 +1000,7 @@ export function handPose(rig: Rig, motion: Motion, t: number): Record<'l' | 'r',
     });
     const palm = PALM.clone();
     if (sd === 'l') palm.x = -palm.x;
-    return { q, palm: pos.add(palm.applyQuaternion(q)) };
+    return { q, palm: pos.clone().add(palm.applyQuaternion(q)), pos };
   };
   return { l: side('l'), r: side('r') };
 }

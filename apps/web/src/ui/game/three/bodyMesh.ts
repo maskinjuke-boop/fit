@@ -74,12 +74,8 @@ export const vertexParts = (): Uint8Array => (partCache ??= bytes(BODY_DATA.part
  * Сетка тела для отрисовки: деление по Лупу, полоса шеи под головой утоплена внутрь,
  * развёртка по преобладающей оси (как у одежды). ao(x, y, z, nx, ny, nz) — затенение складок.
  */
-export function bodyRenderGeometry(figure: Figure, ao?: (x: number, y: number, z: number, nx: number, ny: number, nz: number) => number, grips: readonly [boolean, boolean] = [false, false]): THREE.BufferGeometry {
-  const tris = bodyTris();
-  const over = overlapTris();
-  const all = new Uint32Array(tris.length + over.length);
-  all.set(tris);
-  all.set(over, tris.length);
+/** Вершины тела до деления; grips — какие кисти сжаты в кулак: [правая (x < 0), левая (x > 0)]. */
+function bodyBase(figure: Figure, grips: readonly [boolean, boolean]): Float32Array {
   let base = bodyPositions(figure);
   if (grips[0] || grips[1]) {
     // Кисть, держащая предмет, — сжата в кулак (правая — x < 0, левая — x > 0).
@@ -95,13 +91,53 @@ export function bodyRenderGeometry(figure: Figure, ao?: (x: number, y: number, z
       base[i * 3 + 2] = q[j * 3 + 2]! * k;
     }
   }
-  const flag = new Float32Array(base.length / 3);
+  return base;
+}
+
+/** Треугольники тела (с перекрытием у шеи), метки перекрытия и неподвижное кольцо шва шеи — для деления. */
+function bodyTopology(n: number): { all: Uint32Array; flag: Float32Array; fixed: Uint8Array } {
+  const tris = bodyTris();
+  const over = overlapTris();
+  const all = new Uint32Array(tris.length + over.length);
+  all.set(tris);
+  all.set(over, tris.length);
+  const flag = new Float32Array(n);
   for (let i = 0; i < over.length; i += 1) flag[over[i]!] = 1;
   for (let i = 0; i < tris.length; i += 1) flag[tris[i]!] = 0;
   // Кольцо шва шеи не сглаживается — совпадает с нижним краем головы.
   const ringIdx = new Uint16Array(bytes(BODY_DATA.ring).buffer);
-  const fixed = new Uint8Array(base.length / 3);
+  const fixed = new Uint8Array(n);
   for (const i of ringIdx) fixed[i] = 1;
+  return { all, flag, fixed };
+}
+
+/**
+ * Сжатие кистей в кулак для сетки тела после деления: сдвиг вершин от кистей grips к
+ * сжатым, отдельно для правой и левой кисти (морф-цели). Деление по Лупу линейно, поэтому
+ * сдвиг делится так же, как сами вершины, и вершины совпадают с сеткой bodyRenderGeometry.
+ */
+export function bodyFistDeltas(figure: Figure, grips: readonly [boolean, boolean]): [Float32Array, Float32Array] {
+  const base = bodyBase(figure, grips);
+  const fist = bodyBase(figure, [true, true]);
+  const { all, fixed } = bodyTopology(base.length / 3);
+  const zero = new Float32Array(base.length / 3);
+  const side = (right: boolean): Float32Array => {
+    const d = new Float32Array(base.length);
+    for (let i = 0; i < d.length; i += 3) {
+      if (base[i]! < 0 !== right) continue;
+      d[i] = fist[i]! - base[i]!;
+      d[i + 1] = fist[i + 1]! - base[i + 1]!;
+      d[i + 2] = fist[i + 2]! - base[i + 2]!;
+    }
+    return loopSubdivide(d, all, zero, fixed).pos;
+  };
+  return [side(true), side(false)];
+}
+
+export function bodyRenderGeometry(figure: Figure, ao?: (x: number, y: number, z: number, nx: number, ny: number, nz: number) => number, grips: readonly [boolean, boolean] = [false, false]): THREE.BufferGeometry {
+  const base = bodyBase(figure, grips);
+  const { all, flag, fixed } = bodyTopology(base.length / 3);
+  const ringIdx = new Uint16Array(bytes(BODY_DATA.ring).buffer);
   const sub = loopSubdivide(base, all, flag, fixed);
   const geo = new THREE.BufferGeometry();
   const pos = sub.pos;

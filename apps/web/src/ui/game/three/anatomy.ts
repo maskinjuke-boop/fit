@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import type { Figure } from '../../../game/state';
 import { NECK_WORLD, TORSO_Y, bodyShape, type BodyShape } from './body';
-import { bodyRenderGeometry, bodySdf, bodySdfAsync, landmarks } from './bodyMesh';
+import { bodyFistDeltas, bodyRenderGeometry, bodySdf, bodySdfAsync, landmarks } from './bodyMesh';
 export { landmarks };
 import { loadMesh, saveMesh } from './meshStore';
 import { ellipsoid, netsGen, polyline, runSliced, smax, type Field, type MeshOptions, type V3 } from './sdf';
@@ -158,6 +158,58 @@ export function bodyGeometry(figure: Figure, grips: readonly [boolean, boolean] 
     geometryCache.set(key, g);
   }
   return g;
+}
+
+/** Морф-цели «кисть сжата» для сетки тела: сдвиг вершин и нормалей, [правая, левая]. */
+export interface FistMorph {
+  pos: [Float32Array, Float32Array];
+  nor: [Float32Array, Float32Array];
+}
+const fistCache = new Map<string, FistMorph>();
+
+/**
+ * Сжатие в кулак кистей, разжатых в bodyGeometry(figure, grips), — для предметов на время
+ * действия. Нормали меняются только у вершин кисти и их соседей (шов шеи не трогается).
+ */
+export function fistMorph(figure: Figure, grips: readonly [boolean, boolean]): FistMorph {
+  const key = `${figure}|${+grips[0]}${+grips[1]}`;
+  const hit = fistCache.get(key);
+  if (hit) return hit;
+  const geo = bodyGeometry(figure, grips);
+  const pos = geo.getAttribute('position').array as Float32Array;
+  const n0 = geo.getAttribute('normal');
+  const index = geo.index!;
+  const [dr, dl] = bodyFistDeltas(figure, grips);
+  const fist = Float32Array.from(pos, (v, i) => v + dr[i]! + dl[i]!);
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(fist, 3));
+  g.setIndex(index);
+  g.computeVertexNormals();
+  const n1 = g.getAttribute('normal');
+  // Вершины, которые двигаются, и их соседи — у них меняется нормаль.
+  const n = pos.length / 3;
+  const moved = new Uint8Array(n);
+  for (let i = 0; i < n; i += 1) if (Math.abs(dr[i * 3]!) + Math.abs(dr[i * 3 + 1]!) + Math.abs(dr[i * 3 + 2]!) + Math.abs(dl[i * 3]!) + Math.abs(dl[i * 3 + 1]!) + Math.abs(dl[i * 3 + 2]!) > 1e-6) moved[i] = 1;
+  const ring = new Uint8Array(n);
+  for (let t = 0; t < index.count; t += 3) {
+    const a = index.getX(t);
+    const b = index.getX(t + 1);
+    const c = index.getX(t + 2);
+    if (moved[a] || moved[b] || moved[c]) ring[a] = ring[b] = ring[c] = 1;
+  }
+  const nr = new Float32Array(pos.length);
+  const nl = new Float32Array(pos.length);
+  for (let i = 0; i < n; i += 1) {
+    if (!ring[i]) continue;
+    const out = pos[i * 3]! < 0 ? nr : nl;
+    out[i * 3] = n1.getX(i) - n0.getX(i);
+    out[i * 3 + 1] = n1.getY(i) - n0.getY(i);
+    out[i * 3 + 2] = n1.getZ(i) - n0.getZ(i);
+  }
+  g.dispose();
+  const m: FistMorph = { pos: [dr, dl], nor: [nr, nl] };
+  fistCache.set(key, m);
+  return m;
 }
 
 // ─── Одежда ────────────────────────────────────────────────────────────

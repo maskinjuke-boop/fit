@@ -115,7 +115,11 @@ export function buildCharacter(appearance: Appearance, color: string, equipped: 
   bodySkin.polygonOffset = true;
   bodySkin.polygonOffsetFactor = 1;
   bodySkin.polygonOffsetUnits = 2;
-  torso.add(new THREE.Mesh(bodyGeometry(figure, [Boolean(equipped.weapon), Boolean(equipped.offhand)]), bodySkin));
+  const fists: [boolean, boolean] = [Boolean(equipped.weapon), Boolean(equipped.offhand)];
+  const bodyMesh = new THREE.Mesh(bodyGeometry(figure, fists), bodySkin);
+  // Кисти сжимаются в кулак, когда в руках предмет на время действия (props3d).
+  bodyMesh.userData.fist = { figure, grips: fists };
+  torso.add(bodyMesh);
   const shirt = M.cloth(shade(color, 0.62), 8);
   const pants = M.cloth(female ? '#2f3646' : '#2d3440', 8);
   for (const g of garmentMeshes(figure, outfit, { top: shirt, bottom: pants })) torso.add(g);
