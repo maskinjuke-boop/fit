@@ -5,6 +5,7 @@ import { ITEMS } from '../game/items';
 import { useI18n } from '../i18n';
 import { PoseEngine, PoseEngineError } from '../pose/poseEngine';
 import type { ExerciseDef, ExerciseId } from '../tracking/exercise';
+import { getExercise } from '../tracking/exercises';
 import type { Metrics } from '../tracking/types';
 import { AccuracyPanel } from './AccuracyPanel';
 import { ExercisePicker } from './ExercisePicker';
@@ -14,6 +15,7 @@ import { Onboarding } from './game/Onboarding';
 import { preloadItemImages } from './game/Renders';
 import { ShopTab } from './game/Shop';
 import { LifeTab } from './game/Life';
+import { SessionOverlay } from './game/SessionOverlay';
 import { SessionSummary, type Session } from './game/SessionSummary';
 import { eventText } from './game/text';
 import { TrackingScreen } from './TrackingScreen';
@@ -70,7 +72,7 @@ export function App() {
 
   // Сообщение о переходе дня (сгоревшая серия, заморозка).
   useEffect(() => {
-    const e = game.dayEvents.find((x) => x.kind === 'streakLost' || x.kind === 'freezeUsed');
+    const e = game.dayEvents.find((x) => x.kind === 'quotaMissed' || x.kind === 'streakLost' || x.kind === 'freezeUsed');
     if (e) setDayBanner(eventText(t, tf, e, lang));
   }, [game.dayEvents, t, tf, lang]);
 
@@ -96,6 +98,8 @@ export function App() {
   };
 
   const finishExercise = (): void => {
+    // Выход посреди занятия — оплата за выполненную часть.
+    if (game.state?.life.session) game.life.endSession();
     setExercise(null);
     setTab(returnTab);
     if (session.current.reps > 0) setSummary({ ...session.current });
@@ -103,9 +107,10 @@ export function App() {
 
   if (!game.state) return <Onboarding />;
   const state = game.state;
+  const sessionOverlay = returnTab === 'life' ? (count: number) => <SessionOverlay state={state} count={count} /> : undefined;
 
   if (exercise && engine.status === 'ready') {
-    return <TrackingScreen exercise={exercise} engine={engine.engine} onBack={finishExercise} onRep={onRep} />;
+    return <TrackingScreen exercise={exercise} engine={engine.engine} onBack={finishExercise} onRep={onRep} overlay={sessionOverlay} />;
   }
 
   return (
@@ -127,7 +132,7 @@ export function App() {
               setPickReturn('life');
               setTab('train');
             }}
-            onShop={() => setTab('shop')}
+            onSession={(id) => startExercise(getExercise(id), 'life')}
           />
         )}
         {tab === 'quests' && <QuestsTab state={state} />}

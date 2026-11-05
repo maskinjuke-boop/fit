@@ -2115,3 +2115,92 @@ button {
 .life-event .choices {
   margin-top: 12px;
 }
+
+/* ── Тренер: норма дня, занятие ─────────────────────────────────────── */
+.quota {
+  justify-self: start;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(15, 17, 20, 0.78);
+  font-size: 12px;
+  font-weight: 600;
+}
+.quota .need-bar {
+  width: 70px;
+}
+.quota .need-bar > span {
+  background: #ffb020;
+}
+.quota.done .need-bar > span {
+  background: var(--good);
+}
+.quota.wide {
+  display: grid;
+  grid-template-columns: 22px 92px 1fr auto;
+  gap: 8px;
+  margin: 4px 0 2px;
+  padding: 0;
+  background: none;
+  font-size: 14px;
+  font-weight: 400;
+}
+.quota.wide .need-bar {
+  width: 100%;
+  height: 9px;
+}
+.gym-card {
+  display: grid;
+  gap: 10px;
+}
+.gym-card .card.inner {
+  display: grid;
+  gap: 4px;
+}
+.gym-card .btn {
+  justify-self: start;
+  margin-top: 6px;
+}
+.life-list .need-bar {
+  width: 120px;
+  margin-top: 4px;
+}
+.session-layer {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: calc(max(10px, env(safe-area-inset-bottom)) + 64px);
+  display: grid;
+  gap: 4px;
+  pointer-events: none;
+}
+.session-bar {
+  justify-self: center;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 14px;
+  border-radius: 999px;
+  background: rgba(15, 17, 20, 0.82);
+  font-size: 14px;
+  font-weight: 700;
+}
+.session-bar .need-bar {
+  width: 90px;
+  height: 8px;
+}
+.session-bar.done {
+  color: var(--good);
+}
+.crew3d {
+  position: relative;
+  height: min(30vh, 210px);
+  background: linear-gradient(transparent, rgba(0, 0, 0, 0.35));
+}
+.crew-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}

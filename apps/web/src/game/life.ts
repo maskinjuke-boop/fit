@@ -1,52 +1,29 @@
 import type { ExerciseId } from '../tracking/exercise';
 import type { StatId } from './config';
+import { addDays, daysBetween } from './dates';
+import type { GameEvent } from './engine';
+import type { Slot } from './items';
 import { levelOf } from './levels';
-import {
-  ACTIONS,
-  BASE_OBJECTS,
-  HOMES,
-  HOME_IDS,
-  JOBS,
-  LIFE_EVENTS,
-  LOCATIONS,
-  OBJECTS,
-  PEOPLE,
-  PERSON_ACTIONS,
-  PERSON_IDS,
-  actionById,
-  lifeEventById,
-} from './lifeContent';
+import { ACTIONS, CLIENT_NAMES, FURNITURE, GYMS, GYM_HOURS, HOME_OBJECTS, HOUSE_SLOTS, LIFE_EVENTS, OBJECTS, SESSION_EXERCISES, actionById, lifeEventById } from './lifeContent';
 import { rng } from './random';
-import type { Appearance, BodyPart, GameState } from './state';
-import {
-  NEEDS,
-  SKILLS,
-  type ActionDef,
-  type HomeId,
-  type JobId,
-  type LifeEffect,
-  type LifeResult,
-  type LifeState,
-  type LocationId,
-  type NeedId,
-  type ObjectId,
-  type PersonId,
-  type SkillId,
-  type Txt,
-} from './lifeTypes';
+import type { Appearance, BodyPart, GameState, HairStyle } from './state';
+import { NEEDS, SKILLS, type ActionDef, type Client, type LifeEffect, type LifeResult, type LifeState, type NeedId, type ObjectId, type SkillId, type Txt } from './lifeTypes';
 
 /**
- * Симулятор жизни: время идёт действиями (каждое занимает игровые минуты),
- * потребности со временем падают, деньги дают работа и тренировки (квесты и
- * ежедневки), отношения строятся разговорами и свиданиями. Настоящие тренировки
- * перед камерой меняют фигуру героя, открывают работу тренера и модели.
+ * Симулятор фитнес-тренера. Две локации — свой дом и фитнес-зал. В зале герой
+ * проводит платные занятия: выполняет упражнение перед камерой, ученики повторяют.
+ * С уровнем героя растёт число учеников, а новые приходят всё более спортивными;
+ * сами ученики худеют и крепнут от занятий. Доход — от уровня, числа учеников и
+ * уровня зала, который можно улучшать. Каждый реальный день есть обязательная норма
+ * повторов, иначе штраф и недовольство учеников. Время в игре идёт действиями.
  */
 
 const t = (ru: string, en: string): Txt => ({ ru, en });
 
 export const DAY = 1440;
 export const WAKE_HOUR = 7;
-export const RENT_PERIOD = 7;
+
+const firstClient = (): Client => makeClient(1, 1, 1);
 
 export function newLife(): LifeState {
   return {
@@ -54,63 +31,67 @@ export function newLife(): LifeState {
     minute: 8 * 60,
     needs: { food: 70, energy: 85, hygiene: 75, fun: 65, social: 55 },
     scene: 'home',
-    groceries: 3,
-    job: null,
+    groceries: 4,
     skills: { cooking: 0, charisma: 0, logic: 0, creativity: 0 },
-    home: 'studio',
     furniture: [],
-    people: {},
     fat: 0,
-    rentUntil: 1 + RENT_PERIOD,
-    debt: 0,
+    gym: 0,
+    clients: [firstClient()],
+    nextClient: 2,
+    session: null,
     event: null,
     last: null,
-    stats: { shifts: 0, dates: 0, meals: 0, promotions: 0, workouts: 0 },
+    quotaDay: '',
+    quota: 20,
+    stats: { sessions: 0, earned: 0, meals: 0, workouts: 0, fines: 0, graduated: 0 },
   };
 }
 
+/** Старые сохранения (в том числе города и работы) переводятся в жизнь тренера. */
 export function migrateLife(raw: Partial<LifeState> | undefined): LifeState {
   const base = newLife();
   if (!raw) return base;
+  const r = raw as Partial<LifeState> & Record<string, unknown>;
   return {
     ...base,
-    ...raw,
-    needs: { ...base.needs, ...(raw.needs ?? {}) },
-    skills: { ...base.skills, ...(raw.skills ?? {}) },
-    stats: { ...base.stats, ...(raw.stats ?? {}) },
-    people: { ...(raw.people ?? {}) },
-    furniture: [...(raw.furniture ?? [])],
+    day: typeof r.day === 'number' ? r.day : base.day,
+    minute: typeof r.minute === 'number' ? r.minute : base.minute,
+    needs: { ...base.needs, ...(r.needs ?? {}) },
+    scene: r.scene === 'gym' ? 'gym' : 'home',
+    groceries: typeof r.groceries === 'number' ? r.groceries : base.groceries,
+    skills: { ...base.skills, ...(r.skills ?? {}) },
+    furniture: (r.furniture ?? []).filter((id) => FURNITURE.includes(id)),
+    fat: typeof r.fat === 'number' ? r.fat : 0,
+    gym: typeof r.gym === 'number' ? r.gym : 0,
+    clients: Array.isArray(r.clients) && r.clients.length ? r.clients : base.clients,
+    nextClient: typeof r.nextClient === 'number' ? r.nextClient : base.nextClient,
+    session: r.session ?? null,
+    event: r.event && lifeEventById(r.event.id) ? r.event : null,
+    last: null,
+    quotaDay: typeof r.quotaDay === 'string' ? r.quotaDay : '',
+    quota: typeof r.quota === 'number' ? r.quota : base.quota,
+    stats: { ...base.stats, ...((r.stats as Partial<LifeState['stats']>) ?? {}) },
   };
 }
 
 // ─── Показатели ────────────────────────────────────────────────────────
 
-/** Уровень навыка 0…10 по опыту (уровень L — 12·L² опыта). */
 export const skillLevel = (xp: number): number => Math.min(10, Math.floor(Math.sqrt(Math.max(0, xp) / 12)));
-/** Опыт до следующего уровня навыка. */
 export const skillNext = (xp: number): number => 12 * (skillLevel(xp) + 1) ** 2;
 
 const STAT_IDS: readonly StatId[] = ['strength', 'legs', 'core', 'endurance'];
 
-/** Спортивная форма: средний уровень характеристик (растут только от тренировок перед камерой). */
+/** Спортивная форма героя: средний уровень характеристик (растут только от тренировок перед камерой). */
 export function fitness(s: GameState): number {
   return Math.round((STAT_IDS.reduce((a, k) => a + levelOf(s.statXp[k]), 0) / STAT_IDS.length) * 10) / 10;
 }
 
-/** Настроение — среднее потребностей. */
+export const trainerLevel = (s: GameState): number => levelOf(s.totalXp);
 export const mood = (life: LifeState): number => Math.round(NEEDS.reduce((a, n) => a + life.needs[n], 0) / NEEDS.length);
-
-/** Привлекательность 0…100: форма, обаяние, опрятность, наряд и вес. */
-export function looks(s: GameState): number {
-  const life = s.life;
-  const outfit = Math.min(14, Object.values(s.equipped).filter(Boolean).length * 1.6);
-  const v = 22 + fitness(s) * 4 + skillLevel(life.skills.charisma) * 3 + life.needs.hygiene * 0.12 + outfit - Math.max(0, life.fat) * 18 - Math.max(0, -life.fat - 0.6) * 10;
-  return Math.max(0, Math.min(100, Math.round(v)));
-}
 
 const clamp = (v: number, lo: number, hi: number): number => Math.max(lo, Math.min(hi, v));
 
-/** Фигура героя с учётом тренировок и питания: мышцы растут с силой, вес — с «лишним весом». */
+/** Фигура героя с учётом тренировок и питания. */
 export function effectiveAppearance(appearance: Appearance, s: GameState): Appearance {
   const lv = (k: StatId): number => levelOf(s.statXp[k]) - 1;
   const body: Partial<Record<BodyPart, number>> = { ...(appearance.body ?? {}) };
@@ -126,29 +107,94 @@ export function effectiveAppearance(appearance: Appearance, s: GameState): Appea
   return { ...appearance, body };
 }
 
+// ─── Ученики ───────────────────────────────────────────────────────────
+
+const HAIR: Record<'male' | 'female', HairStyle[]> = { male: ['short', 'buzz', 'curly'], female: ['long', 'ponytail', 'bob', 'bun', 'curly'] };
+
+/** Новый ученик: чем выше уровень тренера, тем спортивнее приходят люди. */
+export function makeClient(id: number, level: number, day: number): Client {
+  const r = rng(`client:${id}`);
+  const figure = r() < 0.5 ? 'female' : 'male';
+  const fit = clamp((level - 1) / 12, 0, 1);
+  return {
+    id: `c${id}`,
+    seed: id,
+    figure,
+    hair: HAIR[figure][Math.floor(r() * HAIR[figure].length)]!,
+    skin: Math.floor(r() * 6),
+    hairColor: Math.floor(r() * 4),
+    name: Math.floor(r() * CLIENT_NAMES[figure].length),
+    fat: clamp(1 - fit * 1.25 + (r() - 0.5) * 0.15, -0.35, 1),
+    muscle: clamp(-0.6 + fit * 1.1 + (r() - 0.5) * 0.15, -0.6, 0.8),
+    sessions: 0,
+    loyalty: 60,
+    joined: day,
+  };
+}
+
+export const clientName = (c: Client): Txt => CLIENT_NAMES[c.figure][c.name % CLIENT_NAMES[c.figure].length]!;
+
+/** Сколько учеников ходит при этом уровне тренера и зала. */
+export const clientTarget = (s: GameState): number => Math.min(GYMS[s.life.gym]!.cap, 1 + Math.floor((trainerLevel(s) - 1) / 2));
+
+export function clientAppearance(c: Client): Appearance {
+  return {
+    figure: c.figure,
+    skin: c.skin,
+    hair: c.hair,
+    hairColor: c.hairColor,
+    beard: false,
+    eyes: c.seed % 3,
+    body: { weight: c.fat, belly: Math.max(0, c.fat) * 0.9, muscle: c.muscle, chest: Math.max(0, c.fat) * 0.3, arms: c.fat * 0.4 },
+  };
+}
+
+/** Спортивная одежда ученика: полные — в футболке и штанах, подтянутые — в топе и шортах. */
+export function clientOutfit(c: Client): Partial<Record<Slot, string>> {
+  if (c.fat > 0.45) return { body: 'basic_tee', legs: 'sweatpants', feet: 'sneakers' };
+  if (c.fat > 0) return { body: 'tank_top', legs: 'gym_shorts', feet: 'sneakers' };
+  return c.figure === 'female' ? { body: 'sports_bra', legs: 'yoga_leggings', feet: 'running_shoes' } : { body: 'tank_top', legs: 'gym_shorts', feet: 'running_shoes' };
+}
+
+/** Состояние формы ученика 0…1 (для подписи). */
+export const clientForm = (c: Client): number => clamp((1 - c.fat) / 1.4 * 0.7 + (c.muscle + 0.6) / 1.4 * 0.3, 0, 1);
+
+/** Приходит один новый ученик, если есть место. */
+function recruit(s: GameState, notes: Txt[], force = false): void {
+  const life = s.life;
+  const cap = force ? GYMS[life.gym]!.cap : clientTarget(s);
+  if (life.clients.length >= cap) return;
+  const c = makeClient(life.nextClient, trainerLevel(s), life.day);
+  life.nextClient += 1;
+  life.clients.push(c);
+  notes.push(t(`Новый ученик: ${clientName(c).ru}`, `New client: ${clientName(c).en}`));
+}
+
+/** Цена занятия с одного ученика. */
+export function fee(s: GameState): number {
+  return Math.round((10 + 4 * trainerLevel(s)) * GYMS[s.life.gym]!.mult * (1 + 0.03 * skillLevel(s.life.skills.charisma)));
+}
+
+const FIT_FACTOR = { beginner: 0.7, intermediate: 1, advanced: 1.3 } as const;
+
+/** Повторов на занятии: растёт с уровнем, учитывает подготовку героя. */
+export function sessionTarget(s: GameState, exercise: ExerciseId): number {
+  const base = SESSION_EXERCISES.find(([e]) => e === exercise)?.[1] ?? 10;
+  return Math.max(4, Math.round(base * (1 + 0.06 * (trainerLevel(s) - 1)) * FIT_FACTOR[s.character.fitness]));
+}
+
+/** Норма повторов для уровня тренера (назначается в начале реального дня). */
+export const quotaFor = (s: GameState): number => Math.min(120, 20 + 5 * (trainerLevel(s) - 1));
+/** Обязательная норма повторов на сегодня (не меняется в течение дня, даже с новым уровнем). */
+export const dailyQuota = (s: GameState): number => s.life.quota || quotaFor(s);
+export const repsOn = (s: GameState, day: string): number => Object.values(s.days[day]?.reps ?? {}).reduce((a, n) => a + (n ?? 0), 0);
+
 // ─── Время ─────────────────────────────────────────────────────────────
 
 export const hourOf = (minute: number): number => Math.floor(minute / 60);
 export const clock = (minute: number): string => `${String(hourOf(minute)).padStart(2, '0')}:${String(minute % 60).padStart(2, '0')}`;
+export const gymOpen = (minute: number): boolean => hourOf(minute) >= GYM_HOURS[0] && hourOf(minute) < GYM_HOURS[1];
 
-/** Час h попадает в окно [a, b) (b может быть больше 24 — до утра). */
-export const inHours = (h: number, [a, b]: [number, number]): boolean => (h >= a && h < b) || (h + 24 >= a && h + 24 < b);
-
-export const isOpen = (loc: LocationId, minute: number): boolean => {
-  const hours = LOCATIONS[loc].hours;
-  return !hours || inHours(hourOf(minute), hours);
-};
-
-/** Где персонаж сейчас (null — дома, не на улице). */
-export function personPlace(id: PersonId, minute: number): LocationId | null {
-  const h = hourOf(minute);
-  for (const [loc, a, b] of PEOPLE[id].schedule) if (inHours(h, [a, b])) return loc;
-  return null;
-}
-
-export const peopleAt = (loc: LocationId, minute: number): PersonId[] => PERSON_IDS.filter((p) => personPlace(p, minute) === loc);
-
-/** Скорость изменения потребностей в час: бодрствование и сон. */
 const AWAKE: Record<NeedId, number> = { food: -5, energy: -4.2, hygiene: -3, fun: -3.2, social: -2.4 };
 const ASLEEP: Record<NeedId, number> = { food: -1.8, energy: 13, hygiene: -1, fun: 0, social: -0.5 };
 
@@ -162,73 +208,51 @@ interface Tally {
   needs: Partial<Record<NeedId, number>>;
   money: number;
   notes: Txt[];
+  skills: Partial<Record<SkillId, number>>;
 }
+const startTally = (): Tally => ({ needs: {}, money: 0, notes: [], skills: {} });
 
-/** Проходит время: потребности, новый день, аренда, отношения, утреннее событие. */
 function passTime(s: GameState, minutes: number, asleep: boolean, tally: Tally): void {
   const life = s.life;
-  const comfort = HOMES[life.home].comfort;
   let left = minutes;
   while (left > 0) {
     const step = Math.min(left, DAY - life.minute, 60);
-    for (const n of NEEDS) {
-      let rate = (asleep ? ASLEEP : AWAKE)[n];
-      if (n === 'fun' && rate < 0) rate *= 1 - comfort;
-      tally.needs[n] = (tally.needs[n] ?? 0) + bump(life, n, (rate * step) / 60);
-    }
+    for (const n of NEEDS) tally.needs[n] = (tally.needs[n] ?? 0) + bump(life, n, ((asleep ? ASLEEP : AWAKE)[n] * step) / 60);
     life.minute += step;
     left -= step;
     if (life.minute >= DAY) {
       life.minute -= DAY;
       life.day += 1;
-      newDay(s, tally);
+      newGameDay(s, tally);
     }
   }
 }
 
-function newDay(s: GameState, tally: Tally): void {
+/** Новый игровой день: иногда приходит новый ученик, утреннее событие. */
+function newGameDay(s: GameState, tally: Tally): void {
   const life = s.life;
-  // Аренда раз в неделю.
-  if (life.day >= life.rentUntil) {
-    const rent = HOMES[life.home].rent;
-    if (s.gold >= rent) {
-      s.gold -= rent;
-      tally.money -= rent;
-      tally.notes.push(t(`Списана аренда: ${rent}`, `Rent paid: ${rent}`));
-    } else {
-      life.debt += rent;
-      tally.needs.fun = (tally.needs.fun ?? 0) + bump(life, 'fun', -20);
-      tally.notes.push(t(`Не хватило на аренду: долг ${life.debt}`, `Couldn’t pay rent: debt ${life.debt}`));
-    }
-    life.rentUntil += RENT_PERIOD;
-  }
-  // Без общения отношения остывают (кроме партнёра).
-  for (const id of PERSON_IDS) {
-    const r = life.people[id];
-    if (!r || r.partner || r.aff <= 0) continue;
-    if ((life.day - r.last) % 5 === 0 && life.day > r.last) r.aff -= 1;
-  }
-  // Утреннее событие — примерно через день.
   const roll = rng(`${s.character.id}:life:${life.day}`);
-  if (!life.event && roll() < 0.5) {
-    const pool = LIFE_EVENTS.filter((e) => (!e.needsJob || life.job) && (e.person === undefined || PERSON_IDS.some((p) => (life.people[p]?.aff ?? -99) >= e.person!)));
+  if (roll() < 0.5) recruit(s, tally.notes);
+  if (!life.event && roll() < 0.45) {
+    const pool = LIFE_EVENTS.filter((e) => !e.needsClients || life.clients.length > 0);
     const ev = pool[Math.floor(roll() * pool.length)];
-    if (ev) {
-      const friends = PERSON_IDS.filter((p) => (life.people[p]?.aff ?? -99) >= (ev.person ?? 0));
-      life.event = ev.person !== undefined ? { id: ev.id, person: friends[Math.floor(roll() * friends.length)]! } : { id: ev.id };
-    }
+    if (ev) life.event = { id: ev.id };
   }
 }
 
-/** Минуты сна до утра (7:00); если до утра меньше 4 часов — полные 8 часов. */
 export function sleepMinutes(minute: number): number {
   const m = (WAKE_HOUR * 60 - minute + DAY) % DAY;
   return m < 240 ? 480 : m;
 }
 
-// ─── Эффекты ───────────────────────────────────────────────────────────
+export const SKILL_NAME: Record<SkillId, Txt> = {
+  cooking: t('Кулинария', 'Cooking'),
+  charisma: t('Обаяние', 'Charisma'),
+  logic: t('Логика', 'Logic'),
+  creativity: t('Творчество', 'Creativity'),
+};
 
-function applyEffect(s: GameState, e: LifeEffect, tally: Tally & { skills: Partial<Record<SkillId, number>> }, person?: PersonId): number {
+function applyEffect(s: GameState, e: LifeEffect, tally: Tally): void {
   const life = s.life;
   for (const [n, d] of Object.entries(e.needs ?? {}) as Array<[NeedId, number]>) {
     if (n === 'food' && d > 0 && life.needs.food + d > 120) life.fat = clamp(life.fat + 0.01, -1, 1);
@@ -248,51 +272,34 @@ function applyEffect(s: GameState, e: LifeEffect, tally: Tally & { skills: Parti
     const after = skillLevel(life.skills[k]);
     if (after > before) tally.notes.push(t(`Навык «${SKILL_NAME[k].ru}»: уровень ${after}`, `${SKILL_NAME[k].en} skill: level ${after}`));
   }
-  let aff = 0;
-  if (person && e.aff) {
-    const r = life.people[person];
-    if (r) {
-      const before = r.aff;
-      r.aff = clamp(r.aff + e.aff, -5, 10);
-      aff = r.aff - before;
-    }
-  }
-  return aff;
+  if (e.loyalty) for (const c of life.clients) c.loyalty = clamp(c.loyalty + e.loyalty, 0, 100);
+  if (e.client) recruit(s, tally.notes, true);
 }
-
-export const SKILL_NAME: Record<SkillId, Txt> = {
-  cooking: t('Кулинария', 'Cooking'),
-  charisma: t('Обаяние', 'Charisma'),
-  logic: t('Логика', 'Logic'),
-  creativity: t('Творчество', 'Creativity'),
-};
 
 // ─── Доступность действий ──────────────────────────────────────────────
 
-export type Blocker = 'closed' | 'money' | 'groceries' | 'need' | 'skill' | 'job' | 'hours' | 'missing' | null;
+export type Blocker = 'closed' | 'money' | 'groceries' | 'need' | 'skill' | 'missing' | 'clients' | 'session' | null;
 
-export const hasObject = (life: LifeState, id: ObjectId): boolean => BASE_OBJECTS.includes(id) || life.furniture.includes(id);
+/** Есть ли предмет в текущей локации. */
+export function hasObject(s: GameState, id: ObjectId): boolean {
+  const life = s.life;
+  if (life.scene === 'home') return HOME_OBJECTS.includes(id) || life.furniture.includes(id);
+  const g = GYMS[life.gym]!;
+  if (id === 'gym_shower') return g.shower;
+  if (id === 'smoothie') return g.bar;
+  return id === 'coach' || id === 'reception' || id === 'gym_door';
+}
 
-/** Почему действие сейчас недоступно (null — можно). */
 export function blocker(s: GameState, a: ActionDef): Blocker {
   const life = s.life;
-  if ('object' in a.at) {
-    if (life.scene !== 'home' || !hasObject(life, a.at.object)) return 'missing';
-  } else {
-    if (life.scene !== 'city') return 'missing';
-    if (!isOpen(a.at.location, life.minute)) return 'closed';
-  }
-  if (a.work) {
-    const job = life.job;
-    if (!job || JOBS[job.id].location !== (a.at as { location: LocationId }).location) return 'job';
-    const def = JOBS[job.id];
-    const h = life.minute / 60;
-    if (h < def.hours[0] || h + def.shift / 60 > def.hours[1]) return 'hours';
-    if (life.needs.energy < 25) return 'need';
-    return null;
+  if (!hasObject(s, a.at)) return 'missing';
+  if (a.at === 'coach' && !gymOpen(life.minute)) return 'closed';
+  if (a.open === 'session') {
+    if (life.session) return 'session';
+    if (life.clients.length === 0) return 'clients';
+    if (life.needs.energy < 20) return 'need';
   }
   const r = a.requires;
-  if (r?.hours && !inHours(hourOf(life.minute), r.hours)) return 'hours';
   if (r?.groceries && life.groceries < r.groceries) return 'groceries';
   if (r?.need && life.needs[r.need[0]] < r.need[1]) return 'need';
   if (r?.skill && skillLevel(life.skills[r.skill[0]]) < r.skill[1]) return 'skill';
@@ -300,52 +307,43 @@ export function blocker(s: GameState, a: ActionDef): Blocker {
   return null;
 }
 
-/** Действия у предмета квартиры или у места в городе. */
-export const actionsAt = (where: { object: ObjectId } | { location: LocationId }): ActionDef[] =>
-  ACTIONS.filter((a) => ('object' in where ? 'object' in a.at && a.at.object === where.object : 'location' in a.at && a.at.location === where.location));
+export const actionsAt = (id: ObjectId): ActionDef[] => ACTIONS.filter((a) => a.at === id);
 
 // ─── Действия ──────────────────────────────────────────────────────────
 
 export interface LifeOutcome {
   state: GameState;
-  /** Открыть тренировку перед камерой. */
   train?: boolean;
   open?: ActionDef['open'];
 }
 
 const same = (state: GameState): LifeOutcome => ({ state });
 
-function startTally(): Tally & { skills: Partial<Record<SkillId, number>> } {
-  return { needs: {}, money: 0, notes: [], skills: {} };
-}
-
-/** Без сил герой засыпает и просыпается дома. */
 function collapse(s: GameState, tally: Tally): number {
   const life = s.life;
   if (life.needs.energy > 0) return 0;
   life.scene = 'home';
+  life.session = null;
   const m = sleepMinutes(life.minute);
   passTime(s, m, true, tally);
   tally.notes.push(t('Силы кончились — вы уснули и проснулись дома.', 'You ran out of energy, fell asleep and woke up at home.'));
   return m;
 }
 
-function finish(s: GameState, icon: string, text: Txt, ok: boolean, minutes: number, tally: ReturnType<typeof startTally>, aff?: LifeResult['aff']): void {
+function finish(s: GameState, icon: string, text: Txt, ok: boolean, minutes: number, tally: Tally): void {
   const r: LifeResult = { icon, text, ok, needs: tally.needs, money: tally.money, minutes, notes: tally.notes };
   if (Object.keys(tally.skills).length) r.skills = tally.skills;
-  if (aff) r.aff = aff;
   s.life.last = r;
 }
 
-/** Выполнить действие у предмета или места. */
 export function act(state: GameState, actionId: string): LifeOutcome {
   const a = actionById(actionId);
   if (!a || state.life.event) return same(state);
   if (blocker(state, a)) return same(state);
+  if (a.open) return { state, open: a.open };
   const s = structuredClone(state);
   const life = s.life;
   const tally = startTally();
-  if (a.work) return { state: work(s, a, tally) };
   if (a.cost) {
     s.gold -= a.cost;
     tally.money -= a.cost;
@@ -358,136 +356,117 @@ export function act(state: GameState, actionId: string): LifeOutcome {
     passTime(s, minutes, false, tally);
     applyEffect(s, a.effect, tally);
   }
-  if (a.id === 'cook' || a.id === 'cook_fancy' || a.id === 'cafe_lunch') life.stats.meals += 1;
+  if (a.id === 'cook' || a.id === 'cook_fit') life.stats.meals += 1;
   if (a.go) life.scene = a.go;
   minutes += collapse(s, tally);
-  // Переход между домом и городом — без всплывающего итога (если ничего не случилось).
   if (a.go && tally.notes.length === 0) life.last = null;
   else finish(s, a.icon, a.label, true, minutes, tally);
   const out: LifeOutcome = { state: s };
   if (a.train) out.train = true;
-  if (a.open) out.open = a.open;
   return out;
 }
 
-/** Рабочая смена: оплата зависит от настроения, после нескольких смен — повышение. */
-function work(s: GameState, a: ActionDef, tally: ReturnType<typeof startTally>): GameState {
+// ─── Занятия ───────────────────────────────────────────────────────────
+
+/** Начать групповое занятие: дальше — повторы перед камерой. */
+export function startSession(state: GameState, exercise: ExerciseId): GameState {
+  const life = state.life;
+  const a = actionById('session')!;
+  if (life.event || blocker(state, a) || !SESSION_EXERCISES.some(([e]) => e === exercise)) return state;
+  const s = structuredClone(state);
+  s.life.session = { exercise, target: sessionTarget(s, exercise), progress: 0, clients: s.life.clients.map((c) => c.id) };
+  return s;
+}
+
+/** Итог занятия: оплата за выполненную часть, ученики стали в лучшей форме (s уже скопировано). */
+function completeSession(s: GameState, completion: number): void {
   const life = s.life;
-  const job = life.job!;
-  const def = JOBS[job.id];
-  const moodBefore = mood(life);
-  passTime(s, def.shift, false, tally);
-  bump(life, 'energy', -8);
-  job.perf = clamp(job.perf + (moodBefore - 50) / 10 + 3, 0, 100);
-  const pay = Math.round(def.levels[job.level]!.pay * (0.85 + job.perf / 330));
+  const sess = life.session;
+  if (!sess) return;
+  life.session = null;
+  const tally = startTally();
+  const attending = life.clients.filter((c) => sess.clients.includes(c.id));
+  const pay = Math.round(fee(s) * attending.length * completion);
   s.gold += pay;
   tally.money += pay;
-  applyEffect(s, { skills: { [def.grows]: 10 }, needs: { social: 15 } }, tally);
-  job.shifts += 1;
-  life.stats.shifts += 1;
-  const next = def.levels[job.level + 1];
-  if (next && job.shifts >= def.promoteAfter && meetsLevel(s, job.id, job.level + 1)) {
-    job.level += 1;
-    job.shifts = 0;
-    life.stats.promotions += 1;
-    tally.notes.push(t(`Повышение: ${next.title.ru}!`, `Promotion: ${next.title.en}!`));
-  } else if (next && job.shifts >= def.promoteAfter) {
-    tally.notes.push(t('Для повышения не хватает требований должности.', 'You don’t meet the requirements for promotion yet.'));
+  life.stats.earned += pay;
+  life.stats.sessions += 1;
+  for (const c of attending) {
+    c.fat = clamp(c.fat - 0.04 * completion, -0.4, 1);
+    c.muscle = clamp(c.muscle + 0.03 * completion, -0.6, 0.85);
+    c.sessions += 1;
+    c.loyalty = clamp(c.loyalty + (completion >= 1 ? 6 : -4), 0, 100);
   }
-  const minutes = def.shift + collapse(s, tally);
-  finish(s, a.icon, t(`Смена: ${def.levels[job.level]!.title.ru}`, `Shift: ${def.levels[job.level]!.title.en}`), true, minutes, tally);
-  return s;
+  passTime(s, 60, false, tally);
+  applyEffect(s, { needs: { energy: -12, hygiene: -20, fun: 8, social: 15 }, skills: { charisma: 8 } }, tally);
+  if (completion < 1) tally.notes.push(t('Занятие прервано — оплата за выполненную часть.', 'The class was cut short — paid for the part done.'));
+  recruit(s, tally.notes);
+  const minutes = 60 + collapse(s, tally);
+  finish(s, '📣', t(`Занятие: ${attending.length} уч. × ${fee(s)}`, `Class: ${attending.length} clients × ${fee(s)}`), completion >= 1, minutes, tally);
 }
 
-/** Выполнены ли требования должности. */
-export function meetsLevel(s: GameState, job: JobId, level: number): boolean {
-  const l = JOBS[job].levels[level];
-  if (!l) return false;
-  if (l.skill && skillLevel(s.life.skills[l.skill[0]]) < l.skill[1]) return false;
-  if (l.fitness !== undefined && fitness(s) < l.fitness) return false;
-  if (l.looks !== undefined && looks(s) < l.looks) return false;
-  return true;
-}
-
-export function applyJob(state: GameState, job: JobId): GameState {
-  if (state.life.job?.id === job || !meetsLevel(state, job, 0)) return state;
+/** Закончить занятие досрочно (выход из тренировки). */
+export function endSession(state: GameState): GameState {
+  const sess = state.life.session;
+  if (!sess) return state;
   const s = structuredClone(state);
-  s.life.job = { id: job, level: 0, shifts: 0, perf: 50 };
-  const tally = startTally();
-  tally.notes.push(t(`Вы приняты: ${JOBS[job].levels[0]!.title.ru}`, `Hired: ${JOBS[job].levels[0]!.title.en}`));
-  finish(s, JOBS[job].icon, JOBS[job].name, true, 0, tally);
+  if (sess.progress <= 0) s.life.session = null;
+  else completeSession(s, Math.min(1, sess.progress / sess.target));
   return s;
 }
 
-export function quitJob(state: GameState): GameState {
-  if (!state.life.job) return state;
-  const s = structuredClone(state);
-  s.life.job = null;
-  return s;
-}
+// ─── Связь с тренировками ──────────────────────────────────────────────
 
-// ─── Люди ──────────────────────────────────────────────────────────────
+const CARDIO: readonly ExerciseId[] = ['jumping_jack', 'high_knees'];
 
-/** Шанс проверки обаяния. */
-export function charmChance(s: GameState, person: PersonId, base: number): number {
-  const r = s.life.people[person];
-  const p = base + (looks(s) - 50) / 150 + skillLevel(s.life.skills.charisma) * 0.03 + (r?.aff ?? 0) * 0.02 + (mood(s.life) - 50) / 300;
-  return clamp(p, 0.1, 0.95);
-}
-
-export type PersonBlocker = 'absent' | 'aff' | 'money' | 'where' | 'partner' | 'taken' | null;
-
-export function personBlocker(s: GameState, person: PersonId, actionId: string, at: LocationId): PersonBlocker {
-  const a = PERSON_ACTIONS.find((x) => x.id === actionId);
+/** Повтор перед камерой: тело устаёт, лишний вес уходит, занятие и норма продвигаются (s уже скопировано). */
+export function lifeOnRep(s: GameState, exercise: ExerciseId, events: GameEvent[]): void {
   const life = s.life;
-  if (!a || life.scene !== 'city' || personPlace(person, life.minute) !== at) return 'absent';
-  const r = life.people[person];
-  if (a.where && !a.where.includes(at)) return 'where';
-  if (a.minAff !== undefined && (r?.aff ?? 0) < a.minAff) return 'aff';
-  if (a.partner === true && !r?.partner) return 'partner';
-  if (a.partner === false && r?.partner) return 'partner';
-  if (a.romance && PERSON_IDS.some((p) => p !== person && life.people[p]?.partner)) return 'taken';
-  if ((a.cost ?? 0) > s.gold) return 'money';
-  return null;
+  const cardio = CARDIO.includes(exercise);
+  bump(life, 'energy', cardio ? -0.12 : -0.2);
+  bump(life, 'hygiene', -0.25);
+  bump(life, 'food', -0.1);
+  bump(life, 'fun', 0.2);
+  life.fat = clamp(life.fat - (cardio ? 0.0007 : 0.0005), -1, 1);
+  life.stats.workouts += 1;
+  const sess = life.session;
+  if (sess && sess.exercise === exercise) {
+    sess.progress += 1;
+    if (sess.progress >= sess.target) {
+      const before = s.gold;
+      completeSession(s, 1);
+      events.push({ kind: 'sessionDone', pay: s.gold - before });
+    }
+  }
+  if (s.today && life.quotaDay !== s.today && repsOn(s, s.today) >= dailyQuota(s)) {
+    life.quotaDay = s.today;
+    events.push({ kind: 'quotaDone', quota: dailyQuota(s) });
+  }
 }
 
-/** Действие с персонажем (первое — знакомство). */
-export function personAct(state: GameState, person: PersonId, actionId: string, at: LocationId): LifeOutcome {
-  if (state.life.event || personBlocker(state, person, actionId, at)) return same(state);
-  const a = PERSON_ACTIONS.find((x) => x.id === actionId)!;
-  const s = structuredClone(state);
-  const life = s.life;
-  const tally = startTally();
-  if (!life.people[person]) {
-    life.people[person] = { aff: 0, met: life.day, last: life.day, dates: 0 };
-    tally.notes.push(t(`Новое знакомство: ${PEOPLE[person].name.ru}`, `New acquaintance: ${PEOPLE[person].name.en}`));
-  }
-  const r = life.people[person]!;
-  if (a.cost) {
-    s.gold -= a.cost;
-    tally.money -= a.cost;
-  }
-  const roll = rng(`${s.character.id}:charm:${life.day}:${life.minute}:${person}:${a.id}`);
-  const ok = a.check === undefined || roll() < charmChance(s, person, a.check);
-  passTime(s, a.minutes, false, tally);
-  const delta = applyEffect(s, ok ? a.success : (a.fail ?? a.success), tally, person);
-  r.last = life.day;
-  if (ok && a.id === 'date') {
-    r.dates += 1;
-    life.stats.dates += 1;
-  }
-  if (ok && a.romance) {
-    r.partner = true;
-    tally.notes.push(t(`Теперь вы пара: ${PEOPLE[person].name.ru} ❤`, `You’re a couple now: ${PEOPLE[person].name.en} ❤`));
-  }
-  const minutes = a.minutes + collapse(s, tally);
-  finish(s, a.icon, a.label, ok, minutes, tally, { person, delta });
-  const out: LifeOutcome = { state: s };
-  if (a.train && ok) out.train = true;
-  return out;
+/**
+ * Смена реального дня: если вчера норма не выполнена — штраф и недовольство учеников
+ * (за каждый пропущенный день, не больше трёх). Ученики с нулевой лояльностью уходят.
+ */
+export function lifeNewRealDay(s: GameState, prev: string, today: string, events: GameEvent[]): void {
+  if (prev === today) return;
+  const quota = dailyQuota(s);
+  s.life.quota = quotaFor(s);
+  if (!prev || daysBetween(prev, today) <= 0) return;
+  const gap = Math.min(3, daysBetween(prev, today));
+  let missed = 0;
+  for (let i = 0; i < gap; i += 1) if (repsOn(s, addDays(prev, i)) < quota) missed += 1;
+  if (!missed) return;
+  const fine = Math.min(s.gold, (20 + 8 * trainerLevel(s)) * missed);
+  s.gold -= fine;
+  s.life.stats.fines += fine;
+  for (const c of s.life.clients) c.loyalty = clamp(c.loyalty - 15 * missed, 0, 100);
+  const left = s.life.clients.filter((c) => c.loyalty <= 0).length;
+  s.life.clients = s.life.clients.filter((c) => c.loyalty > 0);
+  events.push({ kind: 'quotaMissed', fine, left, days: missed });
 }
 
-// ─── Событие, мебель, жильё ────────────────────────────────────────────
+// ─── Событие, мебель, зал ──────────────────────────────────────────────
 
 export function answerEvent(state: GameState, choiceId: string): GameState {
   const ev = state.life.event ? lifeEventById(state.life.event.id) : undefined;
@@ -495,30 +474,22 @@ export function answerEvent(state: GameState, choiceId: string): GameState {
   if (!ev || !c || (c.cost ?? 0) > state.gold) return state;
   const s = structuredClone(state);
   const tally = startTally();
-  const person = s.life.event?.person;
   if (c.cost) {
     s.gold -= c.cost;
     tally.money -= c.cost;
   }
-  const delta = applyEffect(s, c.effect, tally, person);
-  if (person && s.life.people[person]) s.life.people[person]!.last = s.life.day;
+  applyEffect(s, c.effect, tally);
   s.life.event = null;
-  finish(s, ev.icon, c.text, true, 0, tally, person ? { person, delta } : undefined);
+  finish(s, ev.icon, c.text, true, 0, tally);
   return s;
 }
 
-export const furnitureSlots = (life: LifeState): number => HOMES[life.home].slots;
-const homeRank = (h: HomeId): number => HOME_IDS.indexOf(h);
-
-export type FurnitureBlocker = 'owned' | 'money' | 'space' | 'home' | null;
+export type FurnitureBlocker = 'owned' | 'money' | 'space' | null;
 
 export function furnitureBlocker(s: GameState, id: ObjectId): FurnitureBlocker {
   const o = OBJECTS[id];
-  const life = s.life;
-  if (o.price === undefined) return 'owned';
-  if (life.furniture.includes(id)) return 'owned';
-  if (o.minHome && homeRank(life.home) < homeRank(o.minHome)) return 'home';
-  if (life.furniture.length >= furnitureSlots(life)) return 'space';
+  if (o.price === undefined || s.life.furniture.includes(id)) return 'owned';
+  if (s.life.furniture.length >= HOUSE_SLOTS) return 'space';
   if (s.gold < o.price) return 'money';
   return null;
 }
@@ -539,49 +510,31 @@ export function sellFurniture(state: GameState, id: ObjectId): GameState {
   return s;
 }
 
-/** Переезд: оплата первой недели; мебель, которая не помещается, продаётся. */
-export function moveHome(state: GameState, home: HomeId): GameState {
-  const h = HOMES[home];
-  if (state.life.home === home || state.gold < h.rent + state.life.debt) return state;
-  const s = structuredClone(state);
-  s.gold -= h.rent + s.life.debt;
-  s.life.debt = 0;
-  s.life.home = home;
-  s.life.rentUntil = s.life.day + RENT_PERIOD;
-  const keep = s.life.furniture.filter((id) => !OBJECTS[id].minHome || homeRank(home) >= homeRank(OBJECTS[id].minHome!)).slice(0, h.slots);
-  for (const id of s.life.furniture) if (!keep.includes(id)) s.gold += Math.round((OBJECTS[id].price ?? 0) * 0.4);
-  s.life.furniture = keep;
-  return s;
+export type GymBlocker = 'max' | 'level' | 'money' | null;
+
+export function gymBlocker(s: GameState): GymBlocker {
+  const next = GYMS[s.life.gym + 1];
+  if (!next) return 'max';
+  if (trainerLevel(s) < next.level) return 'level';
+  if (s.gold < next.cost) return 'money';
+  return null;
 }
 
-export function payDebt(state: GameState): GameState {
-  const d = state.life.debt;
-  if (!d || state.gold < d) return state;
+/** Улучшить зал: больше мест для учеников, дороже занятия, новые удобства. */
+export function upgradeGym(state: GameState): GameState {
+  if (gymBlocker(state)) return state;
   const s = structuredClone(state);
-  s.gold -= d;
-  s.life.debt = 0;
+  s.life.gym += 1;
+  s.gold -= GYMS[s.life.gym]!.cost;
+  const tally = startTally();
+  recruit(s, tally.notes);
+  finish(s, GYMS[s.life.gym]!.icon, GYMS[s.life.gym]!.name, true, 0, tally);
   return s;
 }
 
 export function dismissResult(state: GameState): GameState {
   if (!state.life.last) return state;
   return { ...state, life: { ...state.life, last: null } };
-}
-
-// ─── Связь с тренировками ──────────────────────────────────────────────
-
-const CARDIO: readonly ExerciseId[] = ['jumping_jack', 'high_knees'];
-
-/** Повтор перед камерой: тело устаёт, настроение растёт, лишний вес уходит (s уже скопировано). */
-export function lifeOnRep(s: GameState, exercise: ExerciseId): void {
-  const life = s.life;
-  const cardio = CARDIO.includes(exercise);
-  bump(life, 'energy', cardio ? -0.12 : -0.2);
-  bump(life, 'hygiene', -0.25);
-  bump(life, 'food', -0.1);
-  bump(life, 'fun', 0.2);
-  life.fat = clamp(life.fat - (cardio ? 0.0007 : 0.0005), -1, 1);
-  life.stats.workouts += 1;
 }
 
 export { SKILLS, NEEDS };

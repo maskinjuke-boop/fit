@@ -4,29 +4,35 @@ import type { GameState } from '../../game/state';
 import {
   actionsAt,
   blocker,
-  charmChance,
+  clientAppearance,
+  clientForm,
+  clientName,
+  clientOutfit,
+  clientTarget,
   clock,
+  dailyQuota,
   effectiveAppearance,
+  fee,
   fitness,
   furnitureBlocker,
+  gymBlocker,
+  gymOpen,
   hasObject,
-  isOpen,
-  looks,
-  meetsLevel,
   mood,
-  personBlocker,
-  personPlace,
-  peopleAt,
+  repsOn,
+  sessionTarget,
   skillLevel,
   skillNext,
+  trainerLevel,
   SKILL_NAME,
   type Blocker,
 } from '../../game/life';
-import { FURNITURE, HOMES, HOME_IDS, JOBS, JOB_IDS, LOCATIONS, LOCATION_IDS, OBJECTS, PEOPLE, PERSON_ACTIONS, PERSON_IDS, TIER_NAME, lifeEventById, tierOf } from '../../game/lifeContent';
-import { personSpot, type P2 } from '../../game/lifeMap';
-import { NEEDS, SKILLS, type ActionDef, type JobId, type LocationId, type NeedId, type PersonId } from '../../game/lifeTypes';
+import { FURNITURE, GYMS, GYM_HOURS, HOUSE_SLOTS, OBJECTS, SESSION_EXERCISES, lifeEventById } from '../../game/lifeContent';
+import type { P2 } from '../../game/lifeMap';
+import { NEEDS, SKILLS, type ActionDef, type Client, type NeedId, type ObjectId } from '../../game/lifeTypes';
 import { useI18n, type I18nKey } from '../../i18n';
-import type { NearTarget, ScenePerson } from './three/LifeScene3D';
+import type { ExerciseId } from '../../tracking/exercise';
+import type { Member } from './three/people';
 import { HeroPortrait } from './Renders';
 
 const LifeScene3D = lazy(() => import('./three/LifeScene3D'));
@@ -38,6 +44,12 @@ interface PointerLike {
 }
 
 const NEED_ICON: Record<NeedId, string> = { food: '🍔', energy: '⚡', hygiene: '🚿', fun: '🎉', social: '💬' };
+const CLIENT_COLORS = ['#e85d2a', '#2f6fb5', '#3a9d6a', '#8e44ad', '#d4a017', '#c0392b', '#16a085', '#e84393'];
+
+/** Ученик как 3D-персонаж (общий для зала и занятия). */
+export function clientMember(c: Client): Member {
+  return { id: c.id, color: CLIENT_COLORS[c.seed % CLIENT_COLORS.length]!, appearance: clientAppearance(c), equipped: clientOutfit(c) };
+}
 
 function Joystick({ stick }: { stick: { current: { x: number; y: number } } }) {
   const [knob, setKnob] = useState({ x: 0, y: 0 });
@@ -97,83 +109,22 @@ function NeedBar({ need, value, wide = false }: { need: NeedId; value: number; w
 const hours = (m: number): string => (m >= 60 ? `${Math.floor(m / 60)} ч${m % 60 ? ` ${m % 60} мин` : ''}` : `${m} мин`);
 const hoursEn = (m: number): string => (m >= 60 ? `${Math.floor(m / 60)}h${m % 60 ? ` ${m % 60}m` : ''}` : `${m}m`);
 
-/** Кнопка действия у предмета или места. */
+/** Кнопка действия у предмета. */
 function ActionButton({ state, a, onRun }: { state: GameState; a: ActionDef; onRun(): void }) {
   const { t, lang } = useI18n();
   const b: Blocker = blocker(state, a);
-  const job = state.life.job;
-  const minutes = a.work && job ? JOBS[job.id].shift : a.minutes;
-  if (a.work && b === 'job') return null;
-  const dur = lang === 'ru' ? hours(minutes) : hoursEn(minutes);
+  const dur = lang === 'ru' ? hours(a.minutes) : hoursEn(a.minutes);
   return (
-    <button className={`btn life-act ${a.work ? 'primary' : ''}`} disabled={b !== null} onClick={onRun}>
+    <button className={`btn life-act ${a.open === 'session' ? 'primary' : ''}`} disabled={b !== null} onClick={onRun}>
       <span>
         {a.icon} {a.label[lang]}
       </span>
       <span className="life-act-meta">
-        {minutes > 0 && `⏱ ${dur}`}
+        {a.minutes > 0 && `⏱ ${dur}`}
         {a.cost ? ` · ◈ ${a.cost}` : ''}
         {b && b !== 'missing' ? ` · ${t(`block.${b}` as I18nKey)}` : ''}
       </span>
     </button>
-  );
-}
-
-/** Карточка жителя: портрет, отношение, реплика и действия. */
-function PersonPanel({ state, id, at, onTrain }: { state: GameState; id: PersonId; at: LocationId; onTrain(): void }) {
-  const { t, tf, lang } = useI18n();
-  const { life } = useGame();
-  const p = PEOPLE[id];
-  const r = state.life.people[id];
-  const aff = r?.aff ?? 0;
-  const tier = tierOf(aff);
-  return (
-    <div className="life-panel person">
-      <div className="person-head">
-        <HeroPortrait color={p.color} appearance={p.appearance} equipped={p.equipped} size={58} remember={false} />
-        <div>
-          <b>
-            {p.icon} {r ? p.name[lang] : t('life.stranger')}
-          </b>
-          <div className="muted small">{p.role[lang]}</div>
-          {r && (
-            <div className="small">
-              {TIER_NAME[tier]![lang]} · {r.partner ? '💞' : ''} {'♥'.repeat(Math.max(0, aff))}
-              <span className="muted">{'♥'.repeat(Math.max(0, 10 - Math.max(0, aff)))}</span>
-            </div>
-          )}
-        </div>
-      </div>
-      <p className="person-line">«{p.lines[r ? tier : 1][lang]}»</p>
-      {r && <p className="muted tiny">{tf('life.likes', { what: p.likes[lang] })}</p>}
-      <div className="life-acts">
-        {PERSON_ACTIONS.filter((a) => (a.partner !== true || r?.partner) && (!a.where || a.where.includes(at))).map((a) => {
-          const b = personBlocker(state, id, a.id, at);
-          if (b === 'partner' || b === 'where') return null;
-          return (
-            <button
-              key={a.id}
-              className="btn life-act"
-              disabled={b !== null}
-              onClick={() => {
-                const out = life.person(id, a.id, at);
-                if (out.train) onTrain();
-              }}
-            >
-              <span>
-                {a.icon} {a.label[lang]}
-              </span>
-              <span className="life-act-meta">
-                ⏱ {lang === 'ru' ? hours(a.minutes) : hoursEn(a.minutes)}
-                {a.cost ? ` · ◈ ${a.cost}` : ''}
-                {a.check !== undefined && b === null ? ` · ${Math.round(charmChance(state, id, a.check) * 100)}%` : ''}
-                {b === 'aff' ? ` · ♥ ${a.minAff}+` : b ? ` · ${t(`block.${b}` as I18nKey)}` : ''}
-              </span>
-            </button>
-          );
-        })}
-      </div>
-    </div>
   );
 }
 
@@ -191,7 +142,6 @@ function ResultCard({ state }: { state: GameState }) {
     if (Math.abs(d) >= 2) chips.push({ text: `${NEED_ICON[n]} ${d > 0 ? '+' : ''}${d}`, cls: d > 0 ? 'good' : 'bad' });
   }
   for (const [k, xp] of Object.entries(r.skills ?? {})) chips.push({ text: `${SKILL_NAME[k as keyof typeof SKILL_NAME][lang]} +${xp}`, cls: 'good' });
-  if (r.aff && r.aff.delta) chips.push({ text: `${PEOPLE[r.aff.person].name[lang]} ♥ ${r.aff.delta > 0 ? '+' : ''}${r.aff.delta}`, cls: r.aff.delta > 0 ? 'good' : 'bad' });
   return (
     <div className={`life-result ${r.ok ? 'ok' : 'fail'}`} role="status">
       <div className="life-result-head">
@@ -227,13 +177,13 @@ function EventCard({ state }: { state: GameState }) {
   const e = state.life.event;
   const def = e ? lifeEventById(e.id) : undefined;
   if (!e || !def) return null;
-  const name = e.person ? PEOPLE[e.person].name[lang] : '';
+  const name = state.life.clients[0] ? clientName(state.life.clients[0])[lang] : '';
   return (
     <div className="overlay">
       <div className="sheet center life-event">
         <div className="story-icon">{def.icon}</div>
         <h2>{def.title[lang]}</h2>
-        <p>{def.text[lang].replace('{person}', name)}</p>
+        <p>{def.text[lang].replace('{client}', name)}</p>
         <div className="choices">
           {def.choices.map((c) => (
             <button key={c.id} className="choice" disabled={(c.cost ?? 0) > state.gold} onClick={() => life.answer(c.id)}>
@@ -247,57 +197,164 @@ function EventCard({ state }: { state: GameState }) {
   );
 }
 
-type Sheet = null | 'phone' | 'furniture' | 'realty' | 'jobs';
-type PhoneTab = 'status' | 'job' | 'people' | 'home';
-
-function JobsList({ state }: { state: GameState }) {
-  const { t, tf, lang } = useI18n();
-  const { life } = useGame();
+/** Полоса нормы дня. */
+function QuotaBar({ state, wide = false }: { state: GameState; wide?: boolean }) {
+  const { t } = useI18n();
+  const quota = dailyQuota(state);
+  const done = Math.min(quota, repsOn(state, state.today));
   return (
-    <ul className="life-list">
-      {JOB_IDS.map((id: JobId) => {
-        const j = JOBS[id];
-        const l0 = j.levels[0]!;
-        const ok = meetsLevel(state, id, 0);
-        const mine = state.life.job?.id === id;
-        return (
-          <li key={id}>
-            <div>
-              <b>
-                {j.icon} {j.name[lang]}
-              </b>
-              <div className="muted small">{j.desc[lang]}</div>
-              <div className="small">
-                {tf('life.jobStart', { title: l0.title[lang], pay: l0.pay, place: LOCATIONS[j.location].name[lang] })}
-                {l0.fitness ? ` · ${tf('life.needFitness', { n: l0.fitness })}` : ''}
-                {l0.looks ? ` · ${tf('life.needLooks', { n: l0.looks })}` : ''}
-              </div>
-            </div>
-            {mine ? (
-              <span className="badge">{t('life.yourJob')}</span>
-            ) : (
-              <button className="btn small" disabled={!ok} onClick={() => life.applyJob(id)}>
-                {ok ? t('life.apply') : t('life.notYet')}
-              </button>
-            )}
-          </li>
-        );
-      })}
-    </ul>
+    <div className={`quota ${done >= quota ? 'done' : ''} ${wide ? 'wide' : ''}`} title={t('life.quota')}>
+      <span>🎯</span>
+      {wide && <span className="need-name">{t('life.quota')}</span>}
+      <span className="need-bar">
+        <span style={{ width: `${(done / quota) * 100}%` }} />
+      </span>
+      <span className="need-val">
+        {done}/{quota}
+      </span>
+    </div>
   );
 }
 
-function PhoneSheet({ state, tab, setTab }: { state: GameState; tab: PhoneTab; setTab(t: PhoneTab): void }) {
+/** Выбор упражнения для занятия. */
+function SessionSheet({ state, onPick }: { state: GameState; onPick(ex: ExerciseId): void }) {
+  const { t, tf } = useI18n();
+  const n = state.life.clients.length;
+  return (
+    <div>
+      <p className="muted small">{t('life.sessionPick')}</p>
+      <p className="small">{tf('life.fee', { n: fee(state) })}</p>
+      <ul className="life-list">
+        {SESSION_EXERCISES.map(([ex]) => {
+          const reps = sessionTarget(state, ex);
+          return (
+            <li key={ex}>
+              <div>
+                <b>{t(`exercise.${ex}` as I18nKey)}</b>
+                <div className="muted small">{tf('life.sessionLine', { n: reps, pay: fee(state) * n })}</div>
+              </div>
+              <button className="btn small primary" onClick={() => onPick(ex)}>
+                {t('life.sessionGo')}
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}
+
+function ClientsList({ state }: { state: GameState }) {
+  const { t, tf, lang } = useI18n();
+  const L = state.life;
+  return (
+    <>
+      <p className="small">{tf('life.clientsInfo', { n: L.clients.length, cap: GYMS[L.gym]!.cap, target: clientTarget(state) })}</p>
+      {L.clients.length === 0 && <p className="muted">{t('life.noClients')}</p>}
+      <ul className="life-list">
+        {L.clients.map((c) => {
+          const m = clientMember(c);
+          return (
+            <li key={c.id}>
+              <HeroPortrait color={m.color} appearance={m.appearance} equipped={m.equipped} size={48} remember={false} />
+              <div>
+                <b>{clientName(c)[lang]}</b>
+                <div className="small">{tf('life.clientLine', { form: Math.round(clientForm(c) * 100), n: c.sessions, loyalty: Math.round(c.loyalty) })}</div>
+                <span className="need-bar">
+                  <span style={{ width: `${clientForm(c) * 100}%` }} />
+                </span>
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+      <p className="muted small">{t('life.wantFitter')}</p>
+    </>
+  );
+}
+
+function GymCard({ state }: { state: GameState }) {
   const { t, tf, lang } = useI18n();
   const { life } = useGame();
+  const g = GYMS[state.life.gym]!;
+  const next = GYMS[state.life.gym + 1];
+  const b = gymBlocker(state);
+  return (
+    <div className="gym-card">
+      <div className="card inner">
+        <div className="muted small">{t('life.gymCurrent')}</div>
+        <b>
+          {g.icon} {g.name[lang]}
+        </b>
+        <div className="small">{g.desc[lang]}</div>
+        <div className="small">{tf('life.gymCap', { cap: g.cap, mult: g.mult })}</div>
+        <div className="small">{tf('life.fee', { n: fee(state) })}</div>
+      </div>
+      {next ? (
+        <div className="card inner">
+          <b>
+            {next.icon} {tf('life.gymNext', { name: next.name[lang] })}
+          </b>
+          <div className="small">{next.desc[lang]}</div>
+          <div className="small">{tf('life.gymCap', { cap: next.cap, mult: next.mult })}</div>
+          <button className="btn primary small" disabled={b !== null} onClick={() => life.upgradeGym()}>
+            {b === 'level' ? tf('life.gymNeedLevel', { n: next.level }) : tf('life.gymUpgrade', { n: next.cost })}
+          </button>
+        </div>
+      ) : (
+        <p className="good small">{t('life.gymMax')}</p>
+      )}
+    </div>
+  );
+}
+
+function FurnitureList({ state }: { state: GameState }) {
+  const { t, tf, lang } = useI18n();
+  const { life } = useGame();
+  return (
+    <>
+      <p className="small">{tf('life.slots', { n: state.life.furniture.length, m: HOUSE_SLOTS })}</p>
+      <ul className="life-list">
+        {FURNITURE.map((id: ObjectId) => {
+          const o = OBJECTS[id];
+          const owned = state.life.furniture.includes(id);
+          const b = furnitureBlocker(state, id);
+          return (
+            <li key={id}>
+              <div>
+                <b>
+                  {o.icon} {o.name[lang]}
+                </b>
+                <div className="muted small">{o.desc?.[lang]}</div>
+              </div>
+              {owned ? (
+                <button className="btn ghost small" onClick={() => life.sellFurniture(id)}>
+                  {tf('life.sell', { n: Math.round((o.price ?? 0) * 0.4) })}
+                </button>
+              ) : (
+                <button className="btn small" disabled={b !== null} onClick={() => life.buyFurniture(id)}>
+                  {b ? t(`fblock.${b}` as I18nKey) : `◈ ${o.price}`}
+                </button>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+    </>
+  );
+}
+
+type Sheet = null | 'phone' | 'session' | 'gym';
+type PhoneTab = 'status' | 'clients' | 'gym' | 'home';
+
+function PhoneSheet({ state, tab, setTab }: { state: GameState; tab: PhoneTab; setTab(t: PhoneTab): void }) {
+  const { t, tf, lang } = useI18n();
   const L = state.life;
-  const job = L.job;
-  const jd = job ? JOBS[job.id] : null;
-  const next = job && jd ? jd.levels[job.level + 1] : undefined;
+  const quota = dailyQuota(state);
   return (
     <div className="phone">
       <div className="segmented">
-        {(['status', 'job', 'people', 'home'] as const).map((x) => (
+        {(['status', 'clients', 'gym', 'home'] as const).map((x) => (
           <button key={x} className={tab === x ? 'on' : ''} onClick={() => setTab(x)}>
             {t(`life.tab.${x}` as I18nKey)}
           </button>
@@ -305,14 +362,16 @@ function PhoneSheet({ state, tab, setTab }: { state: GameState; tab: PhoneTab; s
       </div>
       {tab === 'status' && (
         <div className="phone-body">
+          <QuotaBar state={state} wide />
+          <p className="muted small">{tf('life.quotaHint', { n: quota, fine: 20 + 8 * trainerLevel(state) })}</p>
           {NEEDS.map((n) => (
             <NeedBar key={n} need={n} value={L.needs[n]} wide />
           ))}
           <div className="stat-grid">
+            <span>⭐ {t('life.level')}</span>
+            <b>{trainerLevel(state)}</b>
             <span>😊 {t('life.mood')}</span>
             <b>{mood(L)}</b>
-            <span>✨ {t('life.looks')}</span>
-            <b>{looks(state)}</b>
             <span>💪 {t('life.fitness')}</span>
             <b>{fitness(state)}</b>
             <span>⚖️ {t('life.body')}</span>
@@ -330,159 +389,33 @@ function PhoneSheet({ state, tab, setTab }: { state: GameState; tab: PhoneTab; s
               </span>
             </div>
           ))}
-          <p className="muted small">{t('life.fitnessHint')}</p>
         </div>
       )}
-      {tab === 'job' && (
+      {tab === 'clients' && (
         <div className="phone-body">
-          {job && jd ? (
-            <div className="card inner">
-              <b>
-                {jd.icon} {jd.levels[job.level]!.title[lang]}
-              </b>
-              <div className="small">{tf('life.jobInfo', { pay: jd.levels[job.level]!.pay, place: LOCATIONS[jd.location].name[lang], from: jd.hours[0], to: jd.hours[1], h: jd.shift / 60 })}</div>
-              <div className="small">{tf('life.jobProgress', { n: job.shifts, m: jd.promoteAfter, perf: Math.round(job.perf) })}</div>
-              {next ? (
-                <div className="small muted">
-                  {tf('life.nextLevel', { title: next.title[lang], pay: next.pay })}
-                  {next.skill ? ` · ${SKILL_NAME[next.skill[0]][lang]} ${next.skill[1]}` : ''}
-                  {next.fitness ? ` · ${tf('life.needFitness', { n: next.fitness })}` : ''}
-                  {next.looks ? ` · ${tf('life.needLooks', { n: next.looks })}` : ''}
-                </div>
-              ) : (
-                <div className="small good">{t('life.topLevel')}</div>
-              )}
-              <button className="btn ghost small" onClick={() => life.quitJob()}>
-                {t('life.quit')}
-              </button>
-            </div>
-          ) : (
-            <p className="muted">{t('life.noJob')}</p>
-          )}
-          <JobsList state={state} />
+          <ClientsList state={state} />
         </div>
       )}
-      {tab === 'people' && (
+      {tab === 'gym' && (
         <div className="phone-body">
-          {PERSON_IDS.filter((p) => L.people[p]).length === 0 && <p className="muted">{t('life.noPeople')}</p>}
-          <ul className="life-list">
-            {PERSON_IDS.filter((p) => L.people[p]).map((id) => {
-              const p = PEOPLE[id];
-              const r = L.people[id]!;
-              const where = personPlace(id, L.minute);
-              return (
-                <li key={id}>
-                  <HeroPortrait color={p.color} appearance={p.appearance} equipped={p.equipped} size={48} remember={false} />
-                  <div>
-                    <b>
-                      {p.icon} {p.name[lang]} {r.partner ? '💞' : ''}
-                    </b>
-                    <div className="small">
-                      {TIER_NAME[tierOf(r.aff)]![lang]} · ♥ {r.aff}
-                    </div>
-                    <div className="muted small">{where ? tf('life.nowAt', { place: LOCATIONS[where].name[lang] }) : t('life.nowHome')}</div>
-                  </div>
-                </li>
-              );
-            })}
-          </ul>
+          <GymCard state={state} />
         </div>
       )}
       {tab === 'home' && (
         <div className="phone-body">
-          <div className="card inner">
-            <b>
-              {HOMES[L.home].icon} {HOMES[L.home].name[lang]}
-            </b>
-            <div className="small">{tf('life.rent', { n: HOMES[L.home].rent, day: L.rentUntil })}</div>
-            <div className="small">{tf('life.slots', { n: L.furniture.length, m: HOMES[L.home].slots })}</div>
-            {L.debt > 0 && (
-              <button className="btn small" disabled={state.gold < L.debt} onClick={() => life.payDebt()}>
-                {tf('life.payDebt', { n: L.debt })}
-              </button>
-            )}
-          </div>
-          <ul className="life-list">
-            {L.furniture.map((id) => (
-              <li key={id}>
-                <span>
-                  {OBJECTS[id].icon} {OBJECTS[id].name[lang]}
-                </span>
-                <button className="btn ghost small" onClick={() => life.sellFurniture(id)}>
-                  {tf('life.sell', { n: Math.round((OBJECTS[id].price ?? 0) * 0.4) })}
-                </button>
-              </li>
-            ))}
-          </ul>
-          <p className="muted small">{t('life.homeHint')}</p>
+          <FurnitureList state={state} />
         </div>
       )}
     </div>
   );
 }
 
-function FurnitureSheet({ state }: { state: GameState }) {
-  const { t, lang } = useI18n();
-  const { life } = useGame();
-  return (
-    <ul className="life-list">
-      {FURNITURE.map((id) => {
-        const o = OBJECTS[id];
-        const b = furnitureBlocker(state, id);
-        return (
-          <li key={id}>
-            <div>
-              <b>
-                {o.icon} {o.name[lang]}
-              </b>
-              <div className="muted small">{o.desc?.[lang]}</div>
-            </div>
-            <button className="btn small" disabled={b !== null} onClick={() => life.buyFurniture(id)}>
-              {b === 'owned' ? '✓' : b ? t(`fblock.${b}` as I18nKey) : `◈ ${o.price}`}
-            </button>
-          </li>
-        );
-      })}
-    </ul>
-  );
-}
-
-function RealtySheet({ state }: { state: GameState }) {
-  const { t, tf, lang } = useI18n();
-  const { life } = useGame();
-  return (
-    <ul className="life-list">
-      {HOME_IDS.map((id) => {
-        const h = HOMES[id];
-        const mine = state.life.home === id;
-        return (
-          <li key={id}>
-            <div>
-              <b>
-                {h.icon} {h.name[lang]}
-              </b>
-              <div className="muted small">{tf('life.homeInfo', { rent: h.rent, slots: h.slots, comfort: Math.round(h.comfort * 100) })}</div>
-            </div>
-            {mine ? (
-              <span className="badge">{t('life.yourHome')}</span>
-            ) : (
-              <button className="btn small" disabled={state.gold < h.rent + state.life.debt} onClick={() => life.moveHome(id)}>
-                {tf('life.move', { n: h.rent + state.life.debt })}
-              </button>
-            )}
-          </li>
-        );
-      })}
-    </ul>
-  );
-}
-
-/** Вкладка «Жизнь»: 3D-квартира и город, потребности, действия, телефон. */
-export function LifeTab({ state, onTrain, onShop }: { state: GameState; onTrain(): void; onShop(): void }) {
+/** Вкладка «Тренер»: дом и фитнес-зал в 3D, потребности, норма дня, занятия, телефон. */
+export function LifeTab({ state, onTrain, onSession }: { state: GameState; onTrain(): void; onSession(exercise: ExerciseId): void }) {
   const { t, tf, lang } = useI18n();
   const { life } = useGame();
   const L = state.life;
-  const [near, setNear] = useState<NearTarget | null>(null);
+  const [near, setNear] = useState<ObjectId | null>(null);
   const [sheet, setSheet] = useState<Sheet>(null);
   const [phoneTab, setPhoneTab] = useState<PhoneTab>('status');
   const [failed, setFailed] = useState(false);
@@ -495,47 +428,39 @@ export function LifeTab({ state, onTrain, onShop }: { state: GameState; onTrain(
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [state.character.color, state.character.appearance, state.equipped, state.statXp, L.fat],
   );
-  const signs = useMemo(() => Object.fromEntries(LOCATION_IDS.map((id) => [id, LOCATIONS[id].name[lang]])) as Record<LocationId, string>, [lang]);
-  const hour = Math.floor(L.minute / 60);
-  const people: ScenePerson[] = useMemo(() => {
-    if (L.scene !== 'city') return [];
-    const out: ScenePerson[] = [];
-    for (const loc of LOCATION_IDS) {
-      peopleAt(loc, L.minute).forEach((id, i) => {
-        const p = PEOPLE[id];
-        out.push({ id, at: loc, spot: personSpot(loc, i), color: p.color, appearance: p.appearance, equipped: p.equipped });
-      });
-    }
-    return out;
-    // Жители меняют места по часам.
+  const open = gymOpen(L.minute);
+  const clientsKey = JSON.stringify(L.clients.map((c) => [c.id, c.fat.toFixed(2), c.muscle.toFixed(2)]));
+  const clients = useMemo(
+    () => (L.scene === 'gym' && open ? L.clients.map(clientMember) : []),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [L.scene, hour]);
+    [L.scene, open, clientsKey],
+  );
 
   const run = (a: ActionDef): void => {
     const out = life.act(a.id);
     if (out.train) onTrain();
-    if (out.open === 'shop') onShop();
-    else if (out.open) setSheet(out.open);
+    if (out.open === 'session') setSheet('session');
+    else if (out.open === 'gym') {
+      setPhoneTab('gym');
+      setSheet('phone');
+    } else if (out.open === 'furniture') {
+      setPhoneTab('home');
+      setSheet('phone');
+    }
   };
 
-  // Что показать рядом.
   let panel: ReactNode = null;
-  if (near?.kind === 'person') {
-    panel = <PersonPanel state={state} id={near.id} at={near.at} onTrain={onTrain} />;
-  } else if (near) {
-    const where = near.kind === 'object' ? { object: near.id } : { location: near.id };
-    const valid = near.kind === 'object' ? hasObject(L, near.id) : true;
-    const acts = valid ? actionsAt(where) : [];
-    const title = near.kind === 'object' ? `${OBJECTS[near.id].icon} ${OBJECTS[near.id].name[lang]}` : `${LOCATIONS[near.id].icon} ${LOCATIONS[near.id].name[lang]}`;
-    const loc = near.kind === 'location' ? LOCATIONS[near.id] : null;
-    const closed = near.kind === 'location' && !isOpen(near.id, L.minute);
+  if (near && hasObject(state, near)) {
+    const acts = actionsAt(near);
     panel = (
       <div className="life-panel">
         <div className="life-panel-title">
-          <b>{title}</b>
-          {loc?.hours && (
-            <span className={`muted small ${closed ? 'bad' : ''}`}>
-              {closed ? t('life.closed') : t('life.open')} {loc.hours[0]}:00–{loc.hours[1] % 24}:00
+          <b>
+            {OBJECTS[near].icon} {OBJECTS[near].name[lang]}
+          </b>
+          {near === 'coach' && (
+            <span className="muted small">
+              👥 {L.clients.length} · ◈ {fee(state) * L.clients.length}
             </span>
           )}
         </div>
@@ -549,6 +474,7 @@ export function LifeTab({ state, onTrain, onShop }: { state: GameState; onTrain(
   }
 
   const m = mood(L);
+  const hint = L.scene === 'home' ? t('life.hintHome') : open ? t('life.hintGym') : tf('life.hintClosed', { from: GYM_HOURS[0], to: GYM_HOURS[1] });
   return (
     <div className="world-tab life-tab">
       <div className="world-view life-view">
@@ -568,12 +494,11 @@ export function LifeTab({ state, onTrain, onShop }: { state: GameState; onTrain(
           >
             <LifeScene3D
               scene={L.scene}
-              home={L.home}
               furniture={L.furniture}
+              gym={L.gym}
               minute={L.minute}
               hero={heroLook}
-              people={people}
-              signs={signs}
+              clients={clients}
               stick={stick}
               goto={goto}
               onNear={setNear}
@@ -586,6 +511,7 @@ export function LifeTab({ state, onTrain, onShop }: { state: GameState; onTrain(
             <b>{clock(L.minute)}</b>
             <span>{tf('life.day', { n: L.day })}</span>
             <span>◈ {state.gold}</span>
+            <span title={t('life.clients')}>👥 {L.clients.length}</span>
             <span title={t('life.mood')}>{m >= 70 ? '😄' : m >= 45 ? '🙂' : m >= 25 ? '😕' : '😫'}</span>
           </div>
           <div className="life-needs">
@@ -593,12 +519,13 @@ export function LifeTab({ state, onTrain, onShop }: { state: GameState; onTrain(
               <NeedBar key={n} need={n} value={L.needs[n]} />
             ))}
           </div>
+          <QuotaBar state={state} />
         </div>
         <button className="phone-btn" onClick={() => setSheet('phone')} aria-label={t('life.phone')}>
           📱
         </button>
         <Joystick stick={stick} />
-        <div className="life-actions">{panel ?? <span className="world-note">{L.scene === 'home' ? t('life.hintHome') : t('life.hintCity')}</span>}</div>
+        <div className="life-actions">{panel ?? <span className="world-note">{hint}</span>}</div>
         <ResultCard state={state} />
       </div>
       <p className="muted small world-help">{t('life.controls')}</p>
@@ -607,15 +534,23 @@ export function LifeTab({ state, onTrain, onShop }: { state: GameState; onTrain(
         <div className="overlay" onClick={() => setSheet(null)}>
           <div className="sheet wide-sheet life-sheet" onClick={(e: { stopPropagation(): void }) => e.stopPropagation()}>
             <div className="row between">
-              <h2>{sheet === 'phone' ? `📱 ${t('life.phone')}` : sheet === 'furniture' ? `🛋️ ${t('life.furniture')}` : sheet === 'realty' ? `🏢 ${t('life.realty')}` : `📋 ${t('life.jobs')}`}</h2>
+              <h2>{sheet === 'phone' ? `📱 ${t('life.phone')}` : sheet === 'session' ? `📣 ${t('life.session')}` : `🏋️ ${t('life.tab.gym')}`}</h2>
               <button className="btn ghost" onClick={() => setSheet(null)}>
                 ✕
               </button>
             </div>
             {sheet === 'phone' && <PhoneSheet state={state} tab={phoneTab} setTab={setPhoneTab} />}
-            {sheet === 'furniture' && <FurnitureSheet state={state} />}
-            {sheet === 'realty' && <RealtySheet state={state} />}
-            {sheet === 'jobs' && <JobsList state={state} />}
+            {sheet === 'session' && (
+              <SessionSheet
+                state={state}
+                onPick={(ex) => {
+                  setSheet(null);
+                  life.startSession(ex);
+                  onSession(ex);
+                }}
+              />
+            )}
+            {sheet === 'gym' && <GymCard state={state} />}
           </div>
         </div>
       )}

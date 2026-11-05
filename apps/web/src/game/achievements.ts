@@ -5,7 +5,7 @@ import { ITEMS } from './items';
 import { levelOf } from './levels';
 import { addXp } from './progress';
 import type { GameState } from './state';
-import { HOME_IDS } from './lifeContent';
+import { GYMS } from './lifeContent';
 import type { Txt } from './lifeTypes';
 
 /**
@@ -57,12 +57,11 @@ export const ACHIEVEMENTS: readonly AchievementDef[] = [
   { id: 'items_15', icon: '🧳', name: t('Запасливый', 'Well stocked'), desc: t('15 предметов в сумке', '15 items in your bag'), progress: (s) => [s.inventory.length, 15], reward: { xp: 400, gold: 150 } },
   { id: 'items_all', icon: '👑', name: t('Коллекционер', 'Collector'), desc: t('Все предметы', 'Every item'), progress: (s) => [s.inventory.length, ITEMS.length], reward: { xp: 2000, gold: 0 }, title: 'collector' },
   { id: 'quests_10', icon: '📜', name: t('Искатель заданий', 'Quest seeker'), desc: t('Выполните 10 квестов', 'Complete 10 quests'), progress: (s) => [doneQuests(s), 10], reward: { xp: 300, gold: 120 } },
-  { id: 'life_job', icon: '💼', name: t('Первая работа', 'First job'), desc: t('Устройтесь на работу', 'Get a job'), progress: (s) => [s.life.job || s.life.stats.shifts > 0 ? 1 : 0, 1], reward: { xp: 50, gold: 30 } },
-  { id: 'life_shifts', icon: '⏱️', name: t('Трудоголик', 'Workaholic'), desc: t('Отработайте 20 смен', 'Work 20 shifts'), progress: (s) => [s.life.stats.shifts, 20], reward: { xp: 300, gold: 150 }, title: 'workaholic' },
-  { id: 'life_promo', icon: '📈', name: t('Карьерист', 'Go-getter'), desc: t('Получите 3 повышения', 'Get 3 promotions'), progress: (s) => [s.life.stats.promotions, 3], reward: { xp: 500, gold: 250 }, title: 'career' },
-  { id: 'life_friends', icon: '🤝', name: t('Душа компании', 'Life of the party'), desc: t('Три друга (отношение 3+)', 'Three friends (affinity 3+)'), progress: (s) => [Object.values(s.life.people).filter((r) => r && r.aff >= 3).length, 3], reward: { xp: 300, gold: 120 }, title: 'social' },
-  { id: 'life_partner', icon: '💞', name: t('Вторая половинка', 'Better half'), desc: t('Начните отношения', 'Start a relationship'), progress: (s) => [Object.values(s.life.people).some((r) => r?.partner) ? 1 : 0, 1], reward: { xp: 400, gold: 150 }, title: 'beloved' },
-  { id: 'life_home', icon: '🌆', name: t('Жизнь на высоте', 'Living high'), desc: t('Переезд в пентхаус', 'Move into a penthouse'), progress: (s) => [HOME_IDS.indexOf(s.life.home), HOME_IDS.length - 1], reward: { xp: 800, gold: 0 }, title: 'tycoon' },
+  { id: 'life_class', icon: '📣', name: t('Первое занятие', 'First class'), desc: t('Проведите занятие', 'Run a class'), progress: (s) => [s.life.stats.sessions, 1], reward: { xp: 50, gold: 30 } },
+  { id: 'life_classes', icon: '⏱️', name: t('Трудоголик', 'Workaholic'), desc: t('Проведите 30 занятий', 'Run 30 classes'), progress: (s) => [s.life.stats.sessions, 30], reward: { xp: 400, gold: 200 }, title: 'workaholic' },
+  { id: 'life_group', icon: '👥', name: t('Своя группа', 'Your own group'), desc: t('5 учеников одновременно', '5 clients at once'), progress: (s) => [s.life.clients.length, 5], reward: { xp: 300, gold: 150 }, title: 'social' },
+  { id: 'life_gym', icon: '🌟', name: t('Лучший зал города', 'Best gym in town'), desc: t('Улучшите зал до премиум-центра', 'Upgrade to a premium centre'), progress: (s) => [s.life.gym, GYMS.length - 1], reward: { xp: 800, gold: 0 }, title: 'tycoon' },
+  { id: 'life_rich', icon: '💰', name: t('Карьерист', 'Go-getter'), desc: t('Заработайте 5000 на занятиях', 'Earn 5,000 from classes'), progress: (s) => [s.life.stats.earned, 5000], reward: { xp: 500, gold: 250 }, title: 'career' },
   { id: 'life_chef', icon: '👨‍🍳', name: t('Шеф', 'Chef'), desc: t('Приготовьте 20 блюд', 'Cook 20 meals'), progress: (s) => [s.life.stats.meals, 20], reward: { xp: 200, gold: 80 } },
 ];
 
@@ -80,8 +79,7 @@ const ACHIEVEMENT_TITLES: Record<string, Txt> = {
   collector: t('Коллекционер', 'Collector'),
   workaholic: t('Трудоголик', 'Workaholic'),
   career: t('Карьерист', 'Go-getter'),
-  social: t('Душа компании', 'Life of the Party'),
-  beloved: t('Любимчик судьбы', 'Fortune’s Favourite'),
+  social: t('Тренер группы', 'Group Coach'),
   tycoon: t('Магнат', 'Tycoon'),
 };
 

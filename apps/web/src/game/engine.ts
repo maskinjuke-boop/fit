@@ -21,7 +21,7 @@ import { levelOf, xpForLevel } from './levels';
 import { QUESTS, effectiveObjective, objectiveTarget, questById, type QuestDef } from './quests';
 import { checkAchievements } from './achievements';
 import { addXp, grantReward } from './progress';
-import { lifeOnRep } from './life';
+import { lifeNewRealDay, lifeOnRep } from './life';
 import { emptyDay, type Character, type DayStats, type GameState } from './state';
 
 export type GameEvent =
@@ -36,7 +36,10 @@ export type GameEvent =
   | { kind: 'streak'; count: number }
   | { kind: 'freezeUsed'; days: number }
   | { kind: 'streakLost' }
-  | { kind: 'achievement'; id: string; xp: number; gold: number };
+  | { kind: 'achievement'; id: string; xp: number; gold: number }
+  | { kind: 'sessionDone'; pay: number }
+  | { kind: 'quotaDone'; quota: number }
+  | { kind: 'quotaMissed'; fine: number; left: number; days: number };
 
 export type ShopError = 'owned' | 'level' | 'gold' | 'unknown';
 
@@ -202,6 +205,8 @@ export function ensureDay(state: GameState, now: Date): Result {
   }
 
   if (s.dailies && s.dailies.day !== today) s.prevDailyKeys = s.dailies.tasks.map((t) => t.key);
+  // Норма тренера за прошедшие дни: не выполнена — штраф.
+  lifeNewRealDay(s, s.today, today, events);
   s.today = today;
   s.dailies = { day: today, tasks: generateDailies(s, today), rerollUsed: false, bonusClaimed: false };
 
@@ -256,7 +261,7 @@ export function applyRep(state: GameState, rep: { exercise: ExerciseId; quality:
   events.push({ kind: 'xp', amount: xp, stat: info.stat, overLimit });
   addXp(s, xp, info.stat, events);
   questRepProgress(s, rep.exercise, rep.quality);
-  lifeOnRep(s, rep.exercise);
+  lifeOnRep(s, rep.exercise, events);
   settleDailies(s, events);
   settleStreak(s, events);
   settleQuests(s, events);

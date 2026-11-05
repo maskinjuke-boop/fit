@@ -10,6 +10,7 @@ import { buildHead, setFace, type Lid } from './head';
 import { applyMorph, bodyMorph, bodyValues, heightScale } from './morph';
 import { ICON_TILT, defaultPlan, heldModel, holdPose, holdQuaternion, type ItemCtx, type Outfit } from './items3d';
 import { M, mesh, retile, shade, texKind, v, type Anim, type Mat } from './kit';
+import { buildRig, prepareSkin, type Rig } from './rig';
 
 export { disposeObject } from './kit';
 
@@ -27,6 +28,8 @@ export interface CharacterParts {
   lids: Lid[];
   /** Анимации предметов: вызываются каждый кадр со временем в секундах. */
   anim: Anim[];
+  /** Скелет: ходьба и упражнения (см. rig.ts). */
+  rig: Rig;
 }
 
 // ─── Кисти ─────────────────────────────────────────────────────────────
@@ -142,10 +145,14 @@ export function buildCharacter(appearance: Appearance, color: string, equipped: 
     if (!id) continue;
     const o = heldModel(id, ctx);
     holdInFist(o, id, hand);
+    o.userData.hand = hand === right ? 'r' : 'l';
     torso.add(o);
     rigid.push({ obj: o, anchor: hand.at.clone() });
   }
 
+  // Веса костей — по исходной фигуре (до ползунков).
+  const rigidSet = new Set(rigid.map((r) => r.obj));
+  prepareSkin(torso, figure, rigidSet);
   // Ползунки тела: деформация тела вместе с одеждой; рост — масштаб от земли.
   const morph = bodyMorph(shape, appearance);
   if (morph) applyMorph(torso, morph, rigid);
@@ -170,8 +177,10 @@ export function buildCharacter(appearance: Appearance, color: string, equipped: 
   headPivot.add(head);
   root.add(headPivot);
   setFace(undefined);
+  // Скелет: сетки тела и одежды — со скиннингом, голова и предметы — на костях.
+  const rig = buildRig(root, torso, headPivot, figure, morph, rigidSet);
 
-  return { root, torso, head: headPivot, lids: face.lids, anim };
+  return { root, torso, head: headPivot, lids: face.lids, anim, rig };
 }
 
 /** Отдельная модель предмета для иконки магазина (без персонажа). */

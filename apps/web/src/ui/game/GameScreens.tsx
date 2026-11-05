@@ -56,7 +56,7 @@ export function BottomNav({ tab, onTab }: { tab: Tab; onTab(t: Tab): void }) {
   const items: Array<[Tab, string, I18nKey]> = [
     ['home', '⌂', 'tab.home'],
     ['train', '▶', 'tab.train'],
-    ['life', '🏙', 'tab.life'],
+    ['life', '🏋️', 'tab.life'],
     ['quests', '✦', 'tab.quests'],
     ['shop', '◈', 'tab.shop'],
     ['hero', '☺', 'tab.hero'],

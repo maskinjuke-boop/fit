@@ -1,10 +1,10 @@
-import { BASE_OBJECTS, HOMES, LOCATIONS, LOCATION_IDS } from './lifeContent';
-import type { HomeId, LocationId, ObjectId, SceneId } from './lifeTypes';
+import { HOUSE_SLOTS } from './lifeContent';
+import type { ObjectId, SceneId } from './lifeTypes';
 
 /**
- * Раскладка сцен симулятора: комната квартиры (размер зависит от жилья, предметы — у стен)
- * и улица города (двери мест в ряд вдоль тротуара, парк слева). Координаты: x — вправо,
- * z — к камере, пол y = 0.
+ * Раскладка двух локаций: дом (комната в разрезе, предметы у стен) и фитнес-зал
+ * (место тренера впереди, ученики рядами лицом к нему, ресепшен, душевая, бар).
+ * Координаты: x — вправо, z — к камере, пол y = 0.
  */
 
 export interface P2 {
@@ -22,7 +22,6 @@ export interface Box {
 
 export interface Placed {
   id: ObjectId;
-  /** Центр предмета. */
   pos: P2;
   /** Поворот вокруг Y (лицевая сторона предмета смотрит на +Z при 0). */
   rot: number;
@@ -31,18 +30,14 @@ export interface Placed {
   box: Box | null;
 }
 
-export const ROOM: Record<HomeId, { w: number; d: number }> = {
-  studio: { w: 9, d: 7.5 },
-  flat: { w: 11, d: 8.5 },
-  loft: { w: 13, d: 9.5 },
-  penthouse: { w: 15, d: 10.5 },
-};
+export const HOUSE = { w: 13, d: 9.5 };
+export const GYM_ROOM = { w: 16, d: 12 };
 
 const box = (x: number, z: number, hw: number, hd: number): Box => ({ x0: x - hw, x1: x + hw, z0: z - hd, z1: z + hd });
 
-/** Предметы в квартире: базовые на своих местах, купленные — по свободным местам у стен. */
-export function homeLayout(home: HomeId, furniture: readonly ObjectId[]): Placed[] {
-  const { w, d } = ROOM[home];
+/** Предметы дома: базовые на своих местах, купленные — по свободным местам у стен. */
+export function homeLayout(furniture: readonly ObjectId[]): Placed[] {
+  const { w, d } = HOUSE;
   const L = -w / 2;
   const R = w / 2;
   const B = -d / 2;
@@ -56,7 +51,6 @@ export function homeLayout(home: HomeId, furniture: readonly ObjectId[]): Placed
     { id: 'mirror', pos: { x: L + 0.08, z: 0.4 }, rot: Math.PI / 2, use: { x: L + 1.2, z: 0.4 }, box: null },
     { id: 'door', pos: { x: L + 0.06, z: F - 1.3 }, rot: Math.PI / 2, use: { x: L + 1.1, z: F - 1.3 }, box: null },
   ];
-  // Места для купленной мебели: у стен и в углах (в маленьком жилье их меньше).
   const slots: Array<{ pos: P2; rot: number; use: P2 }> = [
     { pos: { x: 0.4, z: B + 0.45 }, rot: 0, use: { x: 0.4, z: B + 1.7 } },
     { pos: { x: L + 0.7, z: -1.3 }, rot: Math.PI / 2, use: { x: L + 2, z: -1.3 } },
@@ -65,11 +59,9 @@ export function homeLayout(home: HomeId, furniture: readonly ObjectId[]): Placed
     { pos: { x: 2.2, z: F - 0.8 }, rot: Math.PI, use: { x: 2.2, z: F - 2.1 } },
     { pos: { x: -2.2, z: B + 0.45 }, rot: 0, use: { x: -2.2, z: B + 1.7 } },
     { pos: { x: 3.2, z: B + 0.45 }, rot: 0, use: { x: 3.2, z: B + 1.7 } },
-    { pos: { x: L + 0.7, z: 2.2 }, rot: Math.PI / 2, use: { x: L + 2, z: 2.2 } },
     { pos: { x: R - 0.7, z: 1.5 }, rot: -Math.PI / 2, use: { x: R - 2, z: 1.5 } },
-    { pos: { x: 0, z: F - 0.8 }, rot: Math.PI, use: { x: 0, z: F - 2.1 } },
   ];
-  furniture.slice(0, HOMES[home].slots).forEach((id, i) => {
+  furniture.slice(0, HOUSE_SLOTS).forEach((id, i) => {
     const s = slots[i];
     if (!s) return;
     out.push({ id, pos: s.pos, rot: s.rot, use: s.use, box: box(s.pos.x, s.pos.z, 0.55, 0.55) });
@@ -77,35 +69,39 @@ export function homeLayout(home: HomeId, furniture: readonly ObjectId[]): Placed
   return out;
 }
 
-export const homeBounds = (home: HomeId): Box => {
-  const { w, d } = ROOM[home];
-  return { x0: -w / 2 + 0.35, x1: w / 2 - 0.35, z0: -d / 2 + 0.35, z1: d / 2 - 0.2 };
-};
-
-// ─── Улица ─────────────────────────────────────────────────────────────
-
-/** Линия фасадов (двери) и тротуар. */
-export const FACADE_Z = -1;
-export const CITY_BOUNDS: Box = { x0: -82, x1: 108, z0: -0.4, z1: 8.5 };
-
-/** Где встать у двери места. */
-export const doorPos = (loc: LocationId): P2 => ({ x: LOCATIONS[loc].x, z: loc === 'park' ? 1.5 : 0.6 });
-
-/** Препятствия на улице (кроме зданий, они за линией фасадов). */
-export const CITY_BOXES: readonly Box[] = [];
-
-/** Точка появления: у входной двери дома (в квартире) или у подъезда (на улице). */
-export function spawn(scene: SceneId, home: HomeId): P2 {
-  if (scene === 'city') return { x: doorPos('home').x, z: 1.6 };
-  const door = homeLayout(home, []).find((p) => p.id === 'door')!;
-  return { x: door.use.x + 0.4, z: door.use.z };
+/** Предметы зала (душевая и бар — с ростом зала). */
+export function gymLayout(shower: boolean, bar: boolean): Placed[] {
+  const { w, d } = GYM_ROOM;
+  const L = -w / 2;
+  const R = w / 2;
+  const F = d / 2;
+  const B = -d / 2;
+  const out: Placed[] = [
+    { id: 'coach', pos: { x: 0, z: 2.4 }, rot: Math.PI, use: { x: 0, z: 2.4 }, box: null },
+    { id: 'reception', pos: { x: L + 2.2, z: F - 2.2 }, rot: Math.PI / 2, use: { x: L + 3.6, z: F - 2.2 }, box: box(L + 2.2, F - 2.2, 0.5, 1.2) },
+    { id: 'gym_door', pos: { x: L + 0.06, z: F - 4.3 }, rot: Math.PI / 2, use: { x: L + 1.1, z: F - 4.3 }, box: null },
+  ];
+  if (shower) out.push({ id: 'gym_shower', pos: { x: R - 0.8, z: F - 1.6 }, rot: -Math.PI / 2, use: { x: R - 2.2, z: F - 1.6 }, box: box(R - 0.8, F - 1.6, 0.7, 1.2) });
+  if (bar) out.push({ id: 'smoothie', pos: { x: R - 0.9, z: B + 2.4 }, rot: -Math.PI / 2, use: { x: R - 2.3, z: B + 2.4 }, box: box(R - 0.9, B + 2.4, 0.5, 1.4) });
+  return out;
 }
 
-/** Где стоят жители у места (несколько — рядом друг с другом). */
-export function personSpot(loc: LocationId, i: number): P2 {
-  const d = doorPos(loc);
-  const off = [2.6, -2.6, 4.4, -4.4][i % 4]!;
-  return { x: d.x + off, z: loc === 'park' ? 3 + (i % 2) : 1.2 };
+/** Места учеников: ряды лицом к тренеру. */
+export function clientSpot(i: number): P2 {
+  const row = Math.floor(i / 5);
+  const k = i % 5;
+  return { x: (k - 2) * 2.1 + (row % 2) * 1.05, z: -1.4 - row * 2.2 };
+}
+
+export const bounds = (scene: SceneId): Box => {
+  const r = scene === 'home' ? HOUSE : GYM_ROOM;
+  return { x0: -r.w / 2 + 0.35, x1: r.w / 2 - 0.35, z0: -r.d / 2 + 0.35, z1: r.d / 2 - 0.2 };
+};
+
+/** Точка появления у входной двери. */
+export function spawn(scene: SceneId): P2 {
+  const door = scene === 'home' ? homeLayout([]).find((p) => p.id === 'door')! : gymLayout(false, false).find((p) => p.id === 'gym_door')!;
+  return { x: door.use.x + 0.4, z: door.use.z };
 }
 
 export const REACH = 1.7;
@@ -113,10 +109,10 @@ export const REACH = 1.7;
 export const dist = (a: P2, b: P2): number => Math.hypot(a.x - b.x, a.z - b.z);
 
 /** Удерживает точку в границах и выталкивает из препятствий. */
-export function resolve(p: P2, bounds: Box, boxes: readonly Box[]): P2 {
+export function resolve(p: P2, b0: Box, boxes: readonly Box[]): P2 {
   let { x, z } = p;
-  x = Math.max(bounds.x0, Math.min(bounds.x1, x));
-  z = Math.max(bounds.z0, Math.min(bounds.z1, z));
+  x = Math.max(b0.x0, Math.min(b0.x1, x));
+  z = Math.max(b0.z0, Math.min(b0.z1, z));
   const r = 0.3;
   for (const b of boxes) {
     if (x > b.x0 - r && x < b.x1 + r && z > b.z0 - r && z < b.z1 + r) {
@@ -134,4 +130,46 @@ export function resolve(p: P2, bounds: Box, boxes: readonly Box[]): P2 {
   return { x, z };
 }
 
-export { BASE_OBJECTS, LOCATION_IDS };
+/** Оборудование зала по уровню (для модели и столкновений). */
+export type GearKind = 'mat' | 'rack' | 'kettlebells' | 'squat_rack' | 'bench' | 'treadmill' | 'bag' | 'cable' | 'bike' | 'plant' | 'neon';
+
+export interface Gear {
+  kind: GearKind;
+  pos: P2;
+  rot: number;
+  box: Box | null;
+}
+
+export function gymGear(tier: number): Gear[] {
+  const { w, d } = GYM_ROOM;
+  const L = -w / 2;
+  const R = w / 2;
+  const B = -d / 2;
+  const g: Gear[] = [
+    { kind: 'rack', pos: { x: -1.5, z: B + 0.5 }, rot: 0, box: box(-1.5, B + 0.5, 1.1, 0.35) },
+    { kind: 'kettlebells', pos: { x: 1.5, z: B + 0.5 }, rot: 0, box: box(1.5, B + 0.5, 0.9, 0.3) },
+  ];
+  for (let i = 0; i < 10; i += 1) {
+    const s = clientSpot(i);
+    if (i < [2, 4, 6, 8, 10][Math.min(4, tier)]!) g.push({ kind: 'mat', pos: s, rot: 0, box: null });
+  }
+  if (tier >= 1) {
+    g.push({ kind: 'squat_rack', pos: { x: L + 1.1, z: -2.6 }, rot: Math.PI / 2, box: box(L + 1.1, -2.6, 0.8, 1.1) });
+    g.push({ kind: 'bench', pos: { x: L + 1.2, z: -0.3 }, rot: Math.PI / 2, box: box(L + 1.2, -0.3, 0.3, 0.7) });
+  }
+  if (tier >= 2) {
+    for (const z of [-0.6, 1.3]) g.push({ kind: 'treadmill', pos: { x: R - 1.1, z }, rot: -Math.PI / 2, box: box(R - 1.1, z, 0.9, 0.45) });
+  }
+  if (tier >= 3) {
+    g.push({ kind: 'bag', pos: { x: -5.2, z: B + 1.2 }, rot: 0, box: box(-5.2, B + 1.2, 0.35, 0.35) });
+    g.push({ kind: 'bag', pos: { x: 5.0, z: B + 1.2 }, rot: 0, box: box(5.0, B + 1.2, 0.35, 0.35) });
+    g.push({ kind: 'cable', pos: { x: L + 0.8, z: B + 1.0 }, rot: Math.PI / 4, box: box(L + 0.8, B + 1.0, 0.7, 0.7) });
+  }
+  if (tier >= 4) {
+    for (const z of [3.4]) g.push({ kind: 'bike', pos: { x: R - 3.2, z }, rot: -Math.PI / 2, box: box(R - 3.2, z, 0.35, 0.6) });
+    g.push({ kind: 'plant', pos: { x: L + 0.5, z: d / 2 - 0.6 }, rot: 0, box: box(L + 0.5, d / 2 - 0.6, 0.3, 0.3) });
+    g.push({ kind: 'plant', pos: { x: R - 0.5, z: B + 0.5 }, rot: 0, box: null });
+    g.push({ kind: 'neon', pos: { x: 0, z: B + 0.02 }, rot: 0, box: null });
+  }
+  return g;
+}

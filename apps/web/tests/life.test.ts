@@ -1,63 +1,70 @@
 import { describe, expect, it } from 'vitest';
-import { applyRep, newCharacterState } from '../src/game/engine';
+import { applyRep, ensureDay, newCharacterState, type GameEvent } from '../src/game/engine';
 import { xpForLevel } from '../src/game/levels';
 import {
   act,
   answerEvent,
-  applyJob,
   blocker,
   buyFurniture,
+  clientOutfit,
+  clientTarget,
+  dailyQuota,
   effectiveAppearance,
-  fitness,
+  endSession,
+  fee,
   furnitureBlocker,
-  looks,
-  meetsLevel,
-  moveHome,
-  personAct,
-  personBlocker,
-  personPlace,
-  peopleAt,
+  gymBlocker,
+  makeClient,
+  migrateLife,
+  quotaFor,
+  repsOn,
+  sessionTarget,
   skillLevel,
   sleepMinutes,
+  startSession,
+  trainerLevel,
+  upgradeGym,
 } from '../src/game/life';
-import { ACTIONS, FURNITURE, HOMES, HOME_IDS, JOBS, JOB_IDS, LIFE_EVENTS, LOCATIONS, LOCATION_IDS, OBJECTS, PEOPLE, PERSON_ACTIONS, PERSON_IDS, actionById } from '../src/game/lifeContent';
-import { homeBounds, homeLayout, spawn } from '../src/game/lifeMap';
+import { ACTIONS, FURNITURE, GYMS, HOUSE_SLOTS, LIFE_EVENTS, OBJECTS, SESSION_EXERCISES, actionById } from '../src/game/lifeContent';
+import { bounds, clientSpot, gymGear, gymLayout, homeLayout, resolve, spawn } from '../src/game/lifeMap';
 import type { Txt } from '../src/game/lifeTypes';
-import { createState, DEFAULT_APPEARANCE, migrate, type GameState } from '../src/game/state';
 import { itemById } from '../src/game/items';
+import { createState, DEFAULT_APPEARANCE, migrate, type GameState } from '../src/game/state';
 
 const now = new Date(2026, 10, 5, 10, 0, 0);
+const tomorrow = new Date(2026, 10, 6, 10, 0, 0);
 
 function hero(): GameState {
   return newCharacterState({ name: 'Тест', archetype: 'ranger', color: '#3ddc84', hasBar: true, fitness: 'intermediate', appearance: DEFAULT_APPEARANCE }, now, createState);
 }
 
-/** Герой в городе в заданное время. */
-function inCity(s: GameState, hour: number): GameState {
-  const c = structuredClone(s);
-  c.life.scene = 'city';
-  c.life.minute = hour * 60;
-  return c;
+/** Герой в зале в заданное время (и день уже начат, чтобы повторы не сдвигали дату). */
+function inGym(hour = 10, s0 = hero()): GameState {
+  const s = structuredClone(ensureDay(s0, now).state);
+  s.life.scene = 'gym';
+  s.life.minute = hour * 60;
+  return s;
 }
+
+const withLevel = (s: GameState, level: number): GameState => {
+  const c = structuredClone(s);
+  c.totalXp = xpForLevel(level);
+  return c;
+};
 
 const both = (x: Txt): void => {
   expect(x.ru.length).toBeGreaterThan(0);
   expect(x.en.length).toBeGreaterThan(0);
 };
 
-describe('содержимое симулятора', () => {
+describe('содержимое тренера', () => {
   it('все тексты на двух языках, id уникальны', () => {
     for (const a of ACTIONS) both(a.label);
     expect(new Set(ACTIONS.map((a) => a.id)).size).toBe(ACTIONS.length);
-    for (const a of PERSON_ACTIONS) both(a.label);
-    for (const id of LOCATION_IDS) both(LOCATIONS[id].name);
     for (const id of Object.keys(OBJECTS)) both(OBJECTS[id as keyof typeof OBJECTS].name);
-    for (const id of JOB_IDS) for (const l of JOBS[id].levels) both(l.title);
-    for (const id of PERSON_IDS) {
-      const p = PEOPLE[id];
-      both(p.name);
-      both(p.bio);
-      for (const l of p.lines) both(l);
+    for (const g of GYMS) {
+      both(g.name);
+      both(g.desc);
     }
     for (const e of LIFE_EVENTS) {
       both(e.title);
@@ -66,191 +73,245 @@ describe('содержимое симулятора', () => {
     }
   });
 
-  it('у каждой работы есть место со сменой; у каждого жителя есть, где его встретить', () => {
-    for (const id of JOB_IDS) {
-      expect(ACTIONS.some((a) => a.work && 'location' in a.at && a.at.location === JOBS[id].location)).toBe(true);
-      expect(JOBS[id].shift / 60).toBeLessThanOrEqual(JOBS[id].hours[1] - JOBS[id].hours[0]);
-    }
-    for (const id of PERSON_IDS) expect(PEOPLE[id].schedule.length).toBeGreaterThan(0);
-  });
-
-  it('жители одеты в существующие вещи своих слотов', () => {
-    for (const id of PERSON_IDS) {
-      for (const [slot, item] of Object.entries(PEOPLE[id].equipped)) expect(itemById(item!)?.slot).toBe(slot);
+  it('уровни зала: больше мест, дороже занятия и улучшения', () => {
+    for (let i = 1; i < GYMS.length; i += 1) {
+      expect(GYMS[i]!.cap).toBeGreaterThan(GYMS[i - 1]!.cap);
+      expect(GYMS[i]!.mult).toBeGreaterThan(GYMS[i - 1]!.mult);
+      expect(GYMS[i]!.cost).toBeGreaterThan(GYMS[i - 1]!.cost);
     }
   });
 
-  it('предметы квартиры стоят внутри комнаты, места использования — тоже', () => {
-    for (const home of HOME_IDS) {
-      const b = homeBounds(home);
-      const placed = homeLayout(home, FURNITURE);
-      expect(placed.length).toBe(7 + HOMES[home].slots);
-      for (const p of placed) {
-        expect(p.use.x).toBeGreaterThanOrEqual(b.x0);
-        expect(p.use.x).toBeLessThanOrEqual(b.x1);
-        expect(p.use.z).toBeGreaterThanOrEqual(b.z0);
-        expect(p.use.z).toBeLessThanOrEqual(b.z1);
+  it('ученики одеты в существующие вещи своих слотов', () => {
+    for (let id = 1; id < 40; id += 1) {
+      for (const level of [1, 6, 14]) {
+        const c = makeClient(id, level, 1);
+        for (const [slot, item] of Object.entries(clientOutfit(c))) expect(itemById(item!)?.slot).toBe(slot);
       }
-      const sp = spawn('home', home);
-      expect(sp.x).toBeGreaterThan(b.x0);
     }
+  });
+
+  it('предметы дома и зала, места учеников и оборудование — внутри комнат', () => {
+    const inside = (scene: 'home' | 'gym', p: { x: number; z: number }): void => {
+      const b = bounds(scene);
+      expect(p.x).toBeGreaterThanOrEqual(b.x0 - 0.5);
+      expect(p.x).toBeLessThanOrEqual(b.x1 + 0.5);
+      expect(p.z).toBeGreaterThanOrEqual(b.z0 - 0.5);
+      expect(p.z).toBeLessThanOrEqual(b.z1 + 0.5);
+    };
+    const home = homeLayout(FURNITURE.slice(0, HOUSE_SLOTS));
+    expect(home.length).toBe(7 + HOUSE_SLOTS);
+    for (const p of home) {
+      inside('home', p.pos);
+      inside('home', p.use);
+    }
+    for (const p of gymLayout(true, true)) {
+      inside('gym', p.pos);
+      inside('gym', p.use);
+    }
+    for (let i = 0; i < 10; i += 1) inside('gym', clientSpot(i));
+    for (const g of gymGear(4)) inside('gym', g.pos);
+    // До каждого места использования можно дойти: точка не внутри препятствия.
+    const boxes = [...gymLayout(true, true), ...gymGear(4)].map((x) => x.box).filter((b) => b !== null);
+    for (const p of gymLayout(true, true)) {
+      const r = resolve(p.use, bounds('gym'), boxes);
+      expect(Math.hypot(r.x - p.use.x, r.z - p.use.z)).toBeLessThan(0.3);
+    }
+    for (const sc of ['home', 'gym'] as const) inside(sc, spawn(sc));
   });
 });
 
-describe('время и потребности', () => {
-  it('новый герой: утро первого дня дома, немного продуктов', () => {
+describe('быт', () => {
+  it('новый герой: утро дома, один очень полный ученик', () => {
     const s = hero();
-    expect(s.life.day).toBe(1);
     expect(s.life.scene).toBe('home');
-    expect(s.life.groceries).toBeGreaterThan(0);
+    expect(s.life.clients.length).toBe(1);
+    expect(s.life.clients[0]!.fat).toBeGreaterThan(0.85);
+    expect(s.gold).toBeGreaterThan(0);
   });
 
-  it('сон — до 7 утра следующего дня, энергия восстанавливается', () => {
+  it('сон — до 7 утра, энергия восстанавливается', () => {
     const s = hero();
     s.life.minute = 23 * 60;
     s.life.needs.energy = 10;
-    const r = act(s, 'sleep').state;
-    expect(r.life.day).toBe(2);
-    expect(r.life.minute).toBe(7 * 60);
-    expect(r.life.needs.energy).toBeGreaterThan(90);
-    expect(sleepMinutes(5 * 60)).toBe(480);
+    const next = act(s, 'sleep').state;
+    expect(next.life.minute).toBe(7 * 60);
+    expect(next.life.day).toBe(2);
+    expect(next.life.needs.energy).toBeGreaterThan(80);
+    expect(sleepMinutes(23 * 60)).toBe(480);
   });
 
-  it('еда из холодильника тратит продукты и утоляет голод, время идёт', () => {
+  it('дорога в зал и обратно', () => {
     const s = hero();
-    s.life.needs.food = 20;
-    const r = act(s, 'cook').state;
-    expect(r.life.groceries).toBe(s.life.groceries - 1);
-    expect(r.life.needs.food).toBeGreaterThan(70);
-    expect(r.life.minute).toBe(s.life.minute + 60);
-    expect(r.life.last?.ok).toBe(true);
-    s.life.groceries = 0;
-    expect(blocker(s, actionById('cook')!)).toBe('groceries');
+    const g = act(s, 'go_gym').state;
+    expect(g.life.scene).toBe('gym');
+    expect(act(g, 'go_home').state.life.scene).toBe('home');
   });
 
-  it('без сил герой засыпает и просыпается дома', () => {
-    const s = inCity(hero(), 14);
-    s.life.needs.energy = 2;
-    const r = act(s, 'walk').state;
-    expect(r.life.scene).toBe('home');
-    expect(r.life.minute).toBe(7 * 60);
-  });
-
-  it('выход в город и домой; закрытые места недоступны', () => {
-    const s = hero();
-    const city = act(s, 'go_out').state;
-    expect(city.life.scene).toBe('city');
-    const night = inCity(s, 3);
-    expect(blocker(night, actionById('cafe_coffee')!)).toBe('closed');
-    const rich = inCity(s, 23);
-    rich.gold = 100;
-    expect(blocker(rich, actionById('dance')!)).toBe(null);
-    rich.gold = 0;
-    expect(blocker(rich, actionById('dance')!)).toBe('money');
-    expect(act(city, 'go_home').state.life.scene).toBe('home');
-  });
-
-  it('аренда списывается раз в неделю, без денег — долг', () => {
-    const s = hero();
-    s.gold = 1000;
-    s.life.rentUntil = 2;
-    s.life.minute = 23 * 60;
-    const r = act(s, 'sleep').state;
-    expect(r.gold).toBe(1000 - HOMES.studio.rent);
-    expect(r.life.rentUntil).toBe(9);
-    const poor = structuredClone(s);
-    poor.gold = 0;
-    expect(act(poor, 'sleep').state.life.debt).toBe(HOMES.studio.rent);
-  });
-});
-
-describe('работа', () => {
-  it('смена платит, навык растёт, после нескольких смен — повышение', () => {
-    let s = applyJob(hero(), 'barista');
-    expect(s.life.job?.id).toBe('barista');
-    s.life.skills.charisma = 12 * 2 * 2;
-    for (let i = 0; i < JOBS.barista.promoteAfter; i += 1) {
-      s = inCity(s, 8);
-      s.life.needs = { food: 90, energy: 90, hygiene: 90, fun: 90, social: 90 };
-      const gold = s.gold;
-      s = act(s, 'work_cafe').state;
-      expect(s.gold).toBeGreaterThan(gold);
-    }
-    expect(s.life.job?.level).toBe(1);
-    expect(s.life.stats.promotions).toBe(1);
-  });
-
-  it('смена только в часы работы и на своей работе', () => {
-    const s = applyJob(hero(), 'office');
-    expect(blocker(inCity(s, 21), actionById('work_office')!)).toBe('closed');
-    expect(blocker(inCity(s, 14), actionById('work_office')!)).toBe('hours');
-    expect(blocker(inCity(s, 9), actionById('work_cafe')!)).toBe('job');
-    expect(blocker(inCity(s, 9), actionById('work_office')!)).toBe(null);
-  });
-
-  it('тренером берут только с настоящей спортивной формой', () => {
-    const s = hero();
-    expect(meetsLevel(s, 'trainer', 0)).toBe(false);
-    for (const k of ['strength', 'legs', 'core', 'endurance'] as const) s.statXp[k] = xpForLevel(3);
-    expect(fitness(s)).toBe(3);
-    expect(meetsLevel(s, 'trainer', 0)).toBe(true);
-    expect(applyJob(s, 'trainer').life.job?.id).toBe('trainer');
-  });
-});
-
-describe('отношения', () => {
-  it('первый разговор — знакомство, свидание — только с близкими, потом можно встречаться', () => {
-    const at = personPlace('alex', 10 * 60)!;
-    expect(at).toBe('cafe');
-    let s = inCity(hero(), 10);
-    expect(peopleAt('cafe', 10 * 60)).toContain('alex');
-    expect(personBlocker(s, 'alex', 'date', 'cafe')).toBe('aff');
-    s = personAct(s, 'alex', 'talk', 'cafe').state;
-    expect(s.life.people.alex !== undefined).toBe(true);
-    expect(s.life.people.alex!.aff).toBe(1);
-    s = inCity(s, 10);
-    s.gold = 500;
-    s.life.people.alex!.aff = 9;
-    s.life.skills.charisma = 1200;
-    s.life.needs = { food: 100, energy: 100, hygiene: 100, fun: 100, social: 100 };
-    let tries = 0;
-    while (!s.life.people.alex!.partner && tries < 20) {
-      s = inCity(personAct(s, 'alex', 'romance', 'cafe').state, 10 + (tries % 6));
-      s.life.people.alex!.aff = Math.max(8, s.life.people.alex!.aff);
-      tries += 1;
-    }
-    expect(s.life.people.alex!.partner).toBe(true);
-    expect(personBlocker(inCity(s, 10), 'alex', 'kiss', 'cafe')).toBe(null);
-  });
-
-  it('жителя нет — действие недоступно', () => {
-    const s = inCity(hero(), 3);
-    expect(personBlocker(s, 'alex', 'talk', 'cafe')).toBe('absent');
+  it('мебель покупается, если есть место и деньги', () => {
+    let s = hero();
+    s.gold = 100000;
+    expect(furnitureBlocker(s, 'bed')).toBe('owned');
+    for (const id of FURNITURE.slice(0, HOUSE_SLOTS)) s = buyFurniture(s, id);
+    expect(s.life.furniture.length).toBe(HOUSE_SLOTS);
+    expect(furnitureBlocker(s, FURNITURE[HOUSE_SLOTS]!)).toBe('space');
   });
 
   it('событие применяет выбор', () => {
     const s = hero();
-    s.life.event = { id: 'found_money' };
-    const r = answerEvent(s, 'keep');
-    expect(r.life.event).toBe(null);
-    expect(r.gold).toBe(s.gold + 40);
+    s.life.event = { id: 'blogger' };
+    const next = answerEvent(s, 'yes');
+    expect(next.life.event).toBe(null);
+    expect(next.gold).toBe(s.gold + 40);
+  });
+
+  it('навык растёт с опытом', () => {
+    expect(skillLevel(0)).toBe(0);
+    expect(skillLevel(12)).toBe(1);
+    expect(skillLevel(100000)).toBe(10);
   });
 });
 
-describe('дом и тело', () => {
-  it('мебель покупается, если есть место и деньги; большое жильё открывает больше', () => {
-    let s = hero();
-    s.gold = 5000;
-    expect(furnitureBlocker(s, 'console')).toBe('home');
-    s = buyFurniture(s, 'yoga_mat');
-    expect(s.life.furniture).toContain('yoga_mat');
-    s = moveHome(s, 'flat');
-    expect(s.life.home).toBe('flat');
-    expect(furnitureBlocker(s, 'console')).toBe(null);
-    for (const id of FURNITURE) s = buyFurniture(s, id);
-    expect(s.life.furniture.length).toBe(HOMES.flat.slots);
+describe('занятия', () => {
+  it('занятие только в зале и в часы работы', () => {
+    const a = actionById('session')!;
+    expect(blocker(hero(), a)).toBe('missing');
+    expect(blocker(inGym(3), a)).toBe('closed');
+    expect(blocker(inGym(10), a)).toBe(null);
+    expect(act(inGym(10), 'session').open).toBe('session');
   });
 
+  it('тренер выполняет упражнение — занятие оплачивается, ученики становятся стройнее', () => {
+    let s = startSession(inGym(10), 'squat');
+    expect(s.life.session?.target).toBe(sessionTarget(s, 'squat'));
+    const client = s.life.clients[0]!;
+    const target = s.life.session!.target;
+    const gold = s.gold;
+    const events: GameEvent[] = [];
+    for (let i = 0; i < target; i += 1) {
+      const r = applyRep(s, { exercise: 'squat', quality: 90 }, now);
+      s = r.state;
+      events.push(...r.events);
+    }
+    expect(s.life.session).toBe(null);
+    const done = events.find((e) => e.kind === 'sessionDone');
+    expect(done && done.kind === 'sessionDone' ? done.pay : 0).toBeGreaterThan(0);
+    expect(s.gold).toBeGreaterThan(gold);
+    const after = s.life.clients.find((c) => c.id === client.id)!;
+    expect(after.fat).toBeLessThan(client.fat);
+    expect(after.muscle).toBeGreaterThan(client.muscle);
+    expect(after.sessions).toBe(1);
+    expect(s.life.stats.sessions).toBe(1);
+  });
+
+  it('повторы другого упражнения занятие не двигают; выход — оплата за часть', () => {
+    let s = startSession(inGym(10), 'squat');
+    s = applyRep(s, { exercise: 'pushup', quality: 90 }, now).state;
+    expect(s.life.session?.progress).toBe(0);
+    for (let i = 0; i < 3; i += 1) s = applyRep(s, { exercise: 'squat', quality: 90 }, now).state;
+    const gold = s.gold;
+    const ended = endSession(s);
+    expect(ended.life.session).toBe(null);
+    expect(ended.gold).toBeGreaterThan(gold);
+    expect(ended.gold - gold).toBeLessThan(fee(s));
+    // Без единого повтора выход ничего не платит.
+    const empty = endSession(startSession(inGym(10), 'lunge'));
+    expect(empty.life.session).toBe(null);
+    expect(empty.life.stats.sessions).toBe(0);
+  });
+
+  it('с уровнем растут число учеников, цена и повторы; новички спортивнее', () => {
+    const low = inGym(10);
+    const high = withLevel(inGym(10), 9);
+    high.life.gym = 4;
+    expect(trainerLevel(high)).toBe(9);
+    expect(clientTarget(low)).toBe(1);
+    expect(clientTarget(high)).toBeGreaterThan(clientTarget(low));
+    expect(fee(high)).toBeGreaterThan(fee(low));
+    for (const [ex] of SESSION_EXERCISES) expect(sessionTarget(high, ex)).toBeGreaterThan(sessionTarget(low, ex));
+    const avg = (level: number): number => {
+      let sum = 0;
+      for (let i = 1; i <= 30; i += 1) sum += makeClient(i, level, 1).fat;
+      return sum / 30;
+    };
+    expect(avg(12)).toBeLessThan(avg(1) - 0.8);
+  });
+
+  it('новые ученики приходят до предела зала', () => {
+    let s = withLevel(inGym(10), 12);
+    s.gold = 0;
+    for (let k = 0; k < 15; k += 1) {
+      s = startSession(s, 'jumping_jack');
+      const target = s.life.session!.target;
+      for (let i = 0; i < target; i += 1) s = applyRep(s, { exercise: 'jumping_jack', quality: 90 }, now).state;
+      s.life.needs.energy = 100;
+      s.life.minute = 10 * 60;
+    }
+    expect(s.life.clients.length).toBe(GYMS[0]!.cap);
+  });
+
+  it('улучшение зала: нужен уровень и деньги, растут места и цена', () => {
+    let s = inGym(10);
+    s.gold = 100000;
+    expect(gymBlocker(s)).toBe('level');
+    s = withLevel(s, 3);
+    expect(gymBlocker(s)).toBe(null);
+    const before = fee(s);
+    s = upgradeGym(s);
+    expect(s.life.gym).toBe(1);
+    expect(s.gold).toBe(100000 - GYMS[1]!.cost);
+    expect(fee(s)).toBeGreaterThan(before);
+    expect(gymBlocker(s)).toBe('level');
+  });
+});
+
+describe('норма дня', () => {
+  it('выполненная норма — событие, невыполненная — штраф и потеря доверия', () => {
+    let s = hero();
+    const quota = dailyQuota(s);
+    const events: GameEvent[] = [];
+    for (let i = 0; i < quota; i += 1) {
+      const r = applyRep(s, { exercise: i % 2 ? 'squat' : 'lunge', quality: 90 }, now);
+      s = r.state;
+      events.push(...r.events);
+    }
+    expect(repsOn(s, s.today)).toBe(quota);
+    expect(events.filter((e) => e.kind === 'quotaDone').length).toBe(1);
+    // Выполненный день без штрафа.
+    const ok = ensureDay(s, tomorrow);
+    expect(ok.events.some((e) => e.kind === 'quotaMissed')).toBe(false);
+
+    // Пропущенный день — штраф и недовольство.
+    const lazy = ensureDay(hero(), now).state;
+    lazy.gold = 500;
+    const loyalty = lazy.life.clients[0]!.loyalty;
+    const missed = ensureDay(lazy, tomorrow);
+    const e = missed.events.find((x) => x.kind === 'quotaMissed');
+    expect(e && e.kind === 'quotaMissed' ? e.fine : 0).toBeGreaterThan(0);
+    expect(missed.state.gold).toBeLessThan(500);
+    expect(missed.state.life.clients[0]!.loyalty).toBe(loyalty - 15);
+  });
+
+  it('ученик без доверия уходит', () => {
+    const s = ensureDay(hero(), now).state;
+    s.life.clients[0]!.loyalty = 10;
+    const r = ensureDay(s, tomorrow);
+    expect(r.state.life.clients.length).toBe(0);
+    const e = r.events.find((x) => x.kind === 'quotaMissed');
+    expect(e && e.kind === 'quotaMissed' ? e.left : 0).toBe(1);
+  });
+
+  it('норма растёт с уровнем, но не бесконечно', () => {
+    expect(quotaFor(withLevel(hero(), 5))).toBeGreaterThan(quotaFor(hero()));
+    expect(quotaFor(withLevel(hero(), 60))).toBe(120);
+    // Норма дня фиксируется утром и не растёт от нового уровня в тот же день.
+    const s = ensureDay(hero(), now).state;
+    const q = dailyQuota(s);
+    expect(dailyQuota(withLevel(s, 10))).toBe(q);
+    expect(dailyQuota(ensureDay(withLevel(s, 10), tomorrow).state)).toBeGreaterThan(q);
+  });
+});
+
+describe('фигура и сохранения', () => {
   it('тренировки перед камерой сжигают лишний вес и меняют фигуру', () => {
     let s = hero();
     s.life.fat = 0.5;
@@ -261,17 +322,18 @@ describe('дом и тело', () => {
     const after = effectiveAppearance(s.character.appearance, s);
     expect(after.body?.muscle ?? 0).toBeGreaterThan(before.body?.muscle ?? 0);
     expect(after.body?.weight ?? 0).toBeLessThan(before.body?.weight ?? 0);
-    expect(looks(s)).toBeGreaterThan(0);
   });
 
-  it('навык растёт с опытом', () => {
-    expect(skillLevel(0)).toBe(0);
-    expect(skillLevel(12)).toBe(1);
-    expect(skillLevel(100000)).toBe(10);
+  it('сохранение города переходит в жизнь тренера', () => {
+    const old = { day: 5, minute: 600, scene: 'city', home: 'loft', job: { id: 'barista', level: 1 }, people: {}, furniture: ['console', 'tv_stand'], needs: { food: 40 } };
+    const m = migrateLife(old as never);
+    expect(m.scene).toBe('home');
+    expect(m.day).toBe(5);
+    expect(m.furniture).toEqual(['console']);
+    expect(m.clients.length).toBe(1);
+    expect(m.needs.food).toBe(40);
   });
-});
 
-describe('сохранения', () => {
   it('старое сохранение RPG получает жизнь, история удаляется, неизвестные вещи пропадают', () => {
     const s = hero() as GameState & { story?: unknown };
     const old = { ...s, story: { started: true }, inventory: ['no_such_item'], equipped: { weapon: 'no_such_item' } } as unknown as GameState;

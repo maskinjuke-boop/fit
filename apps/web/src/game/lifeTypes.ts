@@ -1,5 +1,6 @@
 import type { ExerciseId } from '../tracking/exercise';
 import type { StatId } from './config';
+import type { Figure, HairStyle } from './state';
 
 /** Текст на двух языках (содержимое игры хранится рядом с логикой, а не в общем словаре). */
 export interface Txt {
@@ -15,13 +16,12 @@ export const NEEDS: readonly NeedId[] = ['food', 'energy', 'hygiene', 'fun', 'so
 export type SkillId = 'cooking' | 'charisma' | 'logic' | 'creativity';
 export const SKILLS: readonly SkillId[] = ['cooking', 'charisma', 'logic', 'creativity'];
 
-export type SceneId = 'home' | 'city';
+/** Две локации: свой дом и фитнес-зал. */
+export type SceneId = 'home' | 'gym';
 
-/** Места в городе (двери на улице). */
-export type LocationId = 'home' | 'market' | 'cafe' | 'office' | 'gym' | 'park' | 'club' | 'mall' | 'furniture' | 'realty' | 'studio';
-
-/** Предметы квартиры, у которых есть действия. */
+/** Предметы, у которых есть действия (в доме и в зале). */
 export type ObjectId =
+  // Дом.
   | 'bed'
   | 'fridge'
   | 'stove'
@@ -38,30 +38,31 @@ export type ObjectId =
   | 'piano'
   | 'bathtub'
   | 'aquarium'
-  | 'easel';
+  | 'easel'
+  // Зал.
+  | 'coach'
+  | 'reception'
+  | 'gym_door'
+  | 'gym_shower'
+  | 'smoothie';
 
-export type JobId = 'barista' | 'office' | 'trainer' | 'model';
-export type PersonId = 'alex' | 'mia' | 'dan' | 'sofia' | 'max' | 'eva' | 'rita';
-export type HomeId = 'studio' | 'flat' | 'loft' | 'penthouse';
-
-/** Изменения от действия (до масштабирования и ограничений). */
+/** Изменения от действия (до ограничений). */
 export interface LifeEffect {
   needs?: Partial<Record<NeedId, number>>;
   money?: number;
   skills?: Partial<Record<SkillId, number>>;
   groceries?: number;
-  /** Сдвиг «лишнего веса»: −1 (сухой) … 1 (полный). */
+  /** Сдвиг «лишнего веса» героя: −1 (сухой) … 1 (полный). */
   fat?: number;
-  /** Отношение персонажа (того, с кем действие или событие). */
-  aff?: number;
+  /** Лояльность всех учеников. */
+  loyalty?: number;
+  /** Новый ученик. */
+  client?: boolean;
 }
 
 export interface Requirement {
-  /** Часы, когда действие доступно: [с, до) по игровым часам, до может быть > 24. */
-  hours?: [number, number];
   groceries?: number;
   money?: number;
-  /** Нужен минимум потребности (например, энергия для смены). */
   need?: [NeedId, number];
   skill?: [SkillId, number];
 }
@@ -70,33 +71,46 @@ export interface ActionDef {
   id: string;
   icon: string;
   label: Txt;
-  /** Где доступно: предмет квартиры или место в городе. */
-  at: { object: ObjectId } | { location: LocationId };
+  at: ObjectId;
   minutes: number;
   cost?: number;
   effect: LifeEffect;
   requires?: Requirement;
   /** Сон: до утра (7:00) или не меньше minutes. */
   sleep?: boolean;
-  /** Открыть настоящую тренировку перед камерой. */
+  /** Открыть свою тренировку перед камерой. */
   train?: boolean;
-  /** Рабочая смена (работа с этим местом). */
-  work?: boolean;
-  /** Переход: выйти в город или домой. */
+  /** Переход в другую локацию. */
   go?: SceneId;
-  /** Открыть экран: магазин одежды, мебель, недвижимость, вакансии. */
-  open?: 'shop' | 'furniture' | 'realty' | 'jobs';
+  /** Открыть экран: мебель, выбор занятия, зал. */
+  open?: 'furniture' | 'session' | 'gym';
 }
 
-export interface Relation {
-  /** Отношение −5…10. */
-  aff: number;
-  /** Игровой день знакомства. */
-  met: number;
-  /** Последний разговор (игровой день). */
-  last: number;
-  dates: number;
-  partner?: boolean;
+/** Ученик: внешность из зерна, форма улучшается с занятиями. */
+export interface Client {
+  id: string;
+  seed: number;
+  figure: Figure;
+  hair: HairStyle;
+  skin: number;
+  hairColor: number;
+  /** Индекс имени в списке. */
+  name: number;
+  /** Полнота −0,4…1 и мышцы −0,6…0,8 (ползунки тела). */
+  fat: number;
+  muscle: number;
+  sessions: number;
+  /** Лояльность 0…100: при нуле ученик уходит. */
+  loyalty: number;
+  joined: number;
+}
+
+/** Идущее занятие: тренер выполняет упражнение на камеру, ученики повторяют. */
+export interface Session {
+  exercise: ExerciseId;
+  target: number;
+  progress: number;
+  clients: string[];
 }
 
 /** Итог последнего действия — для всплывающей карточки. */
@@ -104,29 +118,15 @@ export interface LifeResult {
   icon: string;
   text: Txt;
   ok: boolean;
-  /** Фактические изменения. */
   needs: Partial<Record<NeedId, number>>;
   money: number;
   minutes: number;
   skills?: Partial<Record<SkillId, number>>;
-  aff?: { person: PersonId; delta: number };
-  /** Повышение на работе / новый навык / новый день и т. п. */
   notes: Txt[];
-}
-
-export interface JobState {
-  id: JobId;
-  level: number;
-  /** Смен на текущей должности. */
-  shifts: number;
-  /** Рабочая репутация 0…100. */
-  perf: number;
 }
 
 export interface ActiveEvent {
   id: string;
-  /** Персонаж, о котором событие. */
-  person?: PersonId;
 }
 
 export interface LifeState {
@@ -137,45 +137,25 @@ export interface LifeState {
   scene: SceneId;
   /** Порции продуктов в холодильнике. */
   groceries: number;
-  job: JobState | null;
   /** Опыт навыков. */
   skills: Record<SkillId, number>;
-  home: HomeId;
-  /** Купленная мебель. */
+  /** Купленная мебель для дома. */
   furniture: ObjectId[];
-  people: Partial<Record<PersonId, Relation>>;
-  /** «Лишний вес»: −1…1 (тренировки уменьшают, переедание увеличивает). */
+  /** «Лишний вес» героя: −1…1. */
   fat: number;
-  /** Аренда оплачена до этого игрового дня (не включая). */
-  rentUntil: number;
-  /** Долг по аренде. */
-  debt: number;
+  /** Уровень зала 0…4. */
+  gym: number;
+  clients: Client[];
+  /** Счётчик для id новых учеников. */
+  nextClient: number;
+  session: Session | null;
   event: ActiveEvent | null;
   last: LifeResult | null;
-  /** Счётчики для достижений. */
-  stats: { shifts: number; dates: number; meals: number; promotions: number; workouts: number };
-}
-
-/** Действие с персонажем. */
-export interface PersonActionDef {
-  id: string;
-  icon: string;
-  label: Txt;
-  minutes: number;
-  cost?: number;
-  /** Минимальное отношение. */
-  minAff?: number;
-  /** Только с партнёром / только не с партнёром. */
-  partner?: boolean;
-  /** Где можно (иначе — везде, где встретили). */
-  where?: LocationId[];
-  /** Проверка обаяния: шанс зависит от привлекательности, навыка и отношения. */
-  check?: number;
-  success: LifeEffect;
-  fail?: LifeEffect;
-  /** Начать отношения. */
-  romance?: boolean;
-  train?: boolean;
+  /** Реальный день, за который уже выдано сообщение о выполненной норме. */
+  quotaDay: string;
+  /** Норма повторов на текущий реальный день. */
+  quota: number;
+  stats: { sessions: number; earned: number; meals: number; workouts: number; fines: number; graduated: number };
 }
 
 export type { ExerciseId, StatId };

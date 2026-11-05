@@ -97,7 +97,8 @@ describe('3D-персонаж', () => {
         }
         // Точка хвата кулака — внутри рукояти: в начале координат модели есть тонкая деталь
         // (ручка, гриф, ремешок, дужка, ножка бокала), а не пустота или толстый корпус.
-        expect(obj.position.distanceTo(hand.at)).toBeLessThan(1e-6);
+        // Предмет прикреплён к кости кисти: сравниваем положение в мире.
+        expect(obj.getWorldPosition(new Vector3()).distanceTo(hand.at.clone().applyMatrix4(c.torso.matrixWorld))).toBeLessThan(1e-5);
         let handle = false;
         obj.updateMatrixWorld(true);
         const toModel = new Matrix4().copy(obj.matrixWorld).invert();
@@ -266,7 +267,7 @@ describe('Ползунки тела и лица', () => {
   it('ползунок «толще» действительно делает часть тела шире', () => {
     const width = (body: Record<string, number>): number => {
       const c = buildCharacter({ ...DEFAULT_APPEARANCE, figure: 'female', body }, '#4da3ff', {});
-      const m = c.torso.children[0] as Mesh;
+      const m = c.torso.children.find((o) => (o as Mesh).isMesh) as Mesh;
       const pos = m.geometry.getAttribute('position');
       let w = 0;
       // Ширина талии: самые дальние от оси точки корпуса на её высоте.

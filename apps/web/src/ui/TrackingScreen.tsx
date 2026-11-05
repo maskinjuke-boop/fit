@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type ChangeEvent, type FormEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, type ChangeEvent, type FormEvent, type ReactNode } from 'react';
 import { CameraError, keepScreenOn, openCamera, stopStream, type Facing } from '../camera/camera';
 import { useI18n, type I18nKey } from '../i18n';
 import { AdaptiveQuality, FpsMeter } from '../pose/adaptiveQuality';
@@ -37,11 +37,13 @@ export interface TrackingScreenProps {
   onBack(): void;
   /** Засчитанный повтор передаётся в игру; она возвращает события (опыт, уровни, квесты). */
   onRep?(exercise: ExerciseId, quality: number): GameEvent[];
+  /** Дополнительный слой поверх камеры (ученики на занятии); получает число повторов. */
+  overlay?(count: number): ReactNode;
 }
 
 const BANNER_MS = 2200;
 
-export function TrackingScreen({ exercise, engine, onBack, onRep }: TrackingScreenProps) {
+export function TrackingScreen({ exercise, engine, onBack, onRep, overlay }: TrackingScreenProps) {
   const { t, tf, lang } = useI18n();
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -166,7 +168,7 @@ export function TrackingScreen({ exercise, engine, onBack, onRep }: TrackingScre
           return;
         }
         const text = eventText(tRef.current, tfRef.current, ev, langRef.current);
-        if (text) fresh.push({ id: now + i, text, big: ev.kind === 'levelUp' || ev.kind === 'questDone' || ev.kind === 'dailyBonus' || ev.kind === 'achievement' });
+        if (text) fresh.push({ id: now + i, text, big: ev.kind === 'levelUp' || ev.kind === 'questDone' || ev.kind === 'dailyBonus' || ev.kind === 'achievement' || ev.kind === 'sessionDone' || ev.kind === 'quotaDone' });
       });
       if (xp > 0) setXpGain({ amount: xp, over, id: now });
       if (fresh.length > 0) setBanners((b) => [...b, ...fresh].slice(-3));
@@ -335,6 +337,8 @@ export function TrackingScreen({ exercise, engine, onBack, onRep }: TrackingScre
           {t('debug')}
         </button>
       </header>
+
+      {overlay?.(stats.count)}
 
       <section className="counter" aria-live="polite">
         <div key={pulse} className="count pop">

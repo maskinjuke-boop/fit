@@ -20,8 +20,8 @@ import {
 import type { Slot } from './items';
 import { createState, type Appearance, type Character, type GameState } from './state';
 import { clearGame, loadGame, saveGame } from './storage';
-import { act, answerEvent, applyJob, buyFurniture, dismissResult, moveHome, payDebt, personAct, quitJob, sellFurniture, type LifeOutcome } from './life';
-import type { HomeId, JobId, LocationId, ObjectId, PersonId } from './lifeTypes';
+import { act, answerEvent, buyFurniture, dismissResult, endSession, sellFurniture, startSession, upgradeGym, type LifeOutcome } from './life';
+import type { ObjectId } from './lifeTypes';
 
 /** Действия режима администратора. */
 export interface AdminActions {
@@ -43,14 +43,12 @@ export interface AdminActions {
 /** Действия симулятора жизни. Действие может попросить открыть тренировку или экран. */
 export interface LifeActions {
   act(actionId: string): LifeOutcome;
-  person(person: PersonId, actionId: string, at: LocationId): LifeOutcome;
   answer(choiceId: string): void;
-  applyJob(job: JobId): void;
-  quitJob(): void;
+  startSession(exercise: ExerciseId): void;
+  endSession(): void;
+  upgradeGym(): void;
   buyFurniture(id: ObjectId): void;
   sellFurniture(id: ObjectId): void;
-  moveHome(home: HomeId): void;
-  payDebt(): void;
   dismiss(): void;
 }
 
@@ -219,14 +217,12 @@ export function GameProvider({ children }: { children: ReactNode }) {
     };
     const life: LifeActions = {
       act: (id) => lifeRun((s) => act(s, id)),
-      person: (p, id, at) => lifeRun((s) => personAct(s, p, id, at)),
       answer: (id) => plain((s) => answerEvent(s, id)),
-      applyJob: (j) => plain((s) => applyJob(s, j)),
-      quitJob: () => plain(quitJob),
+      startSession: (e) => plain((s) => startSession(s, e)),
+      endSession: () => plain(endSession),
+      upgradeGym: () => plain(upgradeGym),
       buyFurniture: (id) => plain((s) => buyFurniture(s, id)),
       sellFurniture: (id) => plain((s) => sellFurniture(s, id)),
-      moveHome: (h) => plain((s) => moveHome(s, h)),
-      payDebt: () => plain(payDebt),
       dismiss: () => plain(dismissResult),
     };
     return {
