@@ -2242,6 +2242,16 @@ button {
   color: var(--good);
   border-color: var(--good);
 }
+.call-cat-btn {
+  position: absolute;
+  left: 8px;
+  bottom: 188px;
+  z-index: 2;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: rgba(15, 17, 20, 0.8);
+  font-weight: 600;
+}
 .auto-thought {
   position: absolute;
   left: 50%;

@@ -15,8 +15,10 @@ import {
   effectiveAppearance,
   fee,
   fitness,
+  catMood,
   catName,
   comfort,
+  litterDirty,
   gymBlocker,
   gymOpen,
   hasObject,
@@ -29,7 +31,7 @@ import {
   SKILL_NAME,
   type Blocker,
 } from '../../game/life';
-import { GYMS, GYM_HOURS, OBJECTS, SESSION_EXERCISES, actionById, catBreedById, lifeEventById } from '../../game/lifeContent';
+import { BOWL_MAX, GYMS, GYM_HOURS, OBJECTS, SESSION_EXERCISES, actionById, catBreedById, lifeEventById } from '../../game/lifeContent';
 import { gymLayout, homeLayout, type P2 } from '../../game/lifeMap';
 import { NEEDS, SKILLS, type ActionDef, type Client, type NeedId, type ObjectId } from '../../game/lifeTypes';
 import { useI18n, type I18nKey } from '../../i18n';
@@ -40,6 +42,9 @@ import { HeroPortrait } from './Renders';
 
 const LifeScene3D = lazy(() => import('./three/LifeScene3D'));
 
+/** Предметы текущей локации (для похода сима к ним). */
+const layoutOf = (st: GameState) => (st.life.scene === 'home' ? homeLayout(st.life.furniture, st.life.cats.length > 0) : gymLayout(GYMS[st.life.gym]!.shower, GYMS[st.life.gym]!.bar));
+
 /** Нужные поля события указателя (общие для React и DOM). */
 interface PointerLike {
   clientX: number;
@@ -47,9 +52,10 @@ interface PointerLike {
 }
 
 const AUTO_KEY = 'fitness-rpg.lifeAuto';
-/** Через сколько без касаний сим начинает действовать сам и пауза между его делами. */
-const IDLE_MS = 6000;
-const AUTO_PAUSE_MS = 2500;
+/** Через сколько после управления игроком сим снова действует сам (между своими делами — без паузы). */
+const INPUT_GRACE_MS = 1000;
+/** Сколько сим идёт к предмету, прежде чем бросить затею. */
+const TASK_TIMEOUT_MS = 15000;
 
 const NEED_ICON: Record<NeedId, string> = { food: '🍔', energy: '⚡', hygiene: '🚿', fun: '🎉', social: '💬' };
 const CLIENT_COLORS = ['#e85d2a', '#2f6fb5', '#3a9d6a', '#8e44ad', '#d4a017', '#c0392b', '#16a085', '#e84393'];
@@ -335,11 +341,29 @@ function FurnitureList({ state }: { state: GameState }) {
       </p>
       {owned.length === 0 && state.life.cats.length === 0 && <p className="muted small">{t('life.homeEmpty')}</p>}
       <ul className="life-list">
+        {state.life.cats.length > 0 && (
+          <li>
+            <div>
+              <div className={`small ${state.life.bowl === 0 ? 'bad' : ''}`}>🥣 {tf('life.bowl', { n: state.life.bowl, m: BOWL_MAX })}</div>
+              <div className={`small ${litterDirty(state.life) ? 'bad' : ''}`}>🧻 {tf('life.litter', { n: Math.round(state.life.litter) })}</div>
+            </div>
+          </li>
+        )}
         {state.life.cats.map((c) => (
           <li key={c.id}>
             <div>
               <b>🐈 {catName(c)[lang]}</b>
-              <div className="muted small">{catBreedById(c.breed).name[lang]}</div>
+              <div className="muted small">
+                {catBreedById(c.breed).name[lang]} · {tf('life.catMood', { n: catMood(c, state.life) })}
+              </div>
+              {(['fed', 'play', 'toilet'] as const).map((k) => (
+                <div key={k} className={`need wide ${c[k] < 25 ? 'low' : c[k] < 50 ? 'mid' : ''}`}>
+                  <span className="need-name">{t(k === 'fed' ? 'life.catFed' : k === 'play' ? 'life.catPlay' : 'life.catToilet')}</span>
+                  <span className="need-bar">
+                    <span style={{ width: `${Math.round(c[k])}%` }} />
+                  </span>
+                </div>
+              ))}
             </div>
           </li>
         ))}
@@ -452,12 +476,16 @@ export function LifeTab({ state, onTrain, onSession }: { state: GameState; onTra
     }
   });
   const [autoTask, setAutoTask] = useState<{ action: string; at: ObjectId; since: number } | null>(null);
-  const lastInput = useRef(performance.now());
+  const lastInput = useRef(performance.now() - INPUT_GRACE_MS);
+  /** Последние дела сима (чтобы не повторять одно и то же). */
+  const recent = useRef<string[]>([]);
   // Действие с анимацией: сначала герой занимает место и двигается, потом результат.
   const [perform, setPerform] = useState<{ key: number; action: string; at: ObjectId } | null>(null);
   const performRef = useRef(perform);
   performRef.current = perform;
   const performKey = useRef(0);
+  const settled = useRef<(key: number) => void>(() => {});
+  const settleWait = useRef(0);
   const catSpots = useRef<P2[]>([]);
   const live = useRef({ state, near: null as ObjectId | null, sheet: null as Sheet, auto, failed: false });
   const playerInput = (): void => {
@@ -476,6 +504,7 @@ export function LifeTab({ state, onTrain, onSession }: { state: GameState; onTra
     [state.character.color, state.character.appearance, state.equipped, state.statXp, L.fat],
   );
   const open = gymOpen(L.minute);
+  const pets = useMemo(() => ({ bowl: L.bowl, litter: L.litter }), [L.bowl, L.litter]);
   const clientsKey = JSON.stringify(L.clients.map((c) => [c.id, c.fat.toFixed(2), c.muscle.toFixed(2)]));
   const clients = useMemo(
     () => (L.scene === 'gym' && open ? L.clients.map(clientMember) : []),
@@ -512,16 +541,29 @@ export function LifeTab({ state, onTrain, onSession }: { state: GameState; onTra
     const pf = { key: performKey.current, action: a.id, at: a.at };
     performRef.current = pf;
     setPerform(pf);
-    window.setTimeout(() => {
+    recent.current = [...recent.current.slice(-11), a.id];
+    const finish = (): void => {
+      if (performRef.current !== pf) return;
+      clearTimeout(settleWait.current);
       lifeRef.current.act(a.id);
       performRef.current = null;
       setPerform(null);
-      lastInput.current = performance.now() - IDLE_MS + AUTO_PAUSE_MS;
-    }, spec.ms ?? 2400);
+      // Следующее дело сим выбирает сразу, без паузы.
+      lastInput.current = performance.now() - INPUT_GRACE_MS;
+    };
+    // Длительность считается с момента, когда герой подошёл и устроился; на всякий случай — не дольше 9 с.
+    const ms = spec.ms ?? 2600;
+    settled.current = (key: number): void => {
+      if (key !== pf.key) return;
+      clearTimeout(settleWait.current);
+      settleWait.current = window.setTimeout(finish, ms);
+    };
+    settleWait.current = window.setTimeout(finish, ms + 6000);
   };
   const doActionRef = useRef(doAction);
   doActionRef.current = doAction;
   const taskRef = useRef<{ action: string; at: ObjectId; since: number } | null>(null);
+  const lastWander = useRef(0);
   const setTask = (t: { action: string; at: ObjectId; since: number } | null): void => {
     taskRef.current = t;
     setAutoTask(t);
@@ -542,29 +584,42 @@ export function LifeTab({ state, onTrain, onSession }: { state: GameState; onTra
           // Кошка ходит — догоняем ближайшую.
           const c = catSpots.current[0]!;
           goto.current = { ...c };
-          if (now - task.since > 25000) setTask(null);
-        } else if (now - task.since > 25000) {
+          if (now - task.since > TASK_TIMEOUT_MS) setTask(null);
+        } else if (now - task.since > TASK_TIMEOUT_MS) {
+          // Не дошёл — запоминает, чтобы сразу не пытаться снова.
+          recent.current = [...recent.current.slice(-11), task.action];
           goto.current = null;
           setTask(null);
+        } else if (!goto.current) {
+          // Подошёл, но не вплотную (упёрся в угол) — ещё шаг к месту.
+          const spot = layoutOf(st).find((p) => p.id === task.at);
+          if (spot) goto.current = { ...spot.use };
         }
         return;
       }
-      if (now - lastInput.current < IDLE_MS) return;
-      const a = autoAction(st);
-      if (!a) return;
-      const L2 = st.life;
+      if (now - lastInput.current < INPUT_GRACE_MS) return;
+      const a = autoAction(st, recent.current);
+      if (!a) {
+        // Делать нечего (зал закрыт, нет предметов) — сим прохаживается, а не стоит.
+        if (!goto.current && now - lastWander.current > 5000) {
+          lastWander.current = now;
+          const spots = layoutOf(st);
+          const p = spots[Math.floor(Math.random() * spots.length)];
+          if (p) goto.current = { x: p.use.x + (Math.random() - 0.5), z: p.use.z + (Math.random() - 0.5) };
+        }
+        return;
+      }
       if (a.at === 'cat') {
         const c = catSpots.current[0];
         if (!c) return;
         goto.current = { ...c };
       } else {
-        const placed = L2.scene === 'home' ? homeLayout(L2.furniture) : gymLayout(GYMS[L2.gym]!.shower, GYMS[L2.gym]!.bar);
-        const spot = placed.find((p) => p.id === a.at);
+        const spot = layoutOf(st).find((p) => p.id === a.at);
         if (!spot) return;
         goto.current = { ...spot.use };
       }
       setTask({ action: a.id, at: a.at, since: now });
-    }, 600);
+    }, 250);
     return () => clearInterval(id);
   }, []);
 
@@ -619,7 +674,9 @@ export function LifeTab({ state, onTrain, onSession }: { state: GameState; onTra
   }
 
   const m = mood(L);
-  const hint = L.scene === 'home' ? t('life.hintHome') : open ? t('life.hintGym') : tf('life.hintClosed', { from: GYM_HOURS[0], to: GYM_HOURS[1] });
+  const homeHint = L.cats.length && L.bowl === 0 ? t('life.bowlEmpty') : litterDirty(L) ? t('life.litterDirty') : t('life.hintHome');
+  const hint = L.scene === 'home' ? homeHint : open ? t('life.hintGym') : tf('life.hintClosed', { from: GYM_HOURS[0], to: GYM_HOURS[1] });
+  const callCat = actionById('call_cat');
   return (
     <div className="world-tab life-tab">
       <div className={`world-view life-view ${perform && /^(sleep|nap)$/.test(perform.action) ? 'sleeping' : ''}`}>
@@ -648,7 +705,9 @@ export function LifeTab({ state, onTrain, onSession }: { state: GameState; onTra
               goto={goto}
               onNear={setNear}
               onInput={playerInput}
+              onSettled={(k: number) => settled.current(k)}
               cats={L.cats}
+              pets={pets}
               perform={perform}
               catSpots={catSpots}
               onFail={() => setFailed(true)}
@@ -680,6 +739,11 @@ export function LifeTab({ state, onTrain, onSession }: { state: GameState; onTra
           <div className="auto-thought" role="status">
             💭 {actionById(autoTask.action)?.icon} {actionById(autoTask.action)?.label[lang]}
           </div>
+        )}
+        {L.scene === 'home' && L.cats.length > 0 && callCat && !perform && (
+          <button className="btn ghost small call-cat-btn" onClick={() => doAction(callCat)} title={callCat.label[lang]}>
+            🐈 {t('life.callCat')}
+          </button>
         )}
         <Joystick stick={stick} onInput={playerInput} />
         <div className="life-actions">{panel ?? <span className="world-note">{hint}</span>}</div>

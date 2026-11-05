@@ -9,7 +9,32 @@ import type { CatBreed } from '../../../game/lifeTypes';
  * клубком, игра лапой. Позы смешиваются плавно.
  */
 
-export type CatMode = 'walk' | 'trot' | 'idle' | 'sit' | 'groom' | 'lie' | 'sleep' | 'play';
+export type CatMode =
+  | 'walk'
+  | 'trot'
+  | 'idle'
+  | 'sit'
+  | 'groom'
+  | 'lie'
+  | 'sleep'
+  | 'play'
+  // Ест или пьёт из миски (голова у пола, жуёт).
+  | 'eat'
+  // Готовится к прыжку: припала к полу, виляет задом.
+  | 'crouch'
+  // В прыжке: лапы вытянуты (наклон — параметр tilt).
+  | 'jump'
+  // В лотке: присела, хвост поднят; закапывает передней лапой.
+  | 'litter'
+  | 'dig'
+  // Перевернулась на спину, лапки кверху.
+  | 'belly'
+  // Сидит с закрытыми глазами и мурлычет, тянется головой к руке.
+  | 'purr'
+  // Трётся о ноги: идёт медленно, голова набок, хвост трубой.
+  | 'rub'
+  // Стоя бьёт лапой по игрушке.
+  | 'swat';
 
 interface Look {
   base: string;
@@ -72,6 +97,10 @@ interface Pose {
   tail: Array<[number, number]>;
   eye: number;
   breath: number;
+  /** Крен корпуса (на спину). */
+  roll: number;
+  /** Мелкая дрожь (мурлыканье). */
+  purr: number;
 }
 
 const tmp = new THREE.Vector3();
@@ -322,14 +351,168 @@ export function buildCat(breed: CatBreed, seed = 1): Cat3D {
 }
 
 function restPose(): Pose {
-  return { hipY: 0.175, hipZ: -0.13, pitch: 0, headX: 0, headY: 0, headZ: 0, legs: [[0, 0], [0, 0], [0, 0], [0, 0]], tail: Array.from({ length: 8 }, () => [0.2, 0] as [number, number]), eye: 1, breath: 0 };
+  return { hipY: 0.175, hipZ: -0.13, pitch: 0, headX: 0, headY: 0, headZ: 0, legs: [[0, 0], [0, 0], [0, 0], [0, 0]], tail: Array.from({ length: 8 }, () => [0.2, 0] as [number, number]), eye: 1, breath: 0, roll: 0, purr: 0 };
 }
 
-/** Целевая поза для режима. legs: [плечо/бедро, нижнее звено]; tail: [подъём, вбок]. */
-function target(mode: CatMode, t: number, speed: number, look: number): Pose {
+/**
+ * Целевая поза для режима. legs: [плечо/бедро, нижнее звено] (+ — лапа назад);
+ * tail: [подъём, вбок]; tilt — наклон в прыжке (+ — носом вниз).
+ */
+function target(mode: CatMode, t: number, speed: number, look: number, tilt: number): Pose {
   const p = restPose();
   const blink = (Math.sin(t * 0.7) > 0.985 ? 0.1 : 1) as number;
   switch (mode) {
+    case 'eat': {
+      // Наклонилась к миске: передние лапы чуть согнуты, голова у пола, жуёт.
+      const chew = Math.sin(t * 9);
+      p.hipY = 0.165;
+      p.pitch = 0.32;
+      p.legs = [
+        [-0.05, -0.5],
+        [-0.05, -0.5],
+        [-0.55, 0.85],
+        [-0.55, 0.85],
+      ];
+      p.headX = 0.95 + 0.06 * chew;
+      p.headY = 0.05 * Math.sin(t * 0.8);
+      p.tail = p.tail.map((_, i) => [i === 0 ? -0.5 : i < 5 ? 0.02 : 0.12, Math.sin(t * 1.1 + i * 0.5) * 0.08] as [number, number]);
+      p.eye = 0.6;
+      return p;
+    }
+    case 'crouch': {
+      // Охота: припала к полу, задние лапы под себя, зад виляет, кончик хвоста дёргается.
+      const wig = Math.sin(t * 16);
+      p.hipY = 0.105;
+      p.hipZ = -0.13 + 0.006 * wig;
+      p.pitch = 0.08;
+      p.legs = [
+        [-0.75, -0.85],
+        [-0.75, -0.85],
+        [-1.25, 2.2],
+        [-1.25, 2.2],
+      ];
+      p.headX = -0.12;
+      p.headY = look * 0.3;
+      p.tail = p.tail.map((_, i) => [i === 0 ? -0.15 : 0.0, i > 5 ? Math.sin(t * 12) * 0.35 : 0.05 * wig] as [number, number]);
+      p.eye = 1.15;
+      return p;
+    }
+    case 'jump': {
+      // Полёт: передние лапы вперёд, задние назад, хвост — руль.
+      p.pitch = tilt;
+      p.legs = [
+        [-0.95, -0.25],
+        [-0.95, -0.25],
+        [0.9, 0.35],
+        [0.9, 0.35],
+      ];
+      p.headX = -tilt * 0.6;
+      p.tail = p.tail.map((_, i) => [i === 0 ? 0.1 - tilt * 0.5 : 0.02, 0] as [number, number]);
+      return p;
+    }
+    case 'litter': {
+      // Присела в лотке: таз низко, хвост поднят, голова смотрит по сторонам.
+      p.hipY = 0.1;
+      p.hipZ = -0.12;
+      p.pitch = -0.32;
+      p.legs = [
+        [0.3, 0],
+        [0.3, 0],
+        [-1.15, 2.15],
+        [-1.15, 2.15],
+      ];
+      p.tail = p.tail.map((_, i) => [i === 0 ? 0.5 : i < 4 ? 0.04 : 0.1, 0] as [number, number]);
+      p.headX = 0.3;
+      p.headY = Math.sin(t * 0.6) * 0.35;
+      p.eye = 0.7;
+      return p;
+    }
+    case 'dig': {
+      // Закапывает: стоит, по очереди гребёт передними лапами назад, нос к наполнителю.
+      const a = t * 7;
+      p.hipY = 0.16;
+      p.pitch = 0.2;
+      const paw = (ph: number): [number, number] => {
+        const k = Math.sin(a + ph);
+        return [-0.5 + 0.75 * Math.max(0, k), -0.9 * Math.max(0, -k)];
+      };
+      p.legs = [paw(0), paw(Math.PI), [-0.35, 0.6], [-0.35, 0.6]];
+      p.headX = 0.75;
+      p.tail = p.tail.map((_, i) => [i === 0 ? 0.25 : 0.03, Math.sin(t * 2 + i) * 0.1] as [number, number]);
+      p.eye = 0.8;
+      return p;
+    }
+    case 'belly': {
+      // На спине: лапки поджаты кверху и лениво перебирают, голова запрокинута.
+      p.hipY = 0.095;
+      p.hipZ = -0.13;
+      p.roll = 2.75;
+      const k = Math.sin(t * 2.2);
+      p.legs = [
+        [-1.1 + 0.15 * k, -1.2],
+        [-1.0 - 0.15 * k, -1.3],
+        [-1.0, 1.4],
+        [-0.85, 1.2],
+      ];
+      p.headX = -0.35;
+      p.headY = 0.2 * Math.sin(t * 0.7);
+      p.headZ = -0.5;
+      p.tail = p.tail.map((_, i) => [i === 0 ? -0.2 : 0, 0.25 * Math.sin(t * 1.5 + i * 0.4)] as [number, number]);
+      p.eye = 0.35;
+      p.purr = 1;
+      return p;
+    }
+    case 'purr': {
+      p.hipY = 0.075;
+      p.hipZ = -0.1;
+      p.pitch = -0.62;
+      p.legs = [
+        [0.62, 0],
+        [0.62, 0],
+        [-1.25, 2.3],
+        [-1.25, 2.3],
+      ];
+      p.tail = p.tail.map((_, i) => [i === 0 ? -0.5 : i < 3 ? -0.2 : 0.05, i === 0 ? 0 : 0.35 + 0.05 * Math.sin(t * 1.3 + i)] as [number, number]);
+      p.headX = 0.35 + 0.1 * Math.sin(t * 1.4);
+      p.headY = look * 0.4;
+      p.headZ = 0.3 * Math.sin(t * 0.9);
+      p.eye = 0.08;
+      p.purr = 1;
+      return p;
+    }
+    case 'rub': {
+      // Трётся: шаг медленный, голова набок к ногам, хвост трубой с загнутым кончиком.
+      const a = t * 5;
+      p.legs = p.legs.map((_, i) => {
+        const s = Math.sin(a + [0, Math.PI, Math.PI, 0][i]!);
+        return [s * 0.35, i < 2 ? -Math.max(0, -s) * 0.6 : Math.max(0, s) * 0.7] as [number, number];
+      });
+      p.hipY = 0.17;
+      p.headX = 0.15;
+      p.headY = look * 0.5;
+      p.headZ = 0.45 * Math.sign(look || 1);
+      p.tail = p.tail.map((_, i) => [i === 0 ? 1.35 : i < 6 ? -0.05 : -0.45, Math.sin(t * 2 + i * 0.4) * 0.06] as [number, number]);
+      p.eye = 0.4;
+      p.purr = 0.6;
+      return p;
+    }
+    case 'swat': {
+      // Бьёт лапой по игрушке на полу перед собой.
+      const hit = Math.max(0, Math.sin(t * 7)) ** 2;
+      p.hipY = 0.15;
+      p.pitch = 0.15;
+      p.legs = [
+        [-0.2, -0.3],
+        [-0.2 - 0.9 * hit, -0.4 - 0.6 * hit],
+        [-0.65, 1.0],
+        [-0.65, 1.0],
+      ];
+      p.headX = 0.45;
+      p.headY = look * 0.3;
+      p.tail = p.tail.map((_, i) => [i === 0 ? 0.25 : 0.02, Math.sin(t * 8 + i) * 0.3] as [number, number]);
+      p.eye = 1.15;
+      return p;
+    }
     case 'walk':
     case 'trot': {
       const f = mode === 'trot' ? 11 : 7;
@@ -439,12 +622,12 @@ const mix = (a: number, b: number, k: number): number => a + (b - a) * k;
  * Поза кошки: режим mode в момент t; speed — скорость шага (м/с), look — куда
  * повернуть голову (−1…1); blend — доля перехода к новой позе за этот кадр.
  */
-export function poseCat(cat: Cat3D, mode: CatMode, t: number, speed: number, blend: number, look = 0): void {
-  const goal = target(mode, t, speed, look);
+export function poseCat(cat: Cat3D, mode: CatMode, t: number, speed: number, blend: number, look = 0, tilt = 0): void {
+  const goal = target(mode, t, speed, look, tilt);
   const p = cat.pose;
   const k = Math.min(1, blend);
   // Ноги при ходьбе меняются быстро, поэтому их фаза не смешивается долго.
-  const legK = mode === 'walk' || mode === 'trot' ? Math.max(k, 0.5) : k;
+  const legK = mode === 'walk' || mode === 'trot' || mode === 'rub' || mode === 'dig' || mode === 'swat' || mode === 'jump' ? Math.max(k, 0.5) : k;
   p.hipY = mix(p.hipY, goal.hipY, k);
   p.hipZ = mix(p.hipZ, goal.hipZ, k);
   p.pitch = mix(p.pitch, goal.pitch, k);
@@ -453,6 +636,8 @@ export function poseCat(cat: Cat3D, mode: CatMode, t: number, speed: number, ble
   p.headZ = mix(p.headZ, goal.headZ, k);
   p.eye = mix(p.eye, goal.eye, Math.max(k, 0.3));
   p.breath = goal.breath;
+  p.roll = mix(p.roll, goal.roll, k * 0.7);
+  p.purr = mix(p.purr, goal.purr, k);
   for (let i = 0; i < 4; i += 1) {
     p.legs[i]![0] = mix(p.legs[i]![0], goal.legs[i]![0], legK);
     p.legs[i]![1] = mix(p.legs[i]![1], goal.legs[i]![1], legK);
@@ -461,9 +646,11 @@ export function poseCat(cat: Cat3D, mode: CatMode, t: number, speed: number, ble
     p.tail[i]![0] = mix(p.tail[i]![0], goal.tail[i]![0], k);
     p.tail[i]![1] = mix(p.tail[i]![1], goal.tail[i]![1], k);
   }
-  cat.body.position.set(0, p.hipY, p.hipZ);
-  cat.body.rotation.x = p.pitch;
-  cat.body.scale.set(1 + p.breath * 0.012, 1 + p.breath * 0.02, 1);
+  // На спине корпус опирается на спину: таз чуть приподнят, чтобы не уходить в пол.
+  const buzz = p.purr * 0.006 * Math.sin(t * 90);
+  cat.body.position.set(0, p.hipY + Math.abs(Math.sin(p.roll)) * 0.0 + buzz * 0.3, p.hipZ);
+  cat.body.rotation.set(p.pitch, 0, p.roll);
+  cat.body.scale.set(1 + p.breath * 0.012 + buzz, 1 + p.breath * 0.02 + buzz, 1);
   cat.head.rotation.set(p.headX, p.headY, p.headZ);
   cat.legs.forEach((l, i) => {
     l.pivot.rotation.x = p.legs[i]![0];
@@ -474,4 +661,128 @@ export function poseCat(cat: Cat3D, mode: CatMode, t: number, speed: number, ble
     g.rotation.y = p.tail[i]![1];
   });
   for (const e of cat.eyes) e.scale.y = Math.max(0.06, p.eye);
+}
+
+// ─── Кошачье хозяйство: миски, лоток, игрушки ──────────────────────────
+
+/** Сетка в точке (x, y, z). */
+const at = (m: THREE.Mesh, x: number, y: number, z: number): THREE.Mesh => {
+  m.position.set(x, y, z);
+  return m;
+};
+
+const std = (color: string, roughness = 0.6, metalness = 0): THREE.MeshStandardMaterial => new THREE.MeshStandardMaterial({ color, roughness, metalness });
+
+/** Миски с кормом и водой на подставке (вдоль локальной оси x; лицом к +z). setFood(0…1) — сколько корма. */
+export function buildBowls(): { group: THREE.Group; setFood(k: number): void } {
+  const g = new THREE.Group();
+  const mat = std('#3a3f45', 0.55);
+  g.add(at(new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.025, 0.26), std('#b5885a', 0.7)), 0, 0.0125, 0));
+  const bowl = (x: number, color: string): THREE.Group => {
+    const b = new THREE.Group();
+    const geo = new THREE.CylinderGeometry(0.1, 0.075, 0.06, 24, 1, true);
+    const wall = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color, roughness: 0.35, metalness: 0.2, side: THREE.DoubleSide }));
+    wall.position.y = 0.055;
+    const bottom = new THREE.Mesh(new THREE.CircleGeometry(0.075, 24), mat);
+    bottom.rotation.x = -Math.PI / 2;
+    bottom.position.y = 0.027;
+    const rim = new THREE.Mesh(new THREE.TorusGeometry(0.1, 0.008, 6, 28), new THREE.MeshStandardMaterial({ color, roughness: 0.35, metalness: 0.2 }));
+    rim.rotation.x = Math.PI / 2;
+    rim.position.y = 0.085;
+    b.add(wall, bottom, rim);
+    b.position.x = x;
+    return b;
+  };
+  const food = bowl(-0.15, '#e85d2a');
+  const water = bowl(0.15, '#2f6fb5');
+  // Корм — горка катышков, вода — голубой диск.
+  const kibble = new THREE.Group();
+  const km = std('#8a5a2b', 0.8);
+  const kg = new THREE.SphereGeometry(0.014, 6, 5);
+  for (let i = 0; i < 26; i += 1) {
+    const a = i * 2.4;
+    const r = 0.012 * Math.sqrt(i) * 1.1;
+    const k = new THREE.Mesh(kg, km);
+    k.position.set(Math.cos(a) * r, 0.035 + (0.03 - r * 0.45), Math.sin(a) * r);
+    kibble.add(k);
+  }
+  food.add(kibble);
+  const w = new THREE.Mesh(new THREE.CircleGeometry(0.085, 24), new THREE.MeshStandardMaterial({ color: '#9fd3f0', roughness: 0.05, metalness: 0.1, transparent: true, opacity: 0.85 }));
+  w.rotation.x = -Math.PI / 2;
+  w.position.y = 0.068;
+  water.add(w);
+  g.add(food, water);
+  return {
+    group: g,
+    setFood: (k: number): void => {
+      kibble.visible = k > 0.01;
+      kibble.scale.set(0.6 + 0.4 * k, Math.max(0.05, k), 0.6 + 0.4 * k);
+    },
+  };
+}
+
+/** Лоток с наполнителем (лицом к +z, вход спереди). setDirt(0…1) — сколько комков видно. */
+export function buildLitter(): { group: THREE.Group; setDirt(k: number): void; surface: number } {
+  const g = new THREE.Group();
+  const plastic = std('#5aa9a3', 0.5);
+  const W = 0.6;
+  const D = 0.46;
+  const H = 0.14;
+  g.add(at(new THREE.Mesh(new THREE.BoxGeometry(W, 0.02, D), plastic), 0, 0.01, 0));
+  for (const sx of [-1, 1]) g.add(at(new THREE.Mesh(new THREE.BoxGeometry(0.025, H, D), plastic), sx * (W / 2 - 0.0125), H / 2, 0));
+  g.add(at(new THREE.Mesh(new THREE.BoxGeometry(W, H, 0.025), plastic), 0, H / 2, -D / 2 + 0.0125));
+  // Передний бортик ниже — вход.
+  g.add(at(new THREE.Mesh(new THREE.BoxGeometry(W, H * 0.55, 0.025), plastic), 0, (H * 0.55) / 2, D / 2 - 0.0125));
+  const sand = new THREE.Mesh(new THREE.BoxGeometry(W - 0.05, 0.05, D - 0.05), std('#e3d6bd', 0.95));
+  sand.position.y = 0.045;
+  g.add(sand);
+  const clumps = new THREE.Group();
+  const cm = std('#a08a68', 0.95);
+  const cg = new THREE.SphereGeometry(0.03, 7, 5);
+  for (let i = 0; i < 6; i += 1) {
+    const c = new THREE.Mesh(cg, cm);
+    c.position.set(Math.sin(i * 2.3) * 0.18, 0.072, Math.cos(i * 1.7) * 0.12);
+    c.scale.set(1.2, 0.6, 1);
+    clumps.add(c);
+  }
+  g.add(clumps);
+  return {
+    group: g,
+    surface: 0.07,
+    setDirt: (k: number): void => {
+      const n = Math.round(Math.min(1, Math.max(0, k)) * clumps.children.length);
+      clumps.children.forEach((c, i) => {
+        c.visible = i < n;
+      });
+    },
+  };
+}
+
+/** Игрушки: мячик и мышка (лежат на полу, катаются от удара лапой). */
+export function buildToy(kind: 'ball' | 'mouse'): THREE.Group {
+  const g = new THREE.Group();
+  if (kind === 'ball') {
+    const ball = new THREE.Mesh(new THREE.SphereGeometry(0.045, 14, 10), std('#e84393', 0.6));
+    ball.position.y = 0.045;
+    ball.name = 'spin';
+    const band = new THREE.Mesh(new THREE.TorusGeometry(0.045, 0.007, 6, 18), std('#f1c40f', 0.6));
+    ball.add(band);
+    g.add(ball);
+  } else {
+    const grey = std('#9a9da3', 0.9);
+    const body = new THREE.Mesh(new THREE.SphereGeometry(0.035, 12, 8), grey);
+    body.scale.set(0.8, 0.7, 1.4);
+    body.position.y = 0.025;
+    const ears = new THREE.Mesh(new THREE.SphereGeometry(0.012, 8, 6), std('#e7a3a8', 0.8));
+    ears.position.set(0, 0.045, 0.03);
+    ears.scale.set(2.4, 1, 0.5);
+    const tail = new THREE.Mesh(new THREE.CylinderGeometry(0.003, 0.003, 0.09, 5), std('#e7a3a8', 0.8));
+    tail.rotation.x = Math.PI / 2 - 0.2;
+    tail.position.set(0, 0.02, -0.08);
+    g.add(body, ears, tail);
+  }
+  g.traverse((o) => {
+    o.castShadow = true;
+  });
+  return g;
 }

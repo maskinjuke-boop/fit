@@ -537,21 +537,27 @@ describe('жизнь кошек', () => {
 
   it('со временем кошка голодает и ест из миски, ходит в лоток — он пачкается', () => {
     let s = withCat();
-    for (let i = 0; i < 8; i += 1) s = act(s, 'tv').state;
+    // Утренние события останавливают время — для проверки их пропускаем.
+    const tv = (x: GameState): GameState => {
+      const y = act(x, 'tv').state;
+      y.life.event = null;
+      return y;
+    };
+    for (let i = 0; i < 8; i += 1) s = tv(s);
     const cat = s.life.cats[0]!;
     expect(s.life.bowl).toBeLessThan(BOWL_MAX);
     expect(s.life.litter).toBeGreaterThan(0);
     expect(cat.play).toBeLessThan(70);
     // Миска пустеет — кошка голодает.
     s.life.bowl = 0;
-    for (let i = 0; i < 16; i += 1) s = act(s, 'tv').state;
+    for (let i = 0; i < 16; i += 1) s = tv(s);
     expect(s.life.cats[0]!.fed).toBeLessThan(20);
     expect(catMood(s.life.cats[0]!, s.life)).toBeLessThan(70);
     // Насыпать корм — платно, и кошка снова ест.
     const gold = s.gold;
     s = act(s, 'fill_bowl').state;
     expect(s.gold).toBe(gold - actionById('fill_bowl')!.cost!);
-    s = act(s, 'tv').state;
+    s = tv(s);
     expect(s.life.cats[0]!.fed).toBeGreaterThan(40);
     // Полную миску не наполнить.
     s.life.bowl = BOWL_MAX;

@@ -101,11 +101,11 @@ export interface PlacedHome extends Placed {
  * и местом для мебели) и лоток в углу у душа. Не занимают платных мест.
  */
 export const PETS = {
-  bowls: { pos: { x: HOUSE.w / 2 - 0.35, z: -3.65 }, rot: -Math.PI / 2, use: { x: HOUSE.w / 2 - 1.35, z: -3.65 } },
+  bowls: { pos: { x: HOUSE.w / 2 - 0.35, z: -3.65 }, rot: -Math.PI / 2, use: { x: HOUSE.w / 2 - 1.05, z: -3.65 } },
   /** Миска с кормом и миска с водой (мировые координаты). */
   food: { x: HOUSE.w / 2 - 0.35, z: -3.85 },
   water: { x: HOUSE.w / 2 - 0.35, z: -3.45 },
-  litter: { pos: { x: 4.55, z: 4.85 }, rot: Math.PI, use: { x: 4.55, z: 3.9 } },
+  litter: { pos: { x: 4.55, z: 4.85 }, rot: Math.PI, use: { x: 4.55, z: 4.2 } },
 } as const;
 
 /** Предметы дома: базовые на своих местах, купленные — по свободным местам своего вида; pets — есть кошки (миски и лоток). */

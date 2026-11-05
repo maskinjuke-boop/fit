@@ -1,16 +1,18 @@
 import { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { actionsAt } from '../../../game/life';
-import { GYMS } from '../../../game/lifeContent';
+import { BOWL_MAX, GYMS } from '../../../game/lifeContent';
 import { GYM_ROOM, HOUSE, REACH, bounds as sceneBounds, clientSpot, dist, gymGear, gymLayout, homeLayout, homeObstacles, resolve, spawn, type Box, type GearKind, type P2, type Placed } from '../../../game/lifeMap';
 import type { CatBreed, ObjectId, SceneId } from '../../../game/lifeTypes';
 import { animFor } from './actionAnims';
 import { disposeObject, type CharacterParts } from './buildCharacter';
-import { buildCat, poseCat, type Cat3D, type CatMode } from './cats3d';
+import { createCatLife, perchSpots, type CatAI, type CatWorld, type Perch } from './catLife';
+import { buildBowls, buildLitter } from './cats3d';
 import { contactShadow, objectModel, parquetTexture, plasterTexture, ticksOf, type HomeAnim } from './homeModels';
 import { M, mat, mesh } from './kit';
 import { blobShadow, loadCharacter, lookKey, type Look, type Member } from './people';
-import { animate, type Motion } from './rig';
+import { showProps, tickProps, type PropKind } from './props3d';
+import { animate, gaitFreq, type Motion } from './rig';
 import { createStudio, setupRenderer } from './studio';
 
 /**
@@ -31,8 +33,10 @@ export interface LifeScene3DProps {
   hero: Look;
   /** Ученики в зале (пусто, если зал закрыт или герой дома). */
   clients: Member[];
-  /** Свои кошки (живут дома). */
-  cats: Array<{ id: string; breed: CatBreed }>;
+  /** Свои кошки (живут дома) и их потребности 0…100 (сытость, игра, туалет). */
+  cats: Array<{ id: string; breed: CatBreed; fed?: number; play?: number; toilet?: number }>;
+  /** Корм в миске (порций) и грязь в лотке 0…100. */
+  pets?: { bowl: number; litter: number };
   /** Герой выполняет действие у предмета (анимация до результата). */
   perform: { key: number; action: string; at: ObjectId } | null;
   /** Куда сцена пишет, где сейчас кошки (для самостоятельного сима). */
@@ -42,6 +46,8 @@ export interface LifeScene3DProps {
   onNear(target: ObjectId | null): void;
   /** Игрок сам управляет героем (клавиши, касание пола) — сим перестаёт действовать сам. */
   onInput?(): void;
+  /** Герой подошёл и занял место действия (отсюда считается его длительность). */
+  onSettled?(key: number): void;
   onFail(): void;
 }
 
@@ -232,8 +238,31 @@ function sideWindow(x: number, z: number, side: number, night: boolean): THREE.G
 }
 
 /** Расставляет предметы: настенные — на высоте, напольным — мягкая контактная тень. */
-function addPlaced(g: THREE.Group, placed: ReadonlyArray<Placed & { y?: number }>): void {
+/** Миски и лоток кошек в сцене (обновляются по состоянию: корм и грязь). */
+interface PetModels {
+  setFood(k: number): void;
+  setDirt(k: number): void;
+  surface: number;
+}
+
+function addPlaced(g: THREE.Group, placed: ReadonlyArray<Placed & { y?: number }>, pets?: { current: PetModels | null }): void {
   for (const p of placed) {
+    if (p.id === 'cat_bowl' || p.id === 'litter') {
+      // Кошачье хозяйство — свои модели (миски, лоток с наполнителем).
+      const prev = pets?.current;
+      const made = p.id === 'cat_bowl' ? buildBowls() : buildLitter();
+      made.group.position.set(p.pos.x, 0, p.pos.z);
+      made.group.rotation.y = p.rot;
+      g.add(made.group);
+      if (pets) {
+        pets.current = {
+          setFood: 'setFood' in made ? made.setFood : (prev?.setFood ?? (() => {})),
+          setDirt: 'setDirt' in made ? made.setDirt : (prev?.setDirt ?? (() => {})),
+          surface: 'surface' in made ? made.surface : (prev?.surface ?? 0.07),
+        };
+      }
+      continue;
+    }
     const m = objectModel(p.id);
     m.position.set(p.pos.x, p.y ?? 0, p.pos.z);
     m.rotation.y = p.rot;
@@ -247,7 +276,7 @@ function addPlaced(g: THREE.Group, placed: ReadonlyArray<Placed & { y?: number }
   }
 }
 
-function house(placed: Array<Placed & { y?: number }>, night: boolean): THREE.Group {
+function house(placed: Array<Placed & { y?: number }>, night: boolean, pets: { current: PetModels | null }): THREE.Group {
   const g = new THREE.Group();
   const { w, d } = HOUSE;
   const pq = parquetTexture();
@@ -280,7 +309,7 @@ function house(placed: Array<Placed & { y?: number }>, night: boolean): THREE.Gr
   rim.rotation.x = -Math.PI / 2;
   rim.scale.set(1.5, 1.05, 1);
   g.add(rug, rim);
-  addPlaced(g, placed);
+  addPlaced(g, placed, pets);
   // Потолочные светильники: днём слабее, вечером теплее и ярче.
   for (const [x, z] of [[-3.5, -1], [3.5, -1], [0, 2.8]] as const) {
     const lamp = new THREE.PointLight('#ffd9a0', night ? 9 : 2.5, 11, 1.7);
@@ -395,6 +424,8 @@ export default function LifeScene3D(props: LifeScene3DProps) {
     let ground: THREE.Object3D | null = null;
     let bounds: Box = sceneBounds('home');
     let boxes: Box[] = [];
+    let catBoxes: Box[] = [];
+    const petModels: { current: PetModels | null } = { current: null };
     let targets: Array<{ id: ObjectId; pos: P2; obj: Placed }> = [];
     let placedNow: Placed[] = [];
     let ticks: HomeAnim[] = [];
@@ -409,18 +440,23 @@ export default function LifeScene3D(props: LifeScene3DProps) {
       world.clear();
       const night = isNight(p.minute);
       const tier = Math.max(0, Math.min(GYMS.length - 1, p.gym));
+      petModels.current = null;
       if (p.scene === 'home') {
-        const placed = homeLayout(p.furniture);
-        world.add(house(placed, night));
+        const placed = homeLayout(p.furniture, p.cats.length > 0);
+        world.add(house(placed, night, petModels));
         boxes = [...placed.map((x) => x.box).filter((b): b is Box => b !== null), ...homeObstacles()];
+        // Кошки подходят к мискам и лотку вплотную — для них это не препятствия.
+        catBoxes = [...placed.filter((x) => x.id !== 'cat_bowl' && x.id !== 'litter').map((x) => x.box).filter((b): b is Box => b !== null), ...homeObstacles()];
         placedNow = placed;
       } else {
         const def = GYMS[tier]!;
         const placed = gymLayout(def.shower, def.bar);
         world.add(gymRoom(tier, placed, night));
         boxes = [...placed.map((x) => x.box), ...gymGear(tier).map((x) => x.box)].filter((b): b is Box => b !== null);
+        catBoxes = boxes;
         placedNow = placed;
       }
+      perches = perchSpots(placedNow, bounds, catBoxes);
       // Подойти можно только к предметам с действиями (декор просто украшает).
       targets = placedNow.filter((x) => actionsAt(x.id).length > 0).map((x) => ({ id: x.id, pos: x.use, obj: x }));
       ticks = ticksOf(world);
@@ -444,54 +480,38 @@ export default function LifeScene3D(props: LifeScene3DProps) {
       vacuum.visible = p.scene === 'home' && p.furniture.includes('robot_vacuum');
     };
 
-    // ── Кошки: свой распорядок (бродят, сидят, умываются, спят), подходят к герою. ──
-    interface CatAI {
-      cat: Cat3D;
-      id: string;
-      shadow: THREE.Mesh;
-      pos: P2;
-      heading: number;
-      mode: CatMode;
-      goal: P2 | null;
-      until: number;
-      speed: number;
-      seed: number;
-    }
-    const cats = new Map<string, CatAI>();
-    const catRand = (() => {
-      let a = 12345;
-      return (): number => {
-        a = (a * 1103515245 + 12345) & 0x7fffffff;
-        return a / 0x7fffffff;
+    // Текущее действие героя (объявлено до кошек: они на него реагируют).
+    let act: Acting | null = null;
+
+    // ── Кошки: живут своей жизнью по потребностям (см. catLife.ts). ──
+    const catLife = createCatLife(scene, () => blobShadow(0.55));
+    const cats = catLife.cats;
+    let perches: Perch[] = [];
+    let vacRand = 777;
+    const catRand = (): number => {
+      vacRand = (vacRand * 1103515245 + 12345) & 0x7fffffff;
+      return vacRand / 0x7fffffff;
+    };
+    /** Что кошки знают о доме в этот кадр. */
+    const catWorld = (): CatWorld => {
+      const p = propsRef.current;
+      return {
+        bounds,
+        boxes: catBoxes,
+        perches,
+        litterSurface: petModels.current?.surface ?? 0.07,
+        hero: pos,
+        act: act ? { key: act.key, motion: act.motion, cat: act.cat, settledAt: act.settle && !act.approach ? act.settle.at : null } : null,
+        pets: p.pets ?? { bowl: BOWL_MAX, litter: 0 },
+        need: (id) => {
+          const c = p.cats.find((x) => x.id === id);
+          return { fed: c?.fed ?? 80, play: c?.play ?? 70, toilet: c?.toilet ?? 90 };
+        },
       };
-    })();
-    const randomSpot = (): P2 => {
-      for (let i = 0; i < 20; i += 1) {
-        const q = { x: bounds.x0 + 0.6 + catRand() * (bounds.x1 - bounds.x0 - 1.2), z: bounds.z0 + 0.6 + catRand() * (bounds.z1 - bounds.z0 - 1.2) };
-        const r = resolve(q, bounds, boxes);
-        if (Math.hypot(r.x - q.x, r.z - q.z) < 0.01) return q;
-      }
-      return { x: 0, z: 0.5 };
     };
     const syncCats = (): void => {
       const p = propsRef.current;
-      const want = p.scene === 'home' ? p.cats : [];
-      for (const [id, c] of cats) {
-        if (!want.some((w) => w.id === id && w.breed === c.cat.breed)) {
-          scene.remove(c.cat.root, c.shadow);
-          disposeObject(c.cat.root);
-          cats.delete(id);
-        }
-      }
-      want.forEach((w, i) => {
-        if (cats.has(w.id)) return;
-        const cat = buildCat(w.breed, i + 1);
-        const shadow = blobShadow(0.55);
-        const start = randomSpot();
-        cat.root.position.set(start.x, 0, start.z);
-        scene.add(cat.root, shadow);
-        cats.set(w.id, { cat, id: w.id, shadow, pos: start, heading: catRand() * Math.PI * 2, mode: 'idle', goal: null, until: 0, speed: 0, seed: i * 2.1 });
-      });
+      catLife.sync(p.scene === 'home' ? p.cats : [], catWorld());
     };
 
     // Робот-пылесос: катается по дому и отворачивает от препятствий.
@@ -515,6 +535,39 @@ export default function LifeScene3D(props: LifeScene3DProps) {
 
     // Ученики в зале.
     const crew = new Map<string, Crew>();
+    /** Разминка и упражнения учеников: [движение, повторов, длительность повтора (с)]. */
+    const DRILLS: ReadonlyArray<[Motion, number, number]> = [
+      ['squat', 6, 2.2],
+      ['stand:stretch', 1, 6],
+      ['jumping_jack', 10, 0.9],
+      ['lunge', 6, 2.3],
+      ['stand:circles', 4, 1.5],
+      ['high_knees', 12, 0.7],
+      ['pushup', 5, 2.2],
+      ['situp', 6, 2.0],
+    ];
+    const REST = 1.2;
+    /** Что ученик делает в момент t: упражнение и фаза повтора (подходы по кругу без простоя). */
+    const crewSet = (e: Crew, t: number): { motion: Motion; phase: number } => {
+      const lens = DRILLS.map(([, n, d]) => n * d + REST);
+      const total = lens.reduce((a, x) => a + x, 0);
+      // Свой порядок: сдвиг по кругу и своя скорость (±10%).
+      const tt = (t * (0.92 + ((e.seed * 7.3) % 0.16)) + e.seed * 37) % total;
+      const start = Math.floor(e.seed * 3.1) % DRILLS.length;
+      let acc = 0;
+      for (let k = 0; k < DRILLS.length; k += 1) {
+        const i = (start + k) % DRILLS.length;
+        const len = lens[i]!;
+        if (tt < acc + len) {
+          const [m, n, d] = DRILLS[i]!;
+          const x = tt - acc;
+          if (x > n * d) return { motion: 'idle', phase: 0 };
+          return { motion: m, phase: (x / d) % 1 };
+        }
+        acc += len;
+      }
+      return { motion: 'idle', phase: 0 };
+    };
     let crewQueue: Promise<void> = Promise.resolve();
     const syncClients = (): void => {
       const p = propsRef.current;
@@ -689,7 +742,8 @@ export default function LifeScene3D(props: LifeScene3DProps) {
     };
     canvas.addEventListener('webglcontextlost', onLost);
 
-    // ── Действие героя ──
+    // ── Действие героя: подходит шагом, плавно занимает место (садится, ложится), берёт
+    //    предметы в руки, после действия так же плавно встаёт и убирает их. ──
     interface Acting {
       key: number;
       motion: Motion;
@@ -698,123 +752,71 @@ export default function LifeScene3D(props: LifeScene3DProps) {
       face: number;
       exit: P2;
       cat: string | null;
+      /** Куда сначала подойти шагом (null — уже на месте). */
+      approach: P2 | null;
+      /** Начало «устраивания» на месте: откуда, с какой высоты и поворота. */
+      settle: { at: number; from: P2; fromY: number; fromFace: number } | null;
+      props: PropKind[] | undefined;
     }
-    let act: Acting | null = null;
-    let exiting: { to: P2 } | null = null;
+    let exiting: { at: number; from: P2; fromY: number; to: P2 } | null = null;
     let heroY = 0;
+    const SETTLE = 0.75;
+    const EXIT = 0.6;
+    const nearestCat = (): CatAI | null => catLife.nearest(pos);
     const startPerform = (pf: { key: number; action: string; at: ObjectId }): void => {
       const spec = animFor(pf.action);
       const here = { x: pos.x, z: pos.z };
       const placed = placedNow.find((x) => x.id === pf.at);
+      const base = { key: pf.key, y: 0, cat: null, approach: null, settle: null, props: spec?.prop };
       if (!spec) {
-        act = { key: pf.key, motion: 'stand:none', anchor: here, y: 0, face: facing, exit: here, cat: null };
+        act = { ...base, motion: 'stand:none', anchor: here, face: facing, exit: here };
+        return;
+      }
+      if (spec.place === 'here') {
+        // На месте, лицом к ближайшей кошке.
+        const c = nearestCat();
+        act = { ...base, motion: spec.motion, anchor: here, face: c ? Math.atan2(c.pos.x - pos.x, c.pos.z - pos.z) : facing, exit: here };
         return;
       }
       if (spec.place === 'cat') {
-        let best: CatAI | null = null;
-        for (const c of cats.values()) if (!best || dist(pos, c.pos) < dist(pos, best.pos)) best = c;
+        const best = nearestCat();
         if (!best) {
-          act = { key: pf.key, motion: spec.motion, anchor: here, y: 0, face: facing, exit: here, cat: null };
+          act = { ...base, motion: spec.motion, anchor: here, face: facing, exit: here };
           return;
         }
-        const dx = pos.x - best.pos.x;
-        const dz = pos.z - best.pos.z;
+        // Кошка на мебели — спрыгивает к герою; дальше ждёт его на полу.
+        const cp = catLife.claim(best, catWorld());
+        const dx = pos.x - cp.x;
+        const dz = pos.z - cp.z;
         const d = Math.hypot(dx, dz) || 1;
-        const anchor = resolve({ x: best.pos.x + (dx / d) * 0.5, z: best.pos.z + (dz / d) * 0.5 }, bounds, boxes);
-        act = { key: pf.key, motion: spec.motion, anchor, y: 0, face: Math.atan2(best.pos.x - anchor.x, best.pos.z - anchor.z), exit: anchor, cat: best.id };
-        best.goal = null;
-        best.heading = Math.atan2(anchor.x - best.pos.x, anchor.z - best.pos.z);
+        const anchor = resolve({ x: cp.x + (dx / d) * 0.55, z: cp.z + (dz / d) * 0.55 }, bounds, boxes);
+        act = { ...base, motion: spec.motion, anchor, face: Math.atan2(cp.x - anchor.x, cp.z - anchor.z), exit: anchor, cat: best.id, approach: anchor };
         return;
       }
       if (!placed) {
-        act = { key: pf.key, motion: spec.motion, anchor: here, y: 0, face: facing, exit: here, cat: null };
+        act = { ...base, motion: spec.motion, anchor: here, face: facing, exit: here };
         return;
       }
       if (spec.place === 'front') {
-        act = { key: pf.key, motion: spec.motion, anchor: { ...placed.use }, y: 0, face: Math.atan2(placed.pos.x - placed.use.x, placed.pos.z - placed.use.z), exit: { ...placed.use }, cat: null };
+        act = { ...base, motion: spec.motion, anchor: { ...placed.use }, face: Math.atan2(placed.pos.x - placed.use.x, placed.pos.z - placed.use.z), exit: { ...placed.use }, approach: { ...placed.use } };
         return;
       }
       const [lx, lz] = spec.at ?? [0, 0];
       const c = Math.cos(placed.rot);
       const sn = Math.sin(placed.rot);
       const anchor = { x: placed.pos.x + lx * c + lz * sn, z: placed.pos.z - lx * sn + lz * c };
-      act = { key: pf.key, motion: spec.motion, anchor, y: spec.y ?? 0, face: placed.rot + (spec.face ?? 0), exit: { ...placed.use }, cat: null };
+      // Место на предмете (диван, кровать) — сначала шагом к месту использования.
+      act = { ...base, motion: spec.motion, anchor, y: spec.y ?? 0, face: placed.rot + (spec.face ?? 0), exit: { ...placed.use }, approach: dist(pos, anchor) > 0.5 ? { ...placed.use } : null };
     };
-
-    const updateCats = (t: number, dt: number): void => {
-      const blend = 1 - Math.exp(-dt * 6);
-      for (const c of cats.values()) {
-        const target = act?.cat === c.id;
-        if (target) {
-          c.mode = act!.motion === 'crouch:play' ? 'play' : 'sit';
-          c.goal = null;
-          c.until = t + 2;
-        } else if (t > c.until) {
-          const r = catRand();
-          const heroNear = dist(pos, c.pos) < 4.5;
-          if (heroNear && r < 0.2) {
-            const a = catRand() * Math.PI * 2;
-            c.goal = resolve({ x: pos.x + Math.sin(a) * 0.9, z: pos.z + Math.cos(a) * 0.9 }, bounds, boxes);
-            c.mode = dist(pos, c.pos) > 2.5 ? 'trot' : 'walk';
-            c.until = t + 12;
-          } else if (r < 0.45) {
-            c.goal = randomSpot();
-            c.mode = 'walk';
-            c.until = t + 16;
-          } else {
-            c.goal = null;
-            const q = catRand();
-            c.mode = q < 0.3 ? 'sit' : q < 0.48 ? 'groom' : q < 0.65 ? 'idle' : q < 0.82 ? 'lie' : 'sleep';
-            const dur = { sit: [4, 9], groom: [3, 6], idle: [2, 5], lie: [6, 12], sleep: [14, 30], walk: [0, 0], trot: [0, 0], play: [2, 3] }[c.mode];
-            c.until = t + dur[0]! + catRand() * (dur[1]! - dur[0]!);
-          }
-        }
-        let want = c.mode === 'trot' ? 0.95 : c.mode === 'walk' ? 0.42 : 0;
-        if (c.goal && want > 0) {
-          const gx = c.goal.x - c.pos.x;
-          const gz = c.goal.z - c.pos.z;
-          const d = Math.hypot(gx, gz);
-          if (d < 0.15) {
-            c.goal = null;
-            c.until = t;
-            want = 0;
-          } else {
-            let diff = Math.atan2(gx, gz) - c.heading;
-            while (diff > Math.PI) diff -= Math.PI * 2;
-            while (diff < -Math.PI) diff += Math.PI * 2;
-            c.heading += diff * Math.min(1, dt * 5);
-            if (d < 0.5) want *= 0.5 + d;
-          }
-        } else want = 0;
-        c.speed += (want - c.speed) * Math.min(1, dt * 6);
-        if (c.speed > 0.01) {
-          const step = c.speed * dt;
-          const next = resolve({ x: c.pos.x + Math.sin(c.heading) * step, z: c.pos.z + Math.cos(c.heading) * step }, bounds, boxes);
-          // Упёрлась — выбирает другое место.
-          if (Math.hypot(next.x - c.pos.x, next.z - c.pos.z) < step * 0.3) c.until = t;
-          c.pos = next;
-        }
-        if (target) {
-          let diff = Math.atan2(pos.x - c.pos.x, pos.z - c.pos.z) - c.heading;
-          while (diff > Math.PI) diff -= Math.PI * 2;
-          while (diff < -Math.PI) diff += Math.PI * 2;
-          c.heading += diff * Math.min(1, dt * 4);
-        }
-        // Голова поворачивается к герою, если он рядом.
-        let look = 0;
-        const dh = dist(pos, c.pos);
-        if (dh < 2.8) {
-          let a = Math.atan2(pos.x - c.pos.x, pos.z - c.pos.z) - c.heading;
-          while (a > Math.PI) a -= Math.PI * 2;
-          while (a < -Math.PI) a += Math.PI * 2;
-          look = Math.max(-1, Math.min(1, a / 1.2));
-        }
-        const mode: CatMode = c.speed > 0.05 ? (c.speed > 0.6 ? 'trot' : 'walk') : c.mode === 'walk' || c.mode === 'trot' ? 'idle' : c.mode;
-        poseCat(c.cat, mode, t + c.seed, c.speed, blend, mode === 'sleep' ? 0 : look);
-        c.cat.root.position.set(c.pos.x, 0, c.pos.z);
-        c.cat.root.rotation.y = c.heading;
-        c.shadow.position.set(c.pos.x, 0.015, c.pos.z);
-      }
+    const angleTo = (from: number, to: number): number => {
+      let d = to - from;
+      while (d > Math.PI) d -= Math.PI * 2;
+      while (d < -Math.PI) d += Math.PI * 2;
+      return d;
+    };
+    const smooth01 = (x: number): number => {
+      const k = Math.max(0, Math.min(1, x));
+      return k * k * (3 - 2 * k);
     };
 
     const updateVacuum = (t: number, dt: number): void => {
@@ -836,7 +838,9 @@ export default function LifeScene3D(props: LifeScene3DProps) {
     let raf = 0;
     let prev = performance.now();
     let speed = 0;
-    let stride = 0;
+    let cycle = 0;
+    let lean = 0;
+    let walkBlend = 0;
     const TOP = 2.6;
     const tick = (now: number): void => {
       raf = requestAnimationFrame(tick);
@@ -846,79 +850,112 @@ export default function LifeScene3D(props: LifeScene3DProps) {
       const p = propsRef.current;
       const t = now / 1000;
       const ease = 1 - Math.exp(-dt * 10);
-      // ── Действие у предмета: герой занимает место и играет анимацию ──
+      // ── Действие у предмета: герой подходит, занимает место и играет анимацию ──
       const pf = p.perform;
-      if (pf && (!act || act.key !== pf.key)) startPerform(pf);
+      if (pf && (!act || act.key !== pf.key)) {
+        exiting = null;
+        startPerform(pf);
+      }
       if (!pf && act) {
-        exiting = { to: act.exit };
+        // Действие кончилось: встаёт и отходит на место использования, предметы убирает.
+        exiting = { at: t, from: { x: pos.x, z: pos.z }, fromY: heroY, to: act.exit };
+        if (hero) showProps(hero.rig, null);
         act = null;
       }
-      let dx = act || exiting ? 0 : p.stick.current.x;
-      let dz = act || exiting ? 0 : -p.stick.current.y;
+      // Управление: стик и клавиши (во время действия — нет), иначе идёт к цели касания или подхода.
+      let dx = 0;
+      let dz = 0;
       if (!act && !exiting) {
+        dx = p.stick.current.x;
+        dz = -p.stick.current.y;
         if (keys.has('w') || keys.has('arrowup') || keys.has('ц')) dz -= 1;
         if (keys.has('s') || keys.has('arrowdown') || keys.has('ы')) dz += 1;
         if (keys.has('a') || keys.has('arrowleft') || keys.has('ф')) dx -= 1;
         if (keys.has('d') || keys.has('arrowright') || keys.has('в')) dx += 1;
-      } else p.goto.current = null;
+      }
       let mag = Math.min(1, Math.hypot(dx, dz));
-      if (mag > 0.05) p.goto.current = null;
-      else if (p.goto.current) {
-        const gx = p.goto.current.x - pos.x;
-        const gz = p.goto.current.z - pos.z;
+      if (mag > 0.05) {
+        // Игрок держит управление — сим не перехватывает.
+        p.goto.current = null;
+        p.onInput?.();
+      }
+      const target = act ? act.approach : exiting ? null : p.goto.current;
+      if (mag <= 0.05 && target) {
+        const gx = target.x - pos.x;
+        const gz = target.z - pos.z;
         const d = Math.hypot(gx, gz);
-        if (d < 0.25) p.goto.current = null;
-        else {
+        if (d < (act ? 0.1 : 0.25)) {
+          if (act) act.approach = null;
+          else p.goto.current = null;
+        } else {
           dx = gx / d;
           dz = gz / d;
-          mag = Math.min(1, d / 1.2);
+          mag = Math.min(1, d / 1.2 + 0.15);
         }
       }
-      speed += ((mag > 0.05 ? TOP * mag : 0) - speed) * Math.min(1, dt * 9);
-      if (mag > 0.05) {
-        let diff = Math.atan2(dx, dz) - facing;
-        while (diff > Math.PI) diff -= Math.PI * 2;
-        while (diff < -Math.PI) diff += Math.PI * 2;
-        facing += diff * Math.min(1, dt * 11);
-      }
-      if (act || exiting) {
-        // Плавно на место действия (или обратно к месту использования).
-        const to = act ? act.anchor : exiting!.to;
-        const k = Math.min(1, dt * 7);
-        pos.x += (to.x - pos.x) * k;
-        pos.z += (to.z - pos.z) * k;
-        heroY += ((act ? act.y : 0) - heroY) * k;
-        if (act) {
-          let diff = act.face - facing;
-          while (diff > Math.PI) diff -= Math.PI * 2;
-          while (diff < -Math.PI) diff += Math.PI * 2;
-          facing += diff * k;
+      speed += ((mag > 0.05 ? TOP * mag : 0) - speed) * Math.min(1, dt * (mag > 0.05 ? 6 : 9));
+      const before = facing;
+      if (mag > 0.05) facing += angleTo(facing, Math.atan2(dx, dz)) * Math.min(1, dt * 9);
+      if (act && !act.approach) {
+        // Устраивается на месте: поворачивается, садится или ложится, плавно (не скользя).
+        if (!act.settle) {
+          act.settle = { at: t, from: { x: pos.x, z: pos.z }, fromY: heroY, fromFace: facing };
+          if (hero) showProps(hero.rig, act.props, act.motion);
+          p.onSettled?.(act.key);
         }
+        const k = smooth01((t - act.settle.at) / SETTLE);
+        pos.x = act.settle.from.x + (act.anchor.x - act.settle.from.x) * k;
+        pos.z = act.settle.from.z + (act.anchor.z - act.settle.from.z) * k;
+        heroY = act.settle.fromY + (act.y - act.settle.fromY) * smooth01((t - act.settle.at - SETTLE * 0.25) / (SETTLE * 0.75));
+        facing = act.settle.fromFace + angleTo(act.settle.fromFace, act.face) * smooth01((t - act.settle.at) / (SETTLE * 0.6));
         speed = 0;
-        if (!act && exiting && Math.hypot(to.x - pos.x, to.z - pos.z) < 0.03 && Math.abs(heroY) < 0.01) {
+      } else if (exiting) {
+        const k = smooth01((t - exiting.at) / EXIT);
+        heroY = exiting.fromY * (1 - smooth01((t - exiting.at) / (EXIT * 0.7)));
+        pos.x = exiting.from.x + (exiting.to.x - exiting.from.x) * k;
+        pos.z = exiting.from.z + (exiting.to.z - exiting.from.z) * k;
+        speed = 0;
+        if (k >= 1) {
           exiting = null;
           heroY = 0;
         }
       } else if (speed > 0.01) {
         const next = resolve({ x: pos.x + Math.sin(facing) * speed * dt, z: pos.z + Math.cos(facing) * speed * dt }, bounds, boxes);
-        if (p.goto.current && Math.hypot(next.x - pos.x, next.z - pos.z) < speed * dt * 0.2) p.goto.current = null;
+        const moved = Math.hypot(next.x - pos.x, next.z - pos.z);
+        // Упёрся — дальше не идёт (и цель касания сбрасывается).
+        if (moved < speed * dt * 0.2) {
+          if (act) act.approach = null;
+          else if (p.goto.current) p.goto.current = null;
+        }
+        speed = Math.min(speed, moved / Math.max(dt, 1e-3) + 0.3);
         pos.x = next.x;
         pos.z = next.z;
       }
-      // Шаг: частота шагов растёт со скоростью, на месте — стойка с дыханием.
-      stride += dt * (0.55 + (speed / TOP) * 0.65);
+      // Наклон в повороте на ходу.
+      const turn = angleTo(before, facing) / Math.max(dt, 1e-3);
+      lean += (Math.max(-0.14, Math.min(0.14, -turn * speed * 0.02)) - lean) * Math.min(1, dt * 6);
       heroRoot.position.set(pos.x, heroY, pos.z);
       heroRoot.rotation.set(0, facing, 0);
       shadow.position.set(pos.x, 0.02, pos.z);
       shadow.visible = heroY < 0.3;
       if (hero) {
-        const motion: Motion = act ? act.motion : speed > 0.25 ? 'walk' : 'idle';
-        animate(hero.rig, motion, motion === 'walk' ? stride : t, 0, ease);
+        const posed = act && !act.approach;
+        if (posed) animate(hero.rig, act!.motion, t, 0, 1 - Math.exp(-dt * 6));
+        else if (speed > 0.06 && !exiting) {
+          // Шаг: фаза копится по частоте шагов для этой скорости — стопы не скользят.
+          cycle = (cycle + dt * gaitFreq(hero.rig, speed)) % 1;
+          animate(hero.rig, 'walk', t, cycle, walkBlend < 1 ? 1 - Math.exp(-dt * 12) : 1, { speed, lean });
+          walkBlend = Math.min(1, walkBlend + dt * 4);
+        } else {
+          animate(hero.rig, 'idle', t, 0, ease);
+          walkBlend = 0;
+        }
+        tickProps(hero.rig, dt, t);
         for (const f of hero.anim) f(t);
       }
       const nightNow = isNight(p.minute);
       for (const f of ticks) f(t, p.minute, nightNow);
-      updateCats(t, dt);
+      catLife.update(t, dt, catWorld());
       updateVacuum(t, dt);
       // Ученики смотрят на тренера и разминаются.
       const coach = p.scene === 'gym' ? { x: 0, z: 2.4 } : pos;
@@ -933,11 +970,10 @@ export default function LifeScene3D(props: LifeScene3DProps) {
         while (diff < -Math.PI) diff += Math.PI * 2;
         e.root.rotation.y += diff * Math.min(1, dt * 3);
         if (e.parts) {
-          // Разминка: время от времени лёгкие приседания или махи руками.
-          const cycle = (t * 0.12 + e.seed) % 1;
-          if (cycle < 0.18) animate(e.parts.rig, 'squat', t, ((cycle / 0.18) * 3) % 1);
-          else if (cycle > 0.55 && cycle < 0.68) animate(e.parts.rig, 'jumping_jack', t, (((cycle - 0.55) / 0.13) * 3) % 1);
-          else animate(e.parts.rig, 'idle', t + e.seed * 3);
+          // Ученики всё время заняты: подходы разных упражнений подряд с короткой паузой
+          // и плавными переходами (у каждого свой порядок и темп).
+          const set = crewSet(e, t);
+          animate(e.parts.rig, set.motion, t + e.seed * 3, set.phase, 1 - Math.exp(-dt * 7));
           for (const f of e.parts.anim) f(t + e.seed);
         }
       }
@@ -975,7 +1011,13 @@ export default function LifeScene3D(props: LifeScene3DProps) {
           }
         }
       }
-      if (p.catSpots) p.catSpots.current = [...cats.values()].map((c) => ({ ...c.pos }));
+      // Где кошки (ближайшая — первой) — для самостоятельного сима.
+      if (p.catSpots) p.catSpots.current = [...cats.values()].sort((a, b) => dist(pos, a.pos) - dist(pos, b.pos)).map((c) => ({ ...c.pos }));
+      // Миска и лоток показывают состояние: сколько корма и грязи.
+      if (petModels.current && p.pets) {
+        petModels.current.setFood(p.pets.bowl / BOWL_MAX);
+        petModels.current.setDirt(p.pets.litter / 100);
+      }
       if (near !== lastNear) {
         lastNear = near;
         p.onNear(near);
@@ -1016,7 +1058,7 @@ export default function LifeScene3D(props: LifeScene3DProps) {
 
   // Перестройка сцены: другое место, мебель, уровень зала, смена дня и ночи.
   const night = isNight(props.minute);
-  const sceneKey = JSON.stringify([props.scene, props.furniture, props.gym, night]);
+  const sceneKey = JSON.stringify([props.scene, props.furniture, props.gym, night, props.cats.length > 0]);
   const firstScene = useRef(sceneKey);
   useEffect(() => {
     if (sceneKey === firstScene.current) return;
@@ -1032,7 +1074,7 @@ export default function LifeScene3D(props: LifeScene3DProps) {
     api.current?.rebuildHero();
   }, [heroKey]);
 
-  const catsKey = JSON.stringify(props.cats);
+  const catsKey = JSON.stringify(props.cats.map((c) => [c.id, c.breed]));
   useEffect(() => {
     api.current?.syncCats();
   }, [catsKey]);
