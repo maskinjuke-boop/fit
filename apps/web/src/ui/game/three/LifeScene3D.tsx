@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { actionsAt } from '../../../game/life';
 import { BOWL_MAX, GYMS } from '../../../game/lifeContent';
-import { GYM_ROOM, HOUSE, REACH, bounds as sceneBounds, clientSpot, dist, gymGear, gymLayout, homeLayout, homeObstacles, resolve, spawn, type Box, type GearKind, type P2, type Placed } from '../../../game/lifeMap';
+import { GYM_ROOM, HOUSE, REACH, bounds as sceneBounds, clientSpot, detourPoint, dist, gymGear, gymLayout, homeLayout, homeObstacles, resolve, spawn, type Box, type GearKind, type P2, type Placed } from '../../../game/lifeMap';
 import type { CatBreed, ObjectId, SceneId } from '../../../game/lifeTypes';
 import { animFor } from './actionAnims';
 import { disposeObject, type CharacterParts } from './buildCharacter';
@@ -11,7 +11,7 @@ import { buildBowls, buildLitter } from './cats3d';
 import { contactShadow, objectModel, parquetTexture, plasterTexture, ticksOf, type HomeAnim } from './homeModels';
 import { M, mat, mesh } from './kit';
 import { blobShadow, loadCharacter, lookKey, type Look, type Member } from './people';
-import { showProps, tickProps, type PropKind } from './props3d';
+import { prepareFists, showProps, tickProps, type PropKind } from './props3d';
 import { animate, gaitFreq, type Motion } from './rig';
 import { createStudio, setupRenderer } from './studio';
 
@@ -35,12 +35,14 @@ export interface LifeScene3DProps {
   clients: Member[];
   /** Свои кошки (живут дома) и их потребности 0…100 (сытость, игра, туалет). */
   cats: Array<{ id: string; breed: CatBreed; fed?: number; play?: number; toilet?: number }>;
-  /** Корм в миске (порций) и грязь в лотке 0…100. */
-  pets?: { bowl: number; litter: number };
+  /** Корм в миске (порций), вода в миске 0…100 и грязь в лотке 0…100. */
+  pets?: { bowl: number; water: number; litter: number };
   /** Герой выполняет действие у предмета (анимация до результата). */
-  perform: { key: number; action: string; at: ObjectId } | null;
+  perform: { key: number; action: string; at: ObjectId | null } | null;
   /** Куда сцена пишет, где сейчас кошки (для самостоятельного сима). */
   catSpots?: { current: P2[] };
+  /** Куда сцена пишет, где герой (для самостоятельного сима). */
+  heroAt?: { current: P2 };
   stick: { current: { x: number; y: number } };
   goto: { current: P2 | null };
   onNear(target: ObjectId | null): void;
@@ -241,6 +243,7 @@ function sideWindow(x: number, z: number, side: number, night: boolean): THREE.G
 /** Миски и лоток кошек в сцене (обновляются по состоянию: корм и грязь). */
 interface PetModels {
   setFood(k: number): void;
+  setWater(k: number): void;
   setDirt(k: number): void;
   surface: number;
 }
@@ -257,6 +260,7 @@ function addPlaced(g: THREE.Group, placed: ReadonlyArray<Placed & { y?: number }
       if (pets) {
         pets.current = {
           setFood: 'setFood' in made ? made.setFood : (prev?.setFood ?? (() => {})),
+          setWater: 'setWater' in made ? made.setWater : (prev?.setWater ?? (() => {})),
           setDirt: 'setDirt' in made ? made.setDirt : (prev?.setDirt ?? (() => {})),
           surface: 'surface' in made ? made.surface : (prev?.surface ?? 0.07),
         };
@@ -493,7 +497,7 @@ export default function LifeScene3D(props: LifeScene3DProps) {
       return vacRand / 0x7fffffff;
     };
     /** Что кошки знают о доме в этот кадр (один объект на всё время — без мусора в кадре). */
-    const catAct: CatHeroAct = { key: 0, motion: 'idle', cat: null, settledAt: null };
+    const catAct: CatHeroAct = { key: 0, motion: 'idle', cat: null, settledAt: null, at: { x: 0, z: 0 } };
     const world0: CatWorld = {
       bounds,
       boxes: catBoxes,
@@ -501,7 +505,7 @@ export default function LifeScene3D(props: LifeScene3DProps) {
       litterSurface: 0.07,
       hero: pos,
       act: null,
-      pets: { bowl: BOWL_MAX, litter: 0 },
+      pets: { bowl: BOWL_MAX, water: 100, litter: 0 },
       need: (id) => {
         const c = propsRef.current.cats.find((x) => x.id === id);
         return { fed: c?.fed ?? 80, play: c?.play ?? 70, toilet: c?.toilet ?? 90 };
@@ -519,6 +523,7 @@ export default function LifeScene3D(props: LifeScene3DProps) {
         catAct.motion = act.motion;
         catAct.cat = act.cat;
         catAct.settledAt = act.settle && !act.approach ? act.settle.at : null;
+        catAct.at = act.anchor;
         world0.act = catAct;
       } else world0.act = null;
       return world0;
@@ -561,10 +566,10 @@ export default function LifeScene3D(props: LifeScene3DProps) {
       ['situp', 6, 2.0],
     ];
     const REST = 1.2;
+    const lens = DRILLS.map(([, n, d]) => n * d + REST);
+    const total = lens.reduce((a, x) => a + x, 0);
     /** Что ученик делает в момент t: упражнение и фаза повтора (подходы по кругу без простоя). */
     const crewSet = (e: Crew, t: number): { motion: Motion; phase: number } => {
-      const lens = DRILLS.map(([, n, d]) => n * d + REST);
-      const total = lens.reduce((a, x) => a + x, 0);
       // Свой порядок: сдвиг по кругу и своя скорость (±10%).
       const tt = (t * (0.92 + ((e.seed * 7.3) % 0.16)) + e.seed * 37) % total;
       const start = Math.floor(e.seed * 3.1) % DRILLS.length;
@@ -641,6 +646,8 @@ export default function LifeScene3D(props: LifeScene3DProps) {
         }
         hero = parts;
         heroRoot.add(hero.root);
+        // Сжатие кистей для предметов в руках — заранее, чтобы не тормозить в начале действия.
+        prepareFists(hero.rig);
         setReady(true);
       });
     };
@@ -777,7 +784,7 @@ export default function LifeScene3D(props: LifeScene3DProps) {
     const SETTLE = 0.75;
     const EXIT = 0.6;
     const nearestCat = (): CatAI | null => catLife.nearest(pos);
-    const startPerform = (pf: { key: number; action: string; at: ObjectId }): void => {
+    const startPerform = (pf: { key: number; action: string; at: ObjectId | null }): void => {
       const spec = animFor(pf.action);
       const here = { x: pos.x, z: pos.z };
       const placed = placedNow.find((x) => x.id === pf.at);
@@ -787,8 +794,8 @@ export default function LifeScene3D(props: LifeScene3DProps) {
         return;
       }
       if (spec.place === 'here') {
-        // На месте, лицом к ближайшей кошке.
-        const c = nearestCat();
+        // На месте; зовёт кошку — лицом к ближайшей.
+        const c = spec.motion === 'crouch:call' ? nearestCat() : null;
         act = { ...base, motion: spec.motion, anchor: here, face: c ? Math.atan2(c.pos.x - pos.x, c.pos.z - pos.z) : facing, exit: here };
         return;
       }
@@ -855,6 +862,10 @@ export default function LifeScene3D(props: LifeScene3DProps) {
     let cycle = 0;
     let lean = 0;
     let walkBlend = 0;
+    /** Обход мебели по пути к цели: промежуточная точка, для какой цели и сколько раз уже обходил. */
+    let via: P2 | null = null;
+    const detourFor: P2 = { x: Infinity, z: Infinity };
+    let detours = 0;
     const TOP = 2.6;
     const tick = (now: number): void => {
       raf = requestAnimationFrame(tick);
@@ -894,12 +905,22 @@ export default function LifeScene3D(props: LifeScene3DProps) {
         p.onInput?.();
       }
       const target = act ? act.approach : exiting ? null : p.goto.current;
-      if (mag <= 0.05 && target) {
-        const gx = target.x - pos.x;
-        const gz = target.z - pos.z;
+      // Новая цель — обходы мебели считаются заново.
+      if (!target) via = null;
+      else if (Math.hypot(target.x - detourFor.x, target.z - detourFor.z) > 0.5) {
+        detourFor.x = target.x;
+        detourFor.z = target.z;
+        via = null;
+        detours = 0;
+      }
+      const aim = via ?? target;
+      if (mag <= 0.05 && aim) {
+        const gx = aim.x - pos.x;
+        const gz = aim.z - pos.z;
         const d = Math.hypot(gx, gz);
-        if (d < (act ? 0.1 : 0.25)) {
-          if (act) act.approach = null;
+        if (d < (via ? 0.2 : act ? 0.1 : 0.25)) {
+          if (via) via = null;
+          else if (act) act.approach = null;
           else p.goto.current = null;
         } else {
           dx = gx / d;
@@ -936,9 +957,14 @@ export default function LifeScene3D(props: LifeScene3DProps) {
       } else if (speed > 0.01) {
         const next = resolve({ x: pos.x + Math.sin(facing) * speed * dt, z: pos.z + Math.cos(facing) * speed * dt }, bounds, boxes);
         const moved = Math.hypot(next.x - pos.x, next.z - pos.z);
-        // Упёрся — дальше не идёт (и цель касания сбрасывается).
+        // Упёрся в мебель — обходит её (несколько попыток), иначе дальше не идёт (цель касания сбрасывается).
         if (moved < speed * dt * 0.2) {
-          if (act) act.approach = null;
+          const goal = act ? act.approach : p.goto.current;
+          const alt = goal && detours < 6 ? detourPoint(pos, goal, bounds, boxes) : null;
+          if (alt) {
+            via = alt;
+            detours += 1;
+          } else if (act) act.approach = null;
           else if (p.goto.current) p.goto.current = null;
         }
         speed = Math.min(speed, moved / Math.max(dt, 1e-3) + 0.3);
@@ -1025,11 +1051,19 @@ export default function LifeScene3D(props: LifeScene3DProps) {
           }
         }
       }
-      // Где кошки (ближайшая — первой) — для самостоятельного сима.
-      if (p.catSpots) p.catSpots.current = [...cats.values()].sort((a, b) => dist(pos, a.pos) - dist(pos, b.pos)).map((c) => ({ ...c.pos }));
+      if (p.heroAt) {
+        p.heroAt.current.x = pos.x;
+        p.heroAt.current.z = pos.z;
+      }
+      // Где кошки (ближайшая — первой) — для самостоятельного сима (раз в 0,2 с, без мусора в каждом кадре).
+      if (p.catSpots && t - spotsAt > 0.2) {
+        spotsAt = t;
+        p.catSpots.current = [...cats.values()].sort((a, b) => dist(pos, a.pos) - dist(pos, b.pos)).map((c) => ({ ...c.pos }));
+      }
       // Миска и лоток показывают состояние: сколько корма и грязи.
       if (petModels.current && p.pets) {
         petModels.current.setFood(p.pets.bowl / BOWL_MAX);
+        petModels.current.setWater(p.pets.water / 100);
         petModels.current.setDirt(p.pets.litter / 100);
       }
       if (near !== lastNear) {
@@ -1045,6 +1079,7 @@ export default function LifeScene3D(props: LifeScene3DProps) {
     };
     let lastRender = 0;
     let renderCost = 8;
+    let spotsAt = -1;
     raf = requestAnimationFrame(tick);
 
     return () => {

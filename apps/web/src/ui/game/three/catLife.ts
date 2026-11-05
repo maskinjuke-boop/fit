@@ -30,6 +30,8 @@ export interface CatHeroAct {
   cat: string | null;
   /** Когда герой устроился на месте (null — ещё подходит). */
   settledAt: number | null;
+  /** Где герой займёт место (сядет, ляжет). */
+  at: P2;
 }
 
 /** Всё, что кошкам нужно знать о доме в этот кадр. */
@@ -42,7 +44,7 @@ export interface CatWorld {
   litterSurface: number;
   hero: P2;
   act: CatHeroAct | null;
-  pets: { bowl: number; litter: number };
+  pets: { bowl: number; water: number; litter: number };
   need(id: string): { fed: number; play: number; toilet: number };
 }
 
@@ -130,6 +132,13 @@ const angleTo = (from: number, to: number): number => {
 };
 
 const CROUCH = 0.24;
+/** Ближе этого к месту героя кошка на мебели не лежит (не залезает в него). */
+const SEAT_CLEAR = 0.6;
+/** Куда сядет или ляжет герой (на этом месте кошке не место); null — не садится. */
+const heroSeat = (w: CatWorld): P2 | null => {
+  const m = w.act?.motion;
+  return m && (m.startsWith('sit:') || m.startsWith('lie:')) ? w.act!.at : null;
+};
 const LAND = 0.16;
 
 /** Кошки дома: parent — куда добавлять модели, shadow — тень под кошкой. */
@@ -192,20 +201,23 @@ export function createCatLife(parent: THREE.Object3D, shadow: () => THREE.Object
           { k: 'go', to: bowlFront(PETS.food, c), run: need.fed < 40 && dist(c.pos, PETS.food) > 4 },
           { k: 'turn', heading: Math.PI / 2 },
           { k: 'pose', mode: 'eat', dur: 6 + rand() * 4, tag: 'eat' },
-          ...(rand() < 0.6 ? ([{ k: 'go', to: bowlFront(PETS.water, c) }, { k: 'turn', heading: Math.PI / 2 }, { k: 'pose', mode: 'eat', dur: 3, tag: 'drink' }] as Step[]) : []),
+          ...(rand() < 0.6 && w.pets.water > 0 ? ([{ k: 'go', to: bowlFront(PETS.water, c) }, { k: 'turn', heading: Math.PI / 2 }, { k: 'pose', mode: 'eat', dur: 3, tag: 'drink' }] as Step[]) : []),
           { k: 'pose', mode: 'groom', dur: 3 },
         ],
       ]);
-    if (t - c.drankAt > 70) opts.push([0.8, () => [{ k: 'go', to: bowlFront(PETS.water, c) }, { k: 'turn', heading: Math.PI / 2 }, { k: 'pose', mode: 'eat', dur: 3.5, tag: 'drink' }]]);
+    if (t - c.drankAt > 70 && w.pets.water > 0) opts.push([0.8, () => [{ k: 'go', to: bowlFront(PETS.water, c) }, { k: 'turn', heading: Math.PI / 2 }, { k: 'pose', mode: 'eat', dur: 3.5, tag: 'drink' }]]);
     if (toys.length) opts.push([0.8 + (100 - need.play) / 22, () => [{ k: 'hunt', toy: pick(toys), left: 2 + Math.floor(rand() * 3), phase: 'chase' }, { k: 'pose', mode: 'sit', dur: 2 }]]);
     if (dist(w.hero, c.pos) < 6 && !w.act) opts.push([1.2, () => [{ k: 'go', to: w.hero, run: dist(w.hero, c.pos) > 2.5, near: 0.45 }, { k: 'rub', dur: 3.5 + rand() * 2.5, angle: rand() * 6 }, { k: 'pose', mode: 'sit', dur: 2 }]]);
     opts.push([2, () => [{ k: 'go', to: randomSpot(w) }]]);
     opts.push([0.7, () => [{ k: 'go', to: randomSpot(w), run: true }, { k: 'go', to: randomSpot(w), run: true }, { k: 'pose', mode: 'idle', dur: 1.5 }]]);
-    if (w.perches.length)
+    // Места на мебели, не занятые героем (он сидит или лежит — кошка ложится рядом, а не в него).
+    const seat = heroSeat(w) ?? w.hero;
+    const perches = w.perches.filter((pr) => dist(pr.pos, seat) > SEAT_CLEAR);
+    if (perches.length)
       opts.push([
         2.2,
         () => {
-          const pr = pick(w.perches);
+          const pr = pick(perches);
           const m = pick(['lie', 'sleep', 'sleep', 'groom', 'sit'] as const);
           return [{ k: 'go', to: pr.edge }, { k: 'turn', heading: Math.atan2(pr.pos.x - pr.edge.x, pr.pos.z - pr.edge.z) }, { k: 'jump', to: pr.pos, y: pr.y }, { k: 'pose', mode: m, dur: restDur(m) }];
         },
@@ -336,6 +348,12 @@ export function createCatLife(parent: THREE.Object3D, shadow: () => THREE.Object
     if (act && act.settledAt !== null && act.motion === 'crouch:call' && c.called !== act.key) {
       c.called = act.key;
       c.plan = [...(c.y > 0.05 ? ([{ k: 'jump', to: c.edge ?? randomSpot(w), y: 0 }] as Step[]) : []), { k: 'go', to: w.hero, run: true, near: 0.5 }, { k: 'rub', dur: 3.5, angle: c.seed }, { k: 'pose', mode: 'purr', dur: 2.5 }];
+      c.stepAt = -1;
+    }
+    // Герой садится или ложится туда, где лежит кошка, — она спрыгивает.
+    const seat = heroSeat(w);
+    if (seat && c.y > 0.05 && !c.jump && c.plan[0]?.k !== 'jump' && dist(c.pos, seat) < SEAT_CLEAR) {
+      c.plan = [{ k: 'jump', to: c.edge ?? randomSpot(w), y: 0 }];
       c.stepAt = -1;
     }
     if (act?.cat === c.id && !c.jump && c.y < 0.05) {

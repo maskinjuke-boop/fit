@@ -674,7 +674,7 @@ const at = (m: THREE.Mesh, x: number, y: number, z: number): THREE.Mesh => {
 const std = (color: string, roughness = 0.6, metalness = 0): THREE.MeshStandardMaterial => new THREE.MeshStandardMaterial({ color, roughness, metalness });
 
 /** Миски с кормом и водой на подставке (вдоль локальной оси x; лицом к +z). setFood(0…1) — сколько корма. */
-export function buildBowls(): { group: THREE.Group; setFood(k: number): void } {
+export function buildBowls(): { group: THREE.Group; setFood(k: number): void; setWater(k: number): void } {
   const g = new THREE.Group();
   const mat = std('#3a3f45', 0.55);
   g.add(at(new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.025, 0.26), std('#b5885a', 0.7)), 0, 0.0125, 0));
@@ -717,6 +717,13 @@ export function buildBowls(): { group: THREE.Group; setFood(k: number): void } {
     setFood: (k: number): void => {
       kibble.visible = k > 0.01;
       kibble.scale.set(0.6 + 0.4 * k, Math.max(0.05, k), 0.6 + 0.4 * k);
+    },
+    // Вода убывает: поверхность опускается по сужающейся к дну стенке миски.
+    setWater: (k: number): void => {
+      w.visible = k > 0.01;
+      const y = 0.03 + 0.04 * Math.min(1, k);
+      w.position.y = y;
+      w.scale.setScalar((0.075 + ((y - 0.025) / 0.06) * 0.025) / 0.085);
     },
   };
 }

@@ -86,9 +86,9 @@ function floorSlots(): Slot[] {
   ];
 }
 
-/** Препятствия дома без действий (телевизор перед диваном). */
+/** Препятствия дома без действий: телевизор и журнальный столик перед диваном (из модели дивана). */
 export function homeObstacles(): Box[] {
-  return [box(0.4, -1.5, 0.85, 0.3)];
+  return [box(0.4, -1.5, 0.85, 0.3), box(0.4, 0.25, 0.45, 0.35)];
 }
 
 export interface PlacedHome extends Placed {
@@ -117,7 +117,8 @@ export function homeLayout(furniture: readonly ObjectId[], pets = false): Placed
   const F = d / 2;
   const base: Placed[] = [
     { id: 'bed', pos: { x: L + 1.3, z: B + 1.4 }, rot: 0, use: { x: L + 2.9, z: B + 1.6 }, box: box(L + 1.3, B + 1.4, 1.05, 1.35) },
-    { id: 'sofa', pos: { x: 0.4, z: 1.4 }, rot: Math.PI, use: { x: 0.4, z: 0.25 }, box: box(0.4, 1.4, 1.25, 0.5) },
+    // Перед диваном — столик: подходят к дивану сбоку от него.
+    { id: 'sofa', pos: { x: 0.4, z: 1.4 }, rot: Math.PI, use: { x: -0.6, z: 0.6 }, box: box(0.4, 1.4, 1.25, 0.5) },
     { id: 'fridge', pos: { x: R - 0.55, z: B + 0.5 }, rot: 0, use: { x: R - 0.8, z: B + 1.8 }, box: box(R - 0.55, B + 0.5, 0.45, 0.4) },
     { id: 'stove', pos: { x: R - 1.65, z: B + 0.45 }, rot: 0, use: { x: R - 1.9, z: B + 1.7 }, box: box(R - 1.65, B + 0.45, 0.5, 0.4) },
     { id: 'shower', pos: { x: R - 0.75, z: F - 1.2 }, rot: -Math.PI / 2, use: { x: R - 2.1, z: F - 1.2 }, box: box(R - 0.75, F - 1.2, 0.7, 0.7) },
@@ -208,6 +209,40 @@ export function resolve(p: P2, b0: Box, boxes: readonly Box[]): P2 {
     }
   }
   return { x, z };
+}
+
+/** Свободна ли точка и прямой путь к ней (без препятствий по дороге). */
+function clearPath(from: P2, to: P2, b0: Box, boxes: readonly Box[]): boolean {
+  const steps = Math.max(2, Math.ceil(dist(from, to) / 0.2));
+  for (let k = 1; k <= steps; k += 1) {
+    const m = { x: from.x + ((to.x - from.x) * k) / steps, z: from.z + ((to.z - from.z) * k) / steps };
+    const r = resolve(m, b0, boxes);
+    if (Math.abs(r.x - m.x) + Math.abs(r.z - m.z) > 0.01) return false;
+  }
+  return true;
+}
+
+/**
+ * Обход препятствия: точка сбоку от пути from → to, до которой путь свободен, — ближайшая
+ * к цели (null — обойти нельзя). Герой упёрся в мебель — идёт сначала туда, потом к цели.
+ */
+export function detourPoint(from: P2, to: P2, b0: Box, boxes: readonly Box[]): P2 | null {
+  const base = Math.atan2(to.x - from.x, to.z - from.z);
+  let best: P2 | null = null;
+  let bestD = Infinity;
+  for (const turn of [0.8, -0.8, 1.3, -1.3, 1.9, -1.9, 2.5, -2.5]) {
+    for (const len of [0.7, 1.3, 2.0]) {
+      const q = { x: from.x + Math.sin(base + turn) * len, z: from.z + Math.cos(base + turn) * len };
+      if (!clearPath(from, q, b0, boxes)) continue;
+      // Лучше точка, откуда до цели путь свободен.
+      const d = dist(q, to) + (clearPath(q, to, b0, boxes) ? 0 : 2) + Math.abs(turn) * 0.1;
+      if (d < bestD) {
+        bestD = d;
+        best = q;
+      }
+    }
+  }
+  return best;
 }
 
 /** Оборудование зала по уровню (для модели и столкновений). */

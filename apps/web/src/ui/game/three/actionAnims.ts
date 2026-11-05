@@ -69,6 +69,11 @@ export const ACTION_ANIMS: Record<string, ActionAnim> = {
   salad: front('stand:eat', ['plate', 'fork']),
   ads: front('stand:talk', ['flyers']),
   chat_clients: spot('stand:talk', [0, 0], 0, 0, 3000),
+  // Между делами (без игрового времени): потянуться, оглядеться, размять руки, погладить кошку.
+  free_stretch: { motion: 'stand:stretch', place: 'here', ms: 3200 },
+  free_look: { motion: 'stand:watch', place: 'here', ms: 3400 },
+  free_circles: { motion: 'stand:circles', place: 'here', ms: 3000 },
+  free_pet: { motion: 'crouch:pet', place: 'cat', ms: 2600 },
 };
 
 export const animFor = (action: string): ActionAnim | undefined => ACTION_ANIMS[action];

@@ -7,6 +7,7 @@ import {
   answerEvent,
   AUTO_RESERVE,
   autoAction,
+  autoChoice,
   catBlocker,
   catMood,
   litterDirty,
@@ -35,7 +36,7 @@ import {
   upgradeGym,
 } from '../src/game/life';
 import { ACTIONS, BOWL_MAX, CAT_BREEDS, LITTER_DIRTY, FURNITURE, GYMS, HOUSE_SLOTS, LIFE_EVENTS, MAX_CATS, OBJECTS, SESSION_EXERCISES, actionById, lifeEventById, mountOf, slotsFor } from '../src/game/lifeContent';
-import { bounds, clientSpot, gymGear, gymLayout, homeLayout, resolve, spawn } from '../src/game/lifeMap';
+import { bounds, clientSpot, detourPoint, gymGear, gymLayout, homeLayout, homeObstacles, resolve, spawn, type Box, type P2 } from '../src/game/lifeMap';
 import type { Txt } from '../src/game/lifeTypes';
 import { itemById } from '../src/game/items';
 import { createState, DEFAULT_APPEARANCE, migrate, type GameState } from '../src/game/state';
@@ -496,11 +497,81 @@ describe('самостоятельность сима', () => {
     expect(a?.open).toBe(undefined);
   });
 
+  it('между делами сим берёт только срочное (голод, пустая миска, поздно в зале), досуг — помечен', () => {
+    const s = full(hero());
+    const fun = autoChoice(s);
+    expect(fun?.leisure).toBe(true);
+    expect(autoChoice(s, [], true)).toBe(null);
+    // Слегка проголодался — подождёт, сильно — ест сразу.
+    s.life.needs.food = 60;
+    expect(autoChoice(s, [], true)).toBe(null);
+    s.life.needs.food = 15;
+    const need = autoChoice(s, [], true);
+    expect(need?.leisure).toBe(false);
+    expect(['snack', 'cook', 'cook_fit']).toContain(need?.action.id);
+    expect(autoChoice(full(inGym(23)), [], true)?.action.id).toBe('go_home');
+    const cat = full(adoptCat(Object.assign(hero(), { gold: 500 }), 'ginger'));
+    cat.life.bowl = 0;
+    expect(autoChoice(cat, [], true)?.action.id).toBe('fill_bowl');
+  });
+
   it('при событии сим ждёт решения игрока', () => {
     const s = hero();
     s.life.needs.food = 5;
     s.life.event = { id: 'blogger' };
     expect(autoAction(s)).toBe(null);
+  });
+});
+
+describe('раскладка дома', () => {
+  it('к предметам можно подойти: места использования не внутри препятствий (столик у дивана — препятствие)', () => {
+    const b = bounds('home');
+    const placed = homeLayout(FURNITURE, true);
+    const obstacles = homeObstacles();
+    for (const p of placed) {
+      const r = resolve(p.use, b, obstacles);
+      expect(Math.hypot(r.x - p.use.x, r.z - p.use.z)).toBeLessThan(0.01);
+    }
+    const sofa = placed.find((p) => p.id === 'sofa')!;
+    const all = [...placed.map((p) => p.box).filter((x) => x !== null), ...obstacles];
+    const r = resolve(sofa.use, b, all);
+    expect(Math.hypot(r.x - sofa.use.x, r.z - sofa.use.z)).toBeLessThan(0.01);
+    // Столик перед диваном не пропускает героя.
+    const table = resolve({ x: 0.4, z: 0.25 }, b, obstacles);
+    expect(Math.hypot(table.x - 0.4, table.z - 0.25)).toBeGreaterThan(0.3);
+  });
+
+  it('герой обходит мебель по пути к предмету (как в сцене: шаг, упёрся — обход)', () => {
+    const b = bounds('home');
+    const placed = homeLayout(['armchair', 'big_tv', 'bookshelf', 'computer'], true);
+    const boxes: Box[] = [...placed.map((p) => p.box).filter((x): x is Box => x !== null), ...homeObstacles()];
+    const walk = (from: P2, to: P2): boolean => {
+      let pos = { ...from };
+      let via: P2 | null = null;
+      let detours = 0;
+      for (let i = 0; i < 2000; i += 1) {
+        const aim = via ?? to;
+        const d = Math.hypot(aim.x - pos.x, aim.z - pos.z);
+        if (d < (via ? 0.2 : 0.25)) {
+          if (!via) return true;
+          via = null;
+          continue;
+        }
+        const step = Math.min(0.05, d);
+        const next = resolve({ x: pos.x + ((aim.x - pos.x) / d) * step, z: pos.z + ((aim.z - pos.z) / d) * step }, b, boxes);
+        if (Math.hypot(next.x - pos.x, next.z - pos.z) < step * 0.2) {
+          const alt = detours < 6 ? detourPoint(pos, to, b, boxes) : null;
+          if (!alt) return false;
+          via = alt;
+          detours += 1;
+        }
+        pos = next;
+      }
+      return false;
+    };
+    const sofa = placed.find((p) => p.id === 'sofa')!;
+    // Из кухни, от кровати, от двери и из-за телевизора — к дивану сбоку от столика.
+    for (const from of [{ x: 5, z: -3 }, { x: -4, z: -2.5 }, { x: -6, z: 4 }, { x: 0.4, z: -0.7 }, { x: 3, z: 3 }]) expect(walk(from, sofa.use)).toBe(true);
   });
 });
 
@@ -606,6 +677,26 @@ describe('жизнь кошек', () => {
     expect(autoAction(s)?.id).toBe('clean_litter');
   });
 
+  it('кошки пьют: вода в миске убывает, без воды им хуже; сим наливает её вместе с кормом', () => {
+    let s = withCat();
+    expect(s.life.water).toBe(100);
+    for (let i = 0; i < 4; i += 1) {
+      s = act(s, 'tv').state;
+      s.life.event = null;
+    }
+    expect(s.life.water).toBeLessThan(100);
+    const mood = catMood(s.life.cats[0]!, s.life);
+    s.life.water = 0;
+    expect(catMood(s.life.cats[0]!, s.life)).toBeLessThan(mood);
+    for (const n of Object.keys(s.life.needs) as Array<keyof GameState['life']['needs']>) s.life.needs[n] = 90;
+    s.life.bowl = BOWL_MAX;
+    expect(blocker(s, actionById('fill_bowl')!)).toBe(null);
+    expect(autoAction(s)?.id).toBe('fill_bowl');
+    s = act(s, 'fill_bowl').state;
+    expect(s.life.water).toBe(100);
+    expect(blocker(s, actionById('fill_bowl')!)).toBe('enough');
+  });
+
   it('потребности кошек сохраняются, старые сохранения получают значения по умолчанию', () => {
     const s = withCat();
     s.life.cats[0]!.fed = 33;
@@ -618,7 +709,9 @@ describe('жизнь кошек', () => {
     expect(o.cats[0]!.fed).toBe(80);
     expect(o.cats[0]!.toilet).toBe(90);
     expect(o.bowl).toBe(BOWL_MAX);
+    expect(o.water).toBe(100);
     expect(o.litter).toBe(0);
+    expect(migrateLife({} as never).water).toBe(0);
   });
 });
 

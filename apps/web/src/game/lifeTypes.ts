@@ -85,6 +85,8 @@ export interface LifeEffect {
   client?: boolean;
   /** Корм в миске (порций, до полной миски). */
   bowl?: number;
+  /** Вода в миске (0…100). */
+  water?: number;
   /** Грязь в лотке (−100 — убрать начисто). */
   litter?: number;
   /** Кошке, которой это нужнее всех: игра и сытость. */
@@ -192,6 +194,8 @@ export interface LifeState {
   cats: Cat[];
   /** Порций корма в кошачьей миске. */
   bowl: number;
+  /** Вода в кошачьей миске 0…100. */
+  water: number;
   /** Грязь в лотке 0…100. */
   litter: number;
   /** «Лишний вес» героя: −1…1. */

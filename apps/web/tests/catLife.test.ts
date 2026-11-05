@@ -5,7 +5,7 @@ import { PETS, bounds, homeLayout, homeObstacles, type Box } from '../src/game/l
 import { createCatLife, perchSpots, type CatHeroAct, type CatWorld } from '../src/ui/game/three/catLife';
 
 /** Дом со всей мебелью и кошачьим хозяйством; кошки живут rounds секунд (без отрисовки поз). */
-function home(needs: { fed: number; play: number; toilet: number }, pets = { bowl: 4, litter: 20 }) {
+function home(needs: { fed: number; play: number; toilet: number }, pets = { bowl: 4, water: 80, litter: 20 }) {
   const placed = homeLayout([...FURNITURE.filter((x) => x === 'armchair' || x === 'big_tv' || x === 'bookshelf')], true);
   const b = bounds('home');
   const boxes: Box[] = [...placed.filter((x) => x.id !== 'cat_bowl' && x.id !== 'litter').map((x) => x.box).filter((x): x is Box => x !== null), ...homeObstacles()];
@@ -53,12 +53,13 @@ describe('кошки в доме', () => {
     for (const t of life.toys) expect(t.pos.x).toBeGreaterThanOrEqual(b.x0 - 0.01);
   });
 
-  it('пустая миска — к ней не идут; полный лоток — не ходят', () => {
-    const { life, world } = home({ fed: 10, play: 90, toilet: 10 }, { bowl: 0, litter: 100 });
+  it('пустые миски — к ним не идут; полный лоток — не ходят', () => {
+    const { life, world } = home({ fed: 10, play: 90, toilet: 10 }, { bowl: 0, water: 0, litter: 100 });
     const dt = 1 / 20;
     for (let i = 0; i < 20 * 300; i += 1) life.update(i * dt, dt, world, false);
     for (const c of life.cats.values()) {
       expect(c.log.eat).toBe(0);
+      expect(c.log.drink).toBe(0);
       expect(c.log.litter).toBe(0);
     }
   });
@@ -91,12 +92,39 @@ describe('кошки в доме', () => {
     const { life, world } = home({ fed: 90, play: 90, toilet: 90 });
     const dt = 1 / 20;
     const cat = life.cats.get('cat1')!;
-    const act: CatHeroAct = { key: 1, motion: 'crouch:pet', cat: 'cat1', settledAt: 0 };
+    const act: CatHeroAct = { key: 1, motion: 'crouch:pet', cat: 'cat1', settledAt: 0, at: { x: 0, z: 0 } };
     world.act = act;
     for (let i = 0; i < 20; i += 1) life.update(1 + i * dt, dt, world, false);
     expect(['purr', 'belly']).toContain(cat.mode);
-    world.act = { key: 2, motion: 'crouch:call', cat: null, settledAt: 2 };
-    for (let i = 0; i < 20 * 12; i += 1) life.update(2 + i * dt, dt, world, false);
-    for (const c of life.cats.values()) expect(Math.hypot(c.pos.x - world.hero.x, c.pos.z - world.hero.z)).toBeLessThan(1.2);
+    world.act = { key: 2, motion: 'crouch:call', cat: null, settledAt: 2, at: { x: 0, z: 0 } };
+    // Каждая кошка прибегает к герою (обходя мебель) и трётся о ноги.
+    const closest = new Map<string, number>();
+    for (let i = 0; i < 20 * 12; i += 1) {
+      life.update(2 + i * dt, dt, world, false);
+      for (const c of life.cats.values()) closest.set(c.id, Math.min(closest.get(c.id) ?? Infinity, Math.hypot(c.pos.x - world.hero.x, c.pos.z - world.hero.z)));
+    }
+    for (const d of closest.values()) expect(d).toBeLessThan(0.8);
+  });
+
+  it('герой садится в кресло, где лежит кошка, — она спрыгивает и туда больше не ложится', () => {
+    const { life, world } = home({ fed: 90, play: 90, toilet: 90 });
+    const chair = homeLayout(['armchair'], true).find((p) => p.id === 'armchair')!;
+    const perch = [...world.perches].sort((a, b) => Math.hypot(a.pos.x - chair.pos.x, a.pos.z - chair.pos.z) - Math.hypot(b.pos.x - chair.pos.x, b.pos.z - chair.pos.z))[0]!;
+    const cat = life.cats.get('cat1')!;
+    cat.pos = { ...perch.pos };
+    cat.y = perch.y;
+    cat.edge = { ...perch.edge };
+    cat.plan = [{ k: 'pose', mode: 'sleep', dur: 60 }];
+    cat.stepAt = -1;
+    const seat = { ...perch.pos };
+    world.hero = seat;
+    world.act = { key: 3, motion: 'sit:read', cat: null, settledAt: 0, at: seat };
+    const dt = 1 / 20;
+    for (let i = 0; i < 20 * 3; i += 1) life.update(i * dt, dt, world, false);
+    expect(cat.y).toBeLessThan(0.05);
+    for (let i = 0; i < 20 * 240; i += 1) {
+      life.update(3 + i * dt, dt, world, false);
+      for (const c of life.cats.values()) if (!c.jump) expect(c.y > 0.05 && Math.hypot(c.pos.x - seat.x, c.pos.z - seat.z) < 0.5).toBe(false);
+    }
   });
 });

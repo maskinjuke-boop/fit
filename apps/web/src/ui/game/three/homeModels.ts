@@ -221,7 +221,8 @@ export function objectModel(id: ObjectId): THREE.Group {
       g.add(mesh(new THREE.BoxGeometry(2.4, 0.45, 0.95), c, [0, 0.25, 0]));
       g.add(mesh(new THREE.BoxGeometry(2.4, 0.6, 0.25), c, [0, 0.65, -0.38]));
       for (const x of [-1.15, 1.15]) g.add(mesh(new THREE.BoxGeometry(0.22, 0.5, 0.95), c, [x, 0.5, 0]));
-      g.add(mesh(new THREE.BoxGeometry(1.0, 0.12, 0.7), wood('#a0784a'), [0, 0.32, 1.0]));
+      // Журнальный столик перед диваном (препятствие — homeObstacles, сесть можно сбоку).
+      g.add(mesh(new THREE.BoxGeometry(0.9, 0.12, 0.7), wood('#a0784a'), [0, 0.32, 1.15]));
       // Телевизор напротив дивана (на стене перед ним).
       const tv = new THREE.Group();
       tv.add(mesh(new THREE.BoxGeometry(1.6, 0.5, 0.45), wood('#3a2a1e'), [0, 0.25, 0]));

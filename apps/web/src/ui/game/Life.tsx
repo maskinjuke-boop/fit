@@ -3,7 +3,7 @@ import { useGame } from '../../game/GameContext';
 import type { GameState } from '../../game/state';
 import {
   actionsAt,
-  autoAction,
+  autoChoice,
   blocker,
   clientAppearance,
   clientForm,
@@ -54,8 +54,34 @@ interface PointerLike {
 const AUTO_KEY = 'fitness-rpg.lifeAuto';
 /** Через сколько после управления игроком сим снова действует сам (между своими делами — без паузы). */
 const INPUT_GRACE_MS = 1000;
-/** Сколько сим идёт к предмету, прежде чем бросить затею. */
-const TASK_TIMEOUT_MS = 15000;
+/** Сим бросает затею, если столько времени не приближается к цели (упёрся), и в любом случае через TASK_MAX_MS. */
+const TASK_STUCK_MS = 6000;
+const TASK_MAX_MS = 60000;
+/**
+ * Передышка после своего дела: на каждую потраченную игровую минуту — столько мс, пока сим
+ * прохаживается, потягивается и гладит кошку без траты игрового времени (срочное — голод,
+ * ночь, пустая миска — делает сразу). Иначе при постоянной занятости день пролетает за
+ * 3–4 минуты; так — около 8 минут на игровые сутки.
+ */
+const REST_MS_PER_MINUTE = 400;
+const REST_MIN_MS = 4000;
+const REST_MAX_MS = 40000;
+
+/** Дело, к которому сим идёт сам: с какого момента, когда в последний раз приблизился и насколько. */
+interface AutoTask {
+  action: string;
+  at: ObjectId;
+  since: number;
+  moved: number;
+  best: number;
+}
+/** Действие с анимацией; free — занятие между делами без результата. */
+interface Perform {
+  key: number;
+  action: string;
+  at: ObjectId | null;
+  free?: boolean;
+}
 
 const NEED_ICON: Record<NeedId, string> = { food: '🍔', energy: '⚡', hygiene: '🚿', fun: '🎉', social: '💬' };
 const CLIENT_COLORS = ['#e85d2a', '#2f6fb5', '#3a9d6a', '#8e44ad', '#d4a017', '#c0392b', '#16a085', '#e84393'];
@@ -345,6 +371,7 @@ function FurnitureList({ state }: { state: GameState }) {
           <li>
             <div>
               <div className={`small ${state.life.bowl === 0 ? 'bad' : ''}`}>🥣 {tf('life.bowl', { n: state.life.bowl, m: BOWL_MAX })}</div>
+              <div className={`small ${state.life.water <= 0 ? 'bad' : ''}`}>💧 {tf('life.water', { n: Math.round(state.life.water) })}</div>
               <div className={`small ${litterDirty(state.life) ? 'bad' : ''}`}>🧻 {tf('life.litter', { n: Math.round(state.life.litter) })}</div>
             </div>
           </li>
@@ -475,27 +502,44 @@ export function LifeTab({ state, onTrain, onSession }: { state: GameState; onTra
       return true;
     }
   });
-  const [autoTask, setAutoTask] = useState<{ action: string; at: ObjectId; since: number } | null>(null);
+  const [autoTask, setAutoTask] = useState<AutoTask | null>(null);
   const lastInput = useRef(performance.now() - INPUT_GRACE_MS);
   /** Последние дела сима (чтобы не повторять одно и то же). */
   const recent = useRef<string[]>([]);
+  /** До какого момента сим берёт только срочное: прохаживается и потягивается, игровое время стоит. */
+  const restUntil = useRef(0);
+  /** Сим только что прошёлся — теперь можно потянуться или погладить кошку. */
+  const strolled = useRef(false);
   // Действие с анимацией: сначала герой занимает место и двигается, потом результат.
-  const [perform, setPerform] = useState<{ key: number; action: string; at: ObjectId } | null>(null);
+  // free — занятие без игрового времени и результата (потянуться, погладить кошку между делами).
+  const [perform, setPerform] = useState<Perform | null>(null);
   const performRef = useRef(perform);
   performRef.current = perform;
   const performKey = useRef(0);
   const settled = useRef<(key: number) => void>(() => {});
   const settleWait = useRef(0);
   const catSpots = useRef<P2[]>([]);
+  /** Где герой (сцена пишет каждый кадр) — чтобы видеть, идёт ли он к цели. */
+  const heroAt = useRef<P2>({ x: 0, z: 0 });
   const live = useRef({ state, near: null as ObjectId | null, sheet: null as Sheet, auto, failed: false });
+  /** Прервать занятие между делами (игрок взял управление или выбрал действие). */
+  const stopFree = (): void => {
+    if (!performRef.current?.free) return;
+    clearTimeout(settleWait.current);
+    performRef.current = null;
+    setPerform(null);
+  };
   const playerInput = (): void => {
     lastInput.current = performance.now();
+    stopFree();
     if (taskRef.current) {
       taskRef.current = null;
       setAutoTask(null);
       goto.current = null;
     }
   };
+  // Таймер действия не переживает вкладку.
+  useEffect(() => () => clearTimeout(settleWait.current), []);
 
   const heroLook = useMemo(
     () => ({ color: state.character.color, appearance: effectiveAppearance(state.character.appearance, state), equipped: state.equipped }),
@@ -504,7 +548,7 @@ export function LifeTab({ state, onTrain, onSession }: { state: GameState; onTra
     [state.character.color, state.character.appearance, state.equipped, state.statXp, L.fat],
   );
   const open = gymOpen(L.minute);
-  const pets = useMemo(() => ({ bowl: L.bowl, litter: L.litter }), [L.bowl, L.litter]);
+  const pets = useMemo(() => ({ bowl: L.bowl, water: L.water, litter: L.litter }), [L.bowl, L.water, L.litter]);
   const clientsKey = JSON.stringify(L.clients.map((c) => [c.id, c.fat.toFixed(2), c.muscle.toFixed(2)]));
   const clients = useMemo(
     () => (L.scene === 'gym' && open ? L.clients.map(clientMember) : []),
@@ -518,8 +562,32 @@ export function LifeTab({ state, onTrain, onSession }: { state: GameState; onTra
   const stateRef = useRef(state);
   stateRef.current = state;
 
-  /** Выполнить действие: с анимацией у предмета, если она есть, иначе сразу. */
-  const doAction = (a: ActionDef): void => {
+  /** Анимация у предмета: длительность считается с момента, когда герой подошёл и устроился. */
+  const play = (pf: Perform, ms: number, done: () => void): void => {
+    performRef.current = pf;
+    setPerform(pf);
+    const finish = (): void => {
+      if (performRef.current !== pf) return;
+      clearTimeout(settleWait.current);
+      done();
+      performRef.current = null;
+      setPerform(null);
+      // Следующее дело сим выбирает сразу, без паузы.
+      lastInput.current = performance.now() - INPUT_GRACE_MS;
+    };
+    settled.current = (key: number): void => {
+      if (key !== pf.key) return;
+      clearTimeout(settleWait.current);
+      settleWait.current = window.setTimeout(finish, ms);
+    };
+    // На всякий случай (не дошёл, сцена не отвечает) — не дольше чем ms + 6 с.
+    clearTimeout(settleWait.current);
+    settleWait.current = window.setTimeout(finish, ms + 6000);
+  };
+
+  /** Выполнить действие: с анимацией у предмета, если она есть, иначе сразу. self — дело выбрал сам сим: после него передышка. */
+  const doAction = (a: ActionDef, self = false): void => {
+    stopFree();
     if (performRef.current) return;
     const spec = animFor(a.id);
     const st = stateRef.current;
@@ -538,33 +606,27 @@ export function LifeTab({ state, onTrain, onSession }: { state: GameState; onTra
       return;
     }
     performKey.current += 1;
-    const pf = { key: performKey.current, action: a.id, at: a.at };
-    performRef.current = pf;
-    setPerform(pf);
     recent.current = [...recent.current.slice(-11), a.id];
-    const finish = (): void => {
-      if (performRef.current !== pf) return;
-      clearTimeout(settleWait.current);
+    play({ key: performKey.current, action: a.id, at: a.at }, spec.ms ?? 2600, () => {
       lifeRef.current.act(a.id);
-      performRef.current = null;
-      setPerform(null);
-      // Следующее дело сим выбирает сразу, без паузы.
-      lastInput.current = performance.now() - INPUT_GRACE_MS;
-    };
-    // Длительность считается с момента, когда герой подошёл и устроился; на всякий случай — не дольше 9 с.
-    const ms = spec.ms ?? 2600;
-    settled.current = (key: number): void => {
-      if (key !== pf.key) return;
-      clearTimeout(settleWait.current);
-      settleWait.current = window.setTimeout(finish, ms);
-    };
-    settleWait.current = window.setTimeout(finish, ms + 6000);
+      // Дело съело игровое время — до следующего несрочного дела сим прохаживается (время стоит).
+      if (self) restUntil.current = performance.now() + Math.min(REST_MAX_MS, Math.max(REST_MIN_MS, a.minutes * REST_MS_PER_MINUTE));
+    });
+  };
+  /** Занятие между делами: без игрового времени и последствий. */
+  const doFree = (id: string): void => {
+    const spec = animFor(id);
+    if (!spec || performRef.current) return;
+    performKey.current += 1;
+    play({ key: performKey.current, action: id, at: spec.place === 'cat' ? 'cat' : null, free: true }, spec.ms ?? 2600, () => {});
   };
   const doActionRef = useRef(doAction);
   doActionRef.current = doAction;
-  const taskRef = useRef<{ action: string; at: ObjectId; since: number } | null>(null);
-  const lastWander = useRef(0);
-  const setTask = (t: { action: string; at: ObjectId; since: number } | null): void => {
+  const doFreeRef = useRef(doFree);
+  doFreeRef.current = doFree;
+  const taskRef = useRef<AutoTask | null>(null);
+  const choiceMemo = useRef<{ st: GameState | null; urgent: boolean; recent: readonly string[] | null; choice: ReturnType<typeof autoChoice> }>({ st: null, urgent: false, recent: null, choice: null });
+  const setTask = (t: AutoTask | null): void => {
     taskRef.current = t;
     setAutoTask(t);
   };
@@ -574,51 +636,75 @@ export function LifeTab({ state, onTrain, onSession }: { state: GameState; onTra
       const now = performance.now();
       if (!on || off || open || st.life.event || performRef.current) return;
       const task = taskRef.current;
+      const hero = heroAt.current;
       if (task) {
-        // Дошёл — делает; застрял — бросает затею.
+        // Дошёл — делает; не продвигается к цели — бросает затею.
         const def = actionById(task.action);
+        const cat = task.at === 'cat' ? catSpots.current[0] : undefined;
+        const spot = cat ? null : layoutOf(st).find((p) => p.id === task.at);
+        const target = cat ?? spot?.use ?? null;
+        if (target) {
+          // Время считается от последнего шага к цели — на медленном устройстве герой не бросает дело на полпути.
+          const d = Math.hypot(hero.x - target.x, hero.z - target.z);
+          if (d < task.best - 0.1) {
+            task.best = d;
+            task.moved = now;
+          }
+        }
         if (at === task.at && def) {
           setTask(null);
-          doActionRef.current(def);
-        } else if (task.at === 'cat' && catSpots.current.length) {
-          // Кошка ходит — догоняем ближайшую.
-          const c = catSpots.current[0]!;
-          goto.current = { ...c };
-          if (now - task.since > TASK_TIMEOUT_MS) setTask(null);
-        } else if (now - task.since > TASK_TIMEOUT_MS) {
+          doActionRef.current(def, true);
+        } else if (!target || now - task.moved > TASK_STUCK_MS || now - task.since > TASK_MAX_MS) {
           // Не дошёл — запоминает, чтобы сразу не пытаться снова.
           recent.current = [...recent.current.slice(-11), task.action];
           goto.current = null;
           setTask(null);
+        } else if (cat) {
+          // Кошка ходит — догоняем ближайшую.
+          goto.current = { ...cat };
         } else if (!goto.current) {
           // Подошёл, но не вплотную (упёрся в угол) — ещё шаг к месту.
-          const spot = layoutOf(st).find((p) => p.id === task.at);
-          if (spot) goto.current = { ...spot.use };
+          goto.current = { ...target };
         }
         return;
       }
       if (now - lastInput.current < INPUT_GRACE_MS) return;
-      const a = autoAction(st, recent.current);
-      if (!a) {
-        // Делать нечего (зал закрыт, нет предметов) — сим прохаживается, а не стоит.
-        if (!goto.current && now - lastWander.current > 5000) {
-          lastWander.current = now;
-          const spots = layoutOf(st);
-          const p = spots[Math.floor(Math.random() * spots.length)];
-          if (p) goto.current = { x: p.use.x + (Math.random() - 0.5), z: p.use.z + (Math.random() - 0.5) };
+      // Выбор пересчитывается, только когда изменилось состояние (он «проигрывает» все действия).
+      const urgent = now < restUntil.current;
+      const memo = choiceMemo.current;
+      if (memo.st !== st || memo.urgent !== urgent || memo.recent !== recent.current) choiceMemo.current = { st, urgent, recent: recent.current, choice: autoChoice(st, recent.current, urgent) };
+      const choice = choiceMemo.current.choice;
+      if (!choice) {
+        // Досуг пока не нужен или делать нечего — прохаживается, потягивается, гладит кошку.
+        if (goto.current) return;
+        if (strolled.current && Math.random() < 0.65) {
+          strolled.current = false;
+          const near = catSpots.current[0];
+          const petting = st.life.scene === 'home' && near && Math.hypot(near.x - hero.x, near.z - hero.z) < 4 && Math.random() < 0.4;
+          const list = st.life.scene === 'home' ? ['free_stretch', 'free_look'] : ['free_stretch', 'free_circles'];
+          doFreeRef.current(petting ? 'free_pet' : list[Math.floor(Math.random() * list.length)]!);
+          return;
         }
+        const spots = layoutOf(st);
+        const p = spots[Math.floor(Math.random() * spots.length)];
+        if (p) goto.current = { x: p.use.x + (Math.random() - 0.5), z: p.use.z + (Math.random() - 0.5) };
+        strolled.current = true;
         return;
       }
+      const a = choice.action;
+      strolled.current = false;
+      let target: P2;
       if (a.at === 'cat') {
         const c = catSpots.current[0];
         if (!c) return;
-        goto.current = { ...c };
+        target = c;
       } else {
         const spot = layoutOf(st).find((p) => p.id === a.at);
         if (!spot) return;
-        goto.current = { ...spot.use };
+        target = spot.use;
       }
-      setTask({ action: a.id, at: a.at, since: now });
+      goto.current = { ...target };
+      setTask({ action: a.id, at: a.at, since: now, moved: now, best: Math.hypot(hero.x - target.x, hero.z - target.z) });
     }, 250);
     return () => clearInterval(id);
   }, []);
@@ -641,7 +727,7 @@ export function LifeTab({ state, onTrain, onSession }: { state: GameState; onTra
   const run = (a: ActionDef): void => doAction(a);
 
   let panel: ReactNode = null;
-  if (perform) {
+  if (perform && !perform.free) {
     const a = actionById(perform.action);
     panel = (
       <div className="life-panel performing">
@@ -674,7 +760,7 @@ export function LifeTab({ state, onTrain, onSession }: { state: GameState; onTra
   }
 
   const m = mood(L);
-  const homeHint = L.cats.length && L.bowl === 0 ? t('life.bowlEmpty') : litterDirty(L) ? t('life.litterDirty') : t('life.hintHome');
+  const homeHint = L.cats.length && L.bowl === 0 ? t('life.bowlEmpty') : L.cats.length && L.water <= 0 ? t('life.waterEmpty') : litterDirty(L) ? t('life.litterDirty') : t('life.hintHome');
   const hint = L.scene === 'home' ? homeHint : open ? t('life.hintGym') : tf('life.hintClosed', { from: GYM_HOURS[0], to: GYM_HOURS[1] });
   const callCat = actionById('call_cat');
   return (
@@ -710,6 +796,7 @@ export function LifeTab({ state, onTrain, onSession }: { state: GameState; onTra
               pets={pets}
               perform={perform}
               catSpots={catSpots}
+              heroAt={heroAt}
               onFail={() => setFailed(true)}
             />
           </Suspense>
@@ -740,7 +827,7 @@ export function LifeTab({ state, onTrain, onSession }: { state: GameState; onTra
             💭 {actionById(autoTask.action)?.icon} {actionById(autoTask.action)?.label[lang]}
           </div>
         )}
-        {L.scene === 'home' && L.cats.length > 0 && callCat && !perform && (
+        {L.scene === 'home' && L.cats.length > 0 && callCat && (!perform || perform.free) && (
           <button className="btn ghost small call-cat-btn" onClick={() => doAction(callCat)} title={callCat.label[lang]}>
             🐈 {t('life.callCat')}
           </button>
