@@ -6,7 +6,7 @@ import { GYM_ROOM, HOUSE, REACH, bounds as sceneBounds, clientSpot, dist, gymGea
 import type { CatBreed, ObjectId, SceneId } from '../../../game/lifeTypes';
 import { animFor } from './actionAnims';
 import { disposeObject, type CharacterParts } from './buildCharacter';
-import { createCatLife, perchSpots, type CatAI, type CatWorld, type Perch } from './catLife';
+import { createCatLife, perchSpots, type CatAI, type CatHeroAct, type CatWorld, type Perch } from './catLife';
 import { buildBowls, buildLitter } from './cats3d';
 import { contactShadow, objectModel, parquetTexture, plasterTexture, ticksOf, type HomeAnim } from './homeModels';
 import { M, mat, mesh } from './kit';
@@ -492,22 +492,36 @@ export default function LifeScene3D(props: LifeScene3DProps) {
       vacRand = (vacRand * 1103515245 + 12345) & 0x7fffffff;
       return vacRand / 0x7fffffff;
     };
-    /** Что кошки знают о доме в этот кадр. */
+    /** Что кошки знают о доме в этот кадр (один объект на всё время — без мусора в кадре). */
+    const catAct: CatHeroAct = { key: 0, motion: 'idle', cat: null, settledAt: null };
+    const world0: CatWorld = {
+      bounds,
+      boxes: catBoxes,
+      perches,
+      litterSurface: 0.07,
+      hero: pos,
+      act: null,
+      pets: { bowl: BOWL_MAX, litter: 0 },
+      need: (id) => {
+        const c = propsRef.current.cats.find((x) => x.id === id);
+        return { fed: c?.fed ?? 80, play: c?.play ?? 70, toilet: c?.toilet ?? 90 };
+      },
+    };
     const catWorld = (): CatWorld => {
       const p = propsRef.current;
-      return {
-        bounds,
-        boxes: catBoxes,
-        perches,
-        litterSurface: petModels.current?.surface ?? 0.07,
-        hero: pos,
-        act: act ? { key: act.key, motion: act.motion, cat: act.cat, settledAt: act.settle && !act.approach ? act.settle.at : null } : null,
-        pets: p.pets ?? { bowl: BOWL_MAX, litter: 0 },
-        need: (id) => {
-          const c = p.cats.find((x) => x.id === id);
-          return { fed: c?.fed ?? 80, play: c?.play ?? 70, toilet: c?.toilet ?? 90 };
-        },
-      };
+      world0.bounds = bounds;
+      world0.boxes = catBoxes;
+      world0.perches = perches;
+      world0.litterSurface = petModels.current?.surface ?? 0.07;
+      world0.pets = p.pets ?? world0.pets;
+      if (act) {
+        catAct.key = act.key;
+        catAct.motion = act.motion;
+        catAct.cat = act.cat;
+        catAct.settledAt = act.settle && !act.approach ? act.settle.at : null;
+        world0.act = catAct;
+      } else world0.act = null;
+      return world0;
     };
     const syncCats = (): void => {
       const p = propsRef.current;
