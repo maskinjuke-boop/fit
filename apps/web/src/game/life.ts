@@ -4,10 +4,10 @@ import { addDays, daysBetween } from './dates';
 import type { GameEvent } from './engine';
 import type { Slot } from './items';
 import { levelOf } from './levels';
-import { ACTIONS, CAT_BREEDS, CAT_NAMES, CLIENT_NAMES, FURNITURE, GYMS, GYM_HOURS, HOME_OBJECTS, LIFE_EVENTS, MAX_CATS, OBJECTS, SESSION_EXERCISES, actionById, catBreedById, lifeEventById, mountOf, slotsFor } from './lifeContent';
+import { ACTIONS, BOWL_MAX, CAT_BREEDS, CAT_RATES, LITTER_DIRTY, CAT_NAMES, CLIENT_NAMES, FURNITURE, GYMS, GYM_HOURS, HOME_OBJECTS, LIFE_EVENTS, MAX_CATS, OBJECTS, SESSION_EXERCISES, actionById, catBreedById, lifeEventById, mountOf, slotsFor } from './lifeContent';
 import { rng } from './random';
 import type { Appearance, BodyPart, GameState, HairStyle } from './state';
-import { NEEDS, SKILLS, type ActionDef, type CatBreed, type Client, type LifeEffect, type LifeResult, type LifeState, type NeedId, type ObjectId, type SkillId, type Txt } from './lifeTypes';
+import { NEEDS, SKILLS, type ActionDef, type Cat, type CatBreed, type Client, type LifeEffect, type LifeResult, type LifeState, type NeedId, type ObjectId, type SkillId, type Txt } from './lifeTypes';
 
 /**
  * Симулятор фитнес-тренера. Две локации — свой дом и фитнес-зал. В зале герой
@@ -35,6 +35,8 @@ export function newLife(): LifeState {
     skills: { cooking: 0, charisma: 0, logic: 0, creativity: 0 },
     furniture: [],
     cats: [],
+    bowl: 0,
+    litter: 0,
     fat: 0,
     gym: 0,
     clients: [firstClient()],
@@ -47,6 +49,8 @@ export function newLife(): LifeState {
     stats: { sessions: 0, earned: 0, meals: 0, workouts: 0, fines: 0, graduated: 0 },
   };
 }
+
+const num = (v: unknown, d: number): number => (typeof v === 'number' && Number.isFinite(v) ? v : d);
 
 /** Старые сохранения (в том числе города и работы) переводятся в жизнь тренера. */
 export function migrateLife(raw: Partial<LifeState> | undefined): LifeState {
@@ -62,7 +66,14 @@ export function migrateLife(raw: Partial<LifeState> | undefined): LifeState {
     groceries: typeof r.groceries === 'number' ? r.groceries : base.groceries,
     skills: { ...base.skills, ...(r.skills ?? {}) },
     furniture: (r.furniture ?? []).filter((id) => FURNITURE.includes(id)),
-    cats: Array.isArray(r.cats) ? r.cats.filter((c) => CAT_BREEDS.some((b) => b.id === c.breed)) : [],
+    cats: Array.isArray(r.cats)
+      ? r.cats
+          .filter((c) => CAT_BREEDS.some((b) => b.id === c.breed))
+          .map((c) => ({ ...c, fed: num(c.fed, 80), play: num(c.play, 70), toilet: num(c.toilet, 90) }))
+      : [],
+    // Старые сохранения с кошками получают полную миску и чистый лоток.
+    bowl: typeof r.bowl === 'number' ? r.bowl : Array.isArray(r.cats) && r.cats.length ? BOWL_MAX : 0,
+    litter: typeof r.litter === 'number' ? r.litter : 0,
     fat: typeof r.fat === 'number' ? r.fat : 0,
     gym: typeof r.gym === 'number' ? r.gym : 0,
     clients: Array.isArray(r.clients) && r.clients.length ? r.clients : base.clients,
@@ -214,10 +225,44 @@ interface Tally {
 }
 const startTally = (): Tally => ({ needs: {}, money: 0, notes: [], skills: {} });
 
-/** Уют дома: декор, мебель и кошки (до 15). */
+/** Лоток грязный: дома пахнет, уют и гигиена падают, кошкам неуютно. */
+export const litterDirty = (life: LifeState): boolean => life.cats.length > 0 && life.litter >= LITTER_DIRTY;
+
+/** Уют дома: декор, мебель и кошки (до 15); грязный лоток его портит. */
 export function comfort(life: LifeState): number {
   const items = life.furniture.reduce((a, id) => a + (OBJECTS[id].comfort ?? 0), 0);
-  return Math.min(15, items + life.cats.length * 2);
+  return Math.max(0, Math.min(15, items + life.cats.length * 2) - (litterDirty(life) ? 4 : 0));
+}
+
+/** Настроение кошки 0…100: сытость, игра, туалет; грязный лоток и пустая миска — хуже. */
+export function catMood(c: Cat, life: LifeState): number {
+  let m = (c.fed + c.play + c.toilet) / 3;
+  if (litterDirty(life)) m -= 15;
+  if (life.bowl <= 0 && c.fed < 40) m -= 10;
+  return clamp(Math.round(m), 0, 100);
+}
+
+/**
+ * Жизнь кошек за hours игровых часов: проголодавшись, едят из миски (порция корма),
+ * ходят в лоток (он пачкается; в переполненный не идут — «конфуз», дома грязнее),
+ * скучают без игры. asleep — герой спит, кошки тоже больше спят.
+ */
+function catsLive(life: LifeState, hours: number, asleep: boolean, tally: Tally): void {
+  if (!life.cats.length) return;
+  for (const c of life.cats) {
+    c.fed = clamp(c.fed - CAT_RATES.fed * hours * (asleep ? 0.6 : 1), 0, 100);
+    if (c.fed < 45 && life.bowl > 0) {
+      life.bowl -= 1;
+      c.fed = clamp(c.fed + 55, 0, 100);
+    }
+    c.toilet = clamp(c.toilet - CAT_RATES.toilet * hours, 0, 100);
+    if (c.toilet < 35) {
+      if (life.litter < 100) life.litter = clamp(life.litter + 20, 0, 100);
+      else if (life.scene === 'home') tally.needs.hygiene = (tally.needs.hygiene ?? 0) + bump(life, 'hygiene', -6);
+      c.toilet = 100;
+    }
+    c.play = clamp(c.play - CAT_RATES.play * hours * (asleep ? 0.4 : 1), 0, 100);
+  }
 }
 
 /** Во сколько раз медленнее падает потребность дома (уют, робот-пылесос, кондиционер). */
@@ -234,10 +279,13 @@ function passTime(s: GameState, minutes: number, asleep: boolean, tally: Tally):
   while (left > 0) {
     const step = Math.min(left, DAY - life.minute, 60);
     for (const n of NEEDS) {
-      const rate = (asleep ? ASLEEP : AWAKE)[n];
+      let rate = (asleep ? ASLEEP : AWAKE)[n];
       const k = rate < 0 ? 1 - homeSlowdown(life, n) : 1;
+      // Грязный лоток: дома гигиена падает быстрее.
+      if (n === 'hygiene' && life.scene === 'home' && litterDirty(life)) rate -= 1.5;
       tally.needs[n] = (tally.needs[n] ?? 0) + bump(life, n, (rate * k * step) / 60);
     }
+    catsLive(life, step / 60, asleep, tally);
     life.minute += step;
     left -= step;
     if (life.minute >= DAY) {
@@ -293,17 +341,29 @@ function applyEffect(s: GameState, e: LifeEffect, tally: Tally): void {
     if (after > before) tally.notes.push(t(`Навык «${SKILL_NAME[k].ru}»: уровень ${after}`, `${SKILL_NAME[k].en} skill: level ${after}`));
   }
   if (e.loyalty) for (const c of life.clients) c.loyalty = clamp(c.loyalty + e.loyalty, 0, 100);
+  if (e.bowl) life.bowl = clamp(life.bowl + e.bowl, 0, BOWL_MAX);
+  if (e.litter) life.litter = clamp(life.litter + e.litter, 0, 100);
+  // Ласка и угощение достаются кошке, которой это нужнее всех.
+  const neediest = (k: 'play' | 'fed'): Cat | undefined => life.cats.reduce<Cat | undefined>((m, c) => (!m || c[k] < m[k] ? c : m), undefined);
+  if (e.catPlay) {
+    const c = neediest('play');
+    if (c) c.play = clamp(c.play + e.catPlay, 0, 100);
+  }
+  if (e.catFed) {
+    const c = neediest('fed');
+    if (c) c.fed = clamp(c.fed + e.catFed, 0, 100);
+  }
   if (e.client) recruit(s, tally.notes, true);
 }
 
 // ─── Доступность действий ──────────────────────────────────────────────
 
-export type Blocker = 'closed' | 'money' | 'groceries' | 'need' | 'skill' | 'missing' | 'clients' | 'session' | null;
+export type Blocker = 'closed' | 'money' | 'groceries' | 'need' | 'skill' | 'missing' | 'clients' | 'session' | 'enough' | null;
 
 /** Есть ли предмет в текущей локации. */
 export function hasObject(s: GameState, id: ObjectId): boolean {
   const life = s.life;
-  if (id === 'cat') return life.scene === 'home' && life.cats.length > 0;
+  if (id === 'cat' || id === 'cat_bowl' || id === 'litter') return life.scene === 'home' && life.cats.length > 0;
   if (life.scene === 'home') return HOME_OBJECTS.includes(id) || life.furniture.includes(id);
   const g = GYMS[life.gym]!;
   if (id === 'gym_shower') return g.shower;
@@ -315,6 +375,10 @@ export function blocker(s: GameState, a: ActionDef): Blocker {
   const life = s.life;
   if (!hasObject(s, a.at)) return 'missing';
   if (a.at === 'coach' && !gymOpen(life.minute)) return 'closed';
+  if (a.id === 'chat_clients' && life.clients.length === 0) return 'clients';
+  // Миска и так полна, лоток и так чистый.
+  if (a.effect.bowl && life.bowl >= BOWL_MAX) return 'enough';
+  if (a.effect.litter && a.effect.litter < 0 && life.litter < 5) return 'enough';
   if (a.open === 'session') {
     if (life.session) return 'session';
     if (life.clients.length === 0) return 'clients';
@@ -553,7 +617,12 @@ export function adoptCat(state: GameState, breed: CatBreed): GameState {
   let name = Math.floor(r() * CAT_NAMES.length);
   while (used.has(name)) name = (name + 1) % CAT_NAMES.length;
   const n = life.cats.reduce((m, c) => Math.max(m, Number(c.id.slice(3)) || 0), 0) + 1;
-  life.cats.push({ id: `cat${n}`, breed, name, adopted: life.day });
+  // С первой кошкой появляются миски (с полной порцией корма) и чистый лоток.
+  if (life.cats.length === 0) {
+    life.bowl = BOWL_MAX;
+    life.litter = 0;
+  }
+  life.cats.push({ id: `cat${n}`, breed, name, adopted: life.day, fed: 80, play: 70, toilet: 90 });
   return s;
 }
 
@@ -618,23 +687,79 @@ function actionValue(state: GameState, a: ActionDef): number {
   return v;
 }
 
+/** Сколько денег сим не тратит сам (кроме еды, когда очень голоден, и корма кошкам). */
+export const AUTO_RESERVE = 40;
+/** Сколько последних дел сим помнит, чтобы не повторять одно и то же. */
+export const AUTO_MEMORY = 6;
+
+/** Можно ли симу самому заплатить за действие. */
+function affordable(state: GameState, a: ActionDef): boolean {
+  const cost = a.cost ?? 0;
+  if (!cost) return true;
+  const food = state.life.needs.food;
+  // Последние деньги — только на еду, когда совсем голоден, и на корм кошкам.
+  const essential = a.id === 'fill_bowl' || ((a.id === 'groceries' || a.id === 'order' || a.id === 'smoothie' || a.id === 'salad') && food < 15);
+  return essential ? state.gold >= cost : state.gold - cost >= AUTO_RESERVE;
+}
+
+/** Досуг, когда срочных нужд нет: чем заняться, чтобы не стоять (без трат и без вреда фигуре). */
+function leisureValue(state: GameState, a: ActionDef): number {
+  const life = state.life;
+  const e = a.effect;
+  if (a.cost || a.sleep || a.id === 'groceries' || a.id === 'call_cat') return -Infinity;
+  if (e.needs?.food && life.needs.food > 70) return -Infinity;
+  if ((e.fat ?? 0) > 0 && life.fat > 0.2) return -Infinity;
+  const spend = Math.min(0, e.needs?.energy ?? 0);
+  if (spend < 0 && life.needs.energy < 35) return -Infinity;
+  const fun = Math.max(0, e.needs?.fun ?? 0);
+  const social = Math.max(0, e.needs?.social ?? 0);
+  const xp = Object.values(e.skills ?? {}).reduce((x, n) => x + (n ?? 0), 0);
+  const money = Math.max(0, e.money ?? 0);
+  // Уборка лотка заранее, пока он не стал грязным.
+  const tidy = e.litter && e.litter < 0 && life.litter >= 40 ? life.litter * 0.06 : 0;
+  // Душ, перекус и прочие «нужды» — не досуг.
+  if (!fun && !social && !xp && !money && !e.catPlay && !tidy) return -Infinity;
+  let v = 3 + fun * 0.08 + social * 0.06 + xp * 0.08 + money * 0.04 + tidy;
+  // Кошки рады вниманию — особенно заскучавшие.
+  if (e.catPlay) v += 0.5 + Math.max(0, 60 - Math.min(...life.cats.map((c) => c.play), 100)) * 0.08;
+  return v;
+}
+
 /**
- * Что сим сделает сам, пока игрок ничего не трогает: самое полезное действие у предметов
- * текущей локации. Камерные тренировки и занятия сим без игрока не начинает. Из зала
- * уходит домой, если пора спать или нужно поесть, а в зале нечем. null — всё хорошо, стоит.
+ * Что сим сделает сам: самое полезное действие у предметов текущей локации, а если срочных
+ * нужд нет — досуг (кошка, книга, кино, музыка, хобби), чтобы не стоять. Камерные тренировки
+ * и занятия сим без игрока не начинает, денег сам почти не тратит (запас AUTO_RESERVE),
+ * недавние дела (recent, последние — в конце) повторяет неохотно. Из зала уходит домой,
+ * если пора спать или нужно поесть, а в зале нечем. null — делать нечего.
  */
-export function autoAction(state: GameState): ActionDef | null {
+export function autoAction(state: GameState, recent: readonly string[] = []): ActionDef | null {
   const life = state.life;
   if (life.event || life.session) return null;
+  const mem = recent.slice(-AUTO_MEMORY);
+  const repeats = (id: string): number => mem.reduce((n, x, i) => n + (x === id ? 0.5 + (i + 1) / mem.length : 0), 0);
   let best: ActionDef | null = null;
   // Порог: сим не бросается к холодильнику из-за пары пунктов сытости.
   let score = 14;
+  let fun: ActionDef | null = null;
+  let funScore = 0;
+  const jitter = rng(`${life.day}:${life.minute}:${mem.length}`);
   for (const a of ACTIONS) {
-    if (a.train || a.open || a.go || !hasObject(state, a.at) || blocker(state, a)) continue;
-    const v = a.id === 'groceries' ? (life.groceries === 0 && life.needs.food < 70 ? urgency(life.needs.food) * 25 : -Infinity) : actionValue(state, a);
+    if (a.train || a.open || a.go || !hasObject(state, a.at) || blocker(state, a) || !affordable(state, a)) continue;
+    let v: number;
+    if (a.id === 'groceries') v = life.groceries === 0 && life.needs.food < 70 ? urgency(life.needs.food) * 25 : -Infinity;
+    else if (a.id === 'fill_bowl') v = life.bowl === 0 ? 30 : life.bowl === 1 ? 12 : -Infinity;
+    else if (a.id === 'clean_litter') v = life.litter >= LITTER_DIRTY ? 18 + (life.litter - LITTER_DIRTY) * 0.3 : -Infinity;
+    else if (a.id === 'call_cat') v = -Infinity;
+    else v = actionValue(state, a);
+    v -= repeats(a.id) * 9;
     if (v > score) {
       score = v;
       best = a;
+    }
+    const lv = leisureValue(state, a) - repeats(a.id) * 4 + jitter() * 2;
+    if (lv > funScore) {
+      funScore = lv;
+      fun = a;
     }
   }
   if (life.scene === 'gym') {
@@ -644,7 +769,7 @@ export function autoAction(state: GameState): ActionDef | null {
     const hungry = life.needs.food < 35 && !GYMS[life.gym]!.bar;
     if (late || tired || hungry || (!best && life.needs.hygiene < 30)) return actionById('go_home') ?? null;
   }
-  return best;
+  return best ?? fun;
 }
 
 export { SKILLS, NEEDS };

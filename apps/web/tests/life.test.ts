@@ -5,8 +5,11 @@ import {
   act,
   adoptCat,
   answerEvent,
+  AUTO_RESERVE,
   autoAction,
   catBlocker,
+  catMood,
+  litterDirty,
   comfort,
   hasObject,
   rehomeCat,
@@ -31,7 +34,7 @@ import {
   trainerLevel,
   upgradeGym,
 } from '../src/game/life';
-import { ACTIONS, CAT_BREEDS, FURNITURE, GYMS, HOUSE_SLOTS, LIFE_EVENTS, MAX_CATS, OBJECTS, SESSION_EXERCISES, actionById, mountOf, slotsFor } from '../src/game/lifeContent';
+import { ACTIONS, BOWL_MAX, CAT_BREEDS, LITTER_DIRTY, FURNITURE, GYMS, HOUSE_SLOTS, LIFE_EVENTS, MAX_CATS, OBJECTS, SESSION_EXERCISES, actionById, lifeEventById, mountOf, slotsFor } from '../src/game/lifeContent';
 import { bounds, clientSpot, gymGear, gymLayout, homeLayout, resolve, spawn } from '../src/game/lifeMap';
 import type { Txt } from '../src/game/lifeTypes';
 import { itemById } from '../src/game/items';
@@ -390,8 +393,69 @@ describe('самостоятельность сима', () => {
     return s;
   };
 
-  it('всё хорошо — сим ничего не делает', () => {
-    expect(autoAction(full(hero()))).toBe(null);
+  it('всё хорошо — сим не стоит, а занимается бесплатным досугом', () => {
+    const a = autoAction(full(hero()));
+    expect(a === null).toBe(false);
+    expect(a?.train ?? false).toBe(false);
+    expect(a?.open).toBe(undefined);
+    expect(a?.cost ?? 0).toBe(0);
+    expect(a?.sleep ?? false).toBe(false);
+  });
+
+  it('досуг не повторяется по кругу: недавние дела сим выбирает неохотно', () => {
+    const s = full(hero());
+    s.gold = 1e5;
+    for (const id of ['bookshelf', 'armchair', 'piano', 'easel', 'smart_speaker', 'console'] as const) Object.assign(s, buyFurniture(s, id));
+    const recent: string[] = [];
+    for (let i = 0; i < 12; i += 1) {
+      const a = autoAction(s, recent)!;
+      expect(a === null).toBe(false);
+      recent.push(a.id);
+    }
+    // Подряд одно и то же не делает, за 12 дел — хотя бы 4 разных.
+    for (let i = 1; i < recent.length; i += 1) expect(recent[i] === recent[i - 1]).toBe(false);
+    expect(new Set(recent).size).toBeGreaterThanOrEqual(4);
+  });
+
+  it('долгая жизнь без игрока: не зацикливается, не тратит все деньги, держит потребности', () => {
+    let s = hero();
+    s.gold = 2000;
+    s = adoptCat(s, 'ginger');
+    for (const id of ['bookshelf', 'smart_speaker', 'computer', 'easel'] as const) s = buyFurniture(s, id);
+    s.gold = 150;
+    const start = s.gold;
+    const recent: string[] = [];
+    const count = new Map<string, number>();
+    let minGold = s.gold;
+    let low = 0;
+    for (let i = 0; i < 600 && recent.length < 400; i += 1) {
+      if (s.life.event) {
+        s = answerEvent(s, lifeEventById(s.life.event.id)!.choices.find((c) => !c.cost)!.id);
+        continue;
+      }
+      const a = autoAction(s, recent);
+      if (!a) break;
+      s = act(s, a.id).state;
+      recent.push(a.id);
+      count.set(a.id, (count.get(a.id) ?? 0) + 1);
+      minGold = Math.min(minGold, s.gold);
+      if (Object.values(s.life.needs).some((v) => v < 10)) low += 1;
+    }
+    expect(recent.length).toBe(400);
+    // Ни одно дело не занимает больше четверти времени.
+    for (const [, n] of count) expect(n).toBeLessThan(100);
+    expect(count.size).toBeGreaterThanOrEqual(8);
+    // Деньги: тратит только на нужное, запас остаётся.
+    expect(minGold).toBeGreaterThanOrEqual(Math.min(start, AUTO_RESERVE) - 35);
+    // Кошка сыта, лоток не зарос: сим сам насыпает корм и убирает.
+    expect(count.get('fill_bowl') ?? 0).toBeGreaterThan(0);
+    expect(count.get('clean_litter') ?? 0).toBeGreaterThan(0);
+    expect(low).toBeLessThan(40);
+  });
+
+  it('в зале без срочных дел — болтает с учениками, а не стоит', () => {
+    const s = full(inGym(12));
+    expect(autoAction(s)?.id).toBe('chat_clients');
   });
 
   it('голоден — ест из холодильника или готовит', () => {
@@ -437,6 +501,118 @@ describe('самостоятельность сима', () => {
     s.life.needs.food = 5;
     s.life.event = { id: 'blogger' };
     expect(autoAction(s)).toBe(null);
+  });
+});
+
+describe('жизнь кошек', () => {
+  const withCat = (): GameState => {
+    const s = hero();
+    s.gold = 5000;
+    return adoptCat(s, 'british');
+  };
+
+  it('миски и лоток — только когда есть кошка, не занимают платных мест', () => {
+    const s = hero();
+    expect(hasObject(s, 'cat_bowl')).toBe(false);
+    expect(hasObject(s, 'litter')).toBe(false);
+    const c = withCat();
+    expect(hasObject(c, 'cat_bowl')).toBe(true);
+    expect(hasObject(c, 'litter')).toBe(true);
+    expect(c.life.bowl).toBe(BOWL_MAX);
+    expect(c.life.litter).toBe(0);
+    const placed = homeLayout(c.life.furniture, true);
+    expect(placed.some((p) => p.id === 'cat_bowl')).toBe(true);
+    expect(placed.some((p) => p.id === 'litter')).toBe(true);
+    expect(homeLayout([]).some((p) => p.id === 'cat_bowl')).toBe(false);
+    // Не мешают мебели: миска и лоток не пересекаются с местами у стен и предметами.
+    const all = homeLayout(FURNITURE, true);
+    const pets = all.filter((p) => p.id === 'cat_bowl' || p.id === 'litter');
+    for (const p of pets)
+      for (const q of all) {
+        if (q === p || !q.box || !p.box) continue;
+        const overlap = p.box.x0 < q.box.x1 && q.box.x0 < p.box.x1 && p.box.z0 < q.box.z1 && q.box.z0 < p.box.z1;
+        expect(overlap).toBe(false);
+      }
+  });
+
+  it('со временем кошка голодает и ест из миски, ходит в лоток — он пачкается', () => {
+    let s = withCat();
+    for (let i = 0; i < 8; i += 1) s = act(s, 'tv').state;
+    const cat = s.life.cats[0]!;
+    expect(s.life.bowl).toBeLessThan(BOWL_MAX);
+    expect(s.life.litter).toBeGreaterThan(0);
+    expect(cat.play).toBeLessThan(70);
+    // Миска пустеет — кошка голодает.
+    s.life.bowl = 0;
+    for (let i = 0; i < 16; i += 1) s = act(s, 'tv').state;
+    expect(s.life.cats[0]!.fed).toBeLessThan(20);
+    expect(catMood(s.life.cats[0]!, s.life)).toBeLessThan(70);
+    // Насыпать корм — платно, и кошка снова ест.
+    const gold = s.gold;
+    s = act(s, 'fill_bowl').state;
+    expect(s.gold).toBe(gold - actionById('fill_bowl')!.cost!);
+    s = act(s, 'tv').state;
+    expect(s.life.cats[0]!.fed).toBeGreaterThan(40);
+    // Полную миску не наполнить.
+    s.life.bowl = BOWL_MAX;
+    expect(blocker(s, actionById('fill_bowl')!)).toBe('enough');
+  });
+
+  it('грязный лоток: хуже гигиена дома, уют и настроение кошки; уборка всё исправляет', () => {
+    const clean = withCat();
+    const dirty = structuredClone(clean);
+    dirty.life.litter = LITTER_DIRTY + 20;
+    expect(litterDirty(dirty.life)).toBe(true);
+    expect(comfort(dirty.life)).toBeLessThan(comfort(clean.life));
+    expect(catMood(dirty.life.cats[0]!, dirty.life)).toBeLessThan(catMood(clean.life.cats[0]!, clean.life));
+    const a = act(clean, 'tv').state;
+    const b = act(dirty, 'tv').state;
+    expect(b.life.needs.hygiene).toBeLessThan(a.life.needs.hygiene);
+    const done = act(b, 'clean_litter').state;
+    expect(done.life.litter).toBe(0);
+    expect(blocker(done, actionById('clean_litter')!)).toBe('enough');
+    // Переполненный лоток — кошка не идёт туда, дома ещё грязнее.
+    const full = structuredClone(clean);
+    full.life.litter = 100;
+    full.life.cats[0]!.toilet = 36;
+    const after = act(full, 'tv').state;
+    expect(after.life.litter).toBe(100);
+    expect(after.life.needs.hygiene).toBeLessThan(a.life.needs.hygiene);
+  });
+
+  it('игра и ласка поднимают потребность той кошки, которой это нужнее', () => {
+    let s = withCat();
+    s = adoptCat(s, 'black');
+    s.life.cats[0]!.play = 80;
+    s.life.cats[1]!.play = 10;
+    const after = act(s, 'play_cat').state;
+    expect(after.life.cats[1]!.play).toBeGreaterThan(40);
+    expect(after.life.cats[0]!.play).toBeLessThanOrEqual(80);
+  });
+
+  it('сим сам насыпает корм в пустую миску и убирает грязный лоток', () => {
+    const s = withCat();
+    for (const n of Object.keys(s.life.needs) as Array<keyof GameState['life']['needs']>) s.life.needs[n] = 90;
+    s.life.bowl = 0;
+    expect(autoAction(s)?.id).toBe('fill_bowl');
+    s.life.bowl = BOWL_MAX;
+    s.life.litter = 90;
+    expect(autoAction(s)?.id).toBe('clean_litter');
+  });
+
+  it('потребности кошек сохраняются, старые сохранения получают значения по умолчанию', () => {
+    const s = withCat();
+    s.life.cats[0]!.fed = 33;
+    s.life.litter = 44;
+    const m = migrateLife(structuredClone(s.life));
+    expect(m.cats[0]!.fed).toBe(33);
+    expect(m.litter).toBe(44);
+    const old = { cats: [{ id: 'cat1', breed: 'ginger', name: 0, adopted: 1 }] };
+    const o = migrateLife(old as never);
+    expect(o.cats[0]!.fed).toBe(80);
+    expect(o.cats[0]!.toilet).toBe(90);
+    expect(o.bowl).toBe(BOWL_MAX);
+    expect(o.litter).toBe(0);
   });
 });
 

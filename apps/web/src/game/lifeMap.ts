@@ -78,7 +78,8 @@ function floorSlots(): Slot[] {
   const F = d / 2;
   return [
     { pos: { x: L + 0.45, z: -1.1 }, rot: 0, use: { x: L + 1.5, z: -1.1 } },
-    { pos: { x: R - 0.45, z: -3.9 }, rot: 0, use: { x: R - 1.5, z: -3.9 } },
+    // На кухне у правой стены стоят кошачьи миски — декор между местами для мебели.
+    { pos: { x: R - 0.45, z: 0.15 }, rot: 0, use: { x: R - 1.5, z: 0.15 } },
     { pos: { x: L + 0.45, z: 3.0 }, rot: 0, use: { x: L + 1.5, z: 3.0 } },
     { pos: { x: -2.6, z: F - 0.45 }, rot: 0, use: { x: -2.6, z: F - 1.4 } },
     { pos: { x: 3.0, z: F - 0.45 }, rot: 0, use: { x: 3.0, z: F - 1.4 } },
@@ -95,8 +96,20 @@ export interface PlacedHome extends Placed {
   y: number;
 }
 
-/** Предметы дома: базовые на своих местах, купленные — по свободным местам своего вида. */
-export function homeLayout(furniture: readonly ObjectId[]): PlacedHome[] {
+/**
+ * Кошачье хозяйство: миски с кормом и водой на кухне у правой стены (между холодильником
+ * и местом для мебели) и лоток в углу у душа. Не занимают платных мест.
+ */
+export const PETS = {
+  bowls: { pos: { x: HOUSE.w / 2 - 0.35, z: -3.65 }, rot: -Math.PI / 2, use: { x: HOUSE.w / 2 - 1.35, z: -3.65 } },
+  /** Миска с кормом и миска с водой (мировые координаты). */
+  food: { x: HOUSE.w / 2 - 0.35, z: -3.85 },
+  water: { x: HOUSE.w / 2 - 0.35, z: -3.45 },
+  litter: { pos: { x: 4.55, z: 4.85 }, rot: Math.PI, use: { x: 4.55, z: 3.9 } },
+} as const;
+
+/** Предметы дома: базовые на своих местах, купленные — по свободным местам своего вида; pets — есть кошки (миски и лоток). */
+export function homeLayout(furniture: readonly ObjectId[], pets = false): PlacedHome[] {
   const { w, d } = HOUSE;
   const L = -w / 2;
   const R = w / 2;
@@ -126,6 +139,12 @@ export function homeLayout(furniture: readonly ObjectId[]): PlacedHome[] {
     used[mount] += 1;
     const hw = mount === 'slot' ? 0.55 : 0.28;
     out.push({ id, pos: sl.pos, rot: sl.rot, use: sl.use, box: mount === 'wall' ? null : box(sl.pos.x, sl.pos.z, hw, hw), y: sl.y ?? 0 });
+  }
+  if (pets) {
+    const b = PETS.bowls;
+    out.push({ id: 'cat_bowl', pos: { ...b.pos }, rot: b.rot, use: { ...b.use }, box: box(b.pos.x, b.pos.z, 0.18, 0.4), y: 0 });
+    const l = PETS.litter;
+    out.push({ id: 'litter', pos: { ...l.pos }, rot: l.rot, use: { ...l.use }, box: box(l.pos.x, l.pos.z, 0.3, 0.24), y: 0 });
   }
   return out;
 }

@@ -68,6 +68,8 @@ export const OBJECTS: Record<ObjectId, ObjectDef> = {
   flower_vase: { id: 'flower_vase', icon: '💐', name: t('Ваза с цветами', 'Vase of flowers'), price: 60, desc: t('Свежие цветы', 'Fresh flowers'), mount: 'floor', comfort: 1, kind: 'decor' },
   palm: { id: 'palm', icon: '🌴', name: t('Пальма в кадке', 'Potted palm'), price: 240, desc: t('Курорт дома', 'A resort at home'), mount: 'floor', comfort: 2, kind: 'decor' },
   cat: { id: 'cat', icon: '🐈', name: t('Кошка', 'Cat') },
+  cat_bowl: { id: 'cat_bowl', icon: '🥣', name: t('Миски кошки', 'Cat bowls') },
+  litter: { id: 'litter', icon: '🧻', name: t('Кошачий лоток', 'Litter box') },
   coach: { id: 'coach', icon: '📣', name: t('Место тренера', 'Coach’s spot') },
   reception: { id: 'reception', icon: '🛎️', name: t('Ресепшен', 'Reception') },
   gym_door: { id: 'gym_door', icon: '🚪', name: t('Выход', 'Exit') },
@@ -116,6 +118,12 @@ export const CAT_BREEDS: readonly CatBreedDef[] = [
 ];
 export const catBreedById = (id: CatBreed): CatBreedDef => CAT_BREEDS.find((b) => b.id === id) ?? CAT_BREEDS[0]!;
 export const MAX_CATS = 3;
+/** Полная миска корма (порций): одна порция — одна кормёжка кошки. */
+export const BOWL_MAX = 6;
+/** С какой грязи лоток считается грязным: дома хуже гигиена и уют, кошкам неуютно. */
+export const LITTER_DIRTY = 60;
+/** Как быстро падают потребности кошки (в час игрового времени). */
+export const CAT_RATES = { fed: 5, play: 4, toilet: 8 } as const;
 export const CAT_NAMES: readonly Txt[] = [t('Мурка', 'Murka'), t('Барсик', 'Barsik'), t('Пушок', 'Fluffy'), t('Луна', 'Luna'), t('Симба', 'Simba'), t('Тиша', 'Tisha'), t('Персик', 'Peach'), t('Оскар', 'Oscar'), t('Соня', 'Sonya'), t('Феликс', 'Felix'), t('Багира', 'Bagheera'), t('Кекс', 'Muffin')];
 
 // ─── Зал ───────────────────────────────────────────────────────────────
@@ -206,13 +214,17 @@ export const ACTIONS: readonly ActionDef[] = [
   { id: 'shake', icon: '🥤', label: t('Протеиновый коктейль', 'Protein shake'), at: 'blender', minutes: 10, requires: { groceries: 1 }, effect: fx({ needs: { food: 40, energy: 10 }, groceries: -1 }) },
   { id: 'microwave_meal', icon: '♨️', label: t('Разогреть ужин', 'Heat up dinner'), at: 'microwave', minutes: 10, requires: { groceries: 1 }, effect: fx({ needs: { food: 55 }, groceries: -1 }) },
   { id: 'vr', icon: '🥽', label: t('VR-приключение', 'VR adventure'), at: 'vr_headset', minutes: 60, effect: fx({ needs: { fun: 40, energy: -6 } }) },
-  { id: 'pet_cat', icon: '🤲', label: t('Погладить кошку', 'Pet the cat'), at: 'cat', minutes: 10, effect: fx({ needs: { fun: 12, social: 10 } }) },
-  { id: 'play_cat', icon: '🧶', label: t('Поиграть с кошкой', 'Play with the cat'), at: 'cat', minutes: 20, effect: fx({ needs: { fun: 22, social: 8, energy: -4 } }) },
-  { id: 'feed_cat', icon: '🐟', label: t('Угостить кошку', 'Give the cat a treat'), at: 'cat', minutes: 5, cost: 5, effect: fx({ needs: { fun: 6, social: 6 } }) },
+  { id: 'pet_cat', icon: '🤲', label: t('Погладить кошку', 'Pet the cat'), at: 'cat', minutes: 10, effect: fx({ needs: { fun: 12, social: 10 }, catPlay: 12 }) },
+  { id: 'play_cat', icon: '🧶', label: t('Поиграть с кошкой', 'Play with the cat'), at: 'cat', minutes: 20, effect: fx({ needs: { fun: 22, social: 8, energy: -4 }, catPlay: 45 }) },
+  { id: 'feed_cat', icon: '🐟', label: t('Угостить кошку', 'Give the cat a treat'), at: 'cat', minutes: 5, cost: 5, effect: fx({ needs: { fun: 6, social: 6 }, catFed: 25, catPlay: 5 }) },
+  { id: 'call_cat', icon: '📣', label: t('Позвать кошку', 'Call the cat'), at: 'cat', minutes: 2, effect: fx({ needs: { social: 2 }, catPlay: 3 }) },
+  { id: 'fill_bowl', icon: '🥣', label: t('Насыпать корм', 'Fill the food bowl'), at: 'cat_bowl', minutes: 5, cost: 8, effect: fx({ bowl: BOWL_MAX }) },
+  { id: 'clean_litter', icon: '🧹', label: t('Убрать лоток', 'Clean the litter box'), at: 'litter', minutes: 10, effect: fx({ litter: -100, needs: { hygiene: -3 } }) },
   // Зал.
   { id: 'session', icon: '📣', label: t('Провести занятие', 'Run a class'), at: 'coach', minutes: 0, open: 'session', effect: fx({}) },
   { id: 'own_workout', icon: '💪', label: t('Своя тренировка (камера)', 'Own workout (camera)'), at: 'coach', minutes: 45, train: true, effect: fx({ needs: { fun: 10, energy: -8, hygiene: -15 } }) },
   { id: 'gym_info', icon: '🛎️', label: t('Зал и ученики', 'Gym and clients'), at: 'reception', minutes: 0, open: 'gym', effect: fx({}) },
+  { id: 'chat_clients', icon: '💬', label: t('Поболтать с учениками', 'Chat with clients'), at: 'coach', minutes: 20, effect: fx({ needs: { social: 12, fun: 4, energy: -2 }, loyalty: 1, skills: { charisma: 3 } }) },
   { id: 'ads', icon: '📢', label: t('Раздать флаеры', 'Hand out flyers'), at: 'reception', minutes: 60, cost: 20, effect: fx({ needs: { social: 15, energy: -6 }, loyalty: 3, skills: { charisma: 8 } }) },
   { id: 'go_home', icon: '🏠', label: t('Поехать домой', 'Go home'), at: 'gym_door', minutes: 30, go: 'home', effect: fx({}) },
   { id: 'gym_shower', icon: '🚿', label: t('Душ после занятий', 'Post-class shower'), at: 'gym_shower', minutes: 15, effect: fx({ needs: { hygiene: 100 } }) },

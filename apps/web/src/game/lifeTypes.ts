@@ -60,8 +60,10 @@ export type ObjectId =
   | 'floor_lamp'
   | 'flower_vase'
   | 'palm'
-  // Кошки (любая из своих кошек рядом).
+  // Кошки (любая из своих кошек рядом), их миски и лоток (появляются с первой кошкой).
   | 'cat'
+  | 'cat_bowl'
+  | 'litter'
   // Зал.
   | 'coach'
   | 'reception'
@@ -81,6 +83,13 @@ export interface LifeEffect {
   loyalty?: number;
   /** Новый ученик. */
   client?: boolean;
+  /** Корм в миске (порций, до полной миски). */
+  bowl?: number;
+  /** Грязь в лотке (−100 — убрать начисто). */
+  litter?: number;
+  /** Кошке, которой это нужнее всех: игра и сытость. */
+  catPlay?: number;
+  catFed?: number;
 }
 
 export interface Requirement {
@@ -118,6 +127,10 @@ export interface Cat {
   /** Индекс имени в списке. */
   name: number;
   adopted: number;
+  /** Потребности кошки 0…100: сытость, игра и «туалет» (100 — только что сходила). */
+  fed: number;
+  play: number;
+  toilet: number;
 }
 
 /** Ученик: внешность из зерна, форма улучшается с занятиями. */
@@ -177,6 +190,10 @@ export interface LifeState {
   furniture: ObjectId[];
   /** Свои кошки. */
   cats: Cat[];
+  /** Порций корма в кошачьей миске. */
+  bowl: number;
+  /** Грязь в лотке 0…100. */
+  litter: number;
   /** «Лишний вес» героя: −1…1. */
   fat: number;
   /** Уровень зала 0…4. */
