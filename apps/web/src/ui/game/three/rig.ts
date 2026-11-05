@@ -281,6 +281,10 @@ export interface Rig {
   root: THREE.Object3D;
   /** Предметы в руках (прячутся во время упражнений). */
   held: THREE.Object3D[];
+  /** Голова (для предметов на голове: VR-шлем). */
+  head: THREE.Object3D;
+  /** Точка хвата сжатого кулака в осях кости кисти (для предметов на время действия). */
+  grip: { l: THREE.Vector3; r: THREE.Vector3 };
 }
 
 /**
@@ -289,6 +293,9 @@ export interface Rig {
  */
 export function buildRig(root: THREE.Object3D, torso: THREE.Object3D, head: THREE.Object3D, figure: Figure, morph: Morph | null, rigid: ReadonlySet<THREE.Object3D>): Rig {
   const J = joints(figure);
+  // Точка хвата кулака относительно кисти (по исходной фигуре, до ползунков).
+  const L = landmarks(figure);
+  const grip = { l: new THREE.Vector3(L.grip[0], L.grip[1], L.grip[2]).sub(J.l_hand), r: new THREE.Vector3(-L.grip[0], L.grip[1], L.grip[2]).sub(J.r_hand) };
   if (morph) for (const b of BONES) morph(J[b]);
   const bones = {} as Record<BoneName, THREE.Bone>;
   for (const b of BONES) {
@@ -343,14 +350,44 @@ export function buildRig(root: THREE.Object3D, torso: THREE.Object3D, head: THRE
     held.push(o);
   }
   const rest = Object.fromEntries(BONES.map((b) => [b, bones[b].position.clone()])) as Record<BoneName, THREE.Vector3>;
-  return { bones, rest, thigh: J.l_thigh.distanceTo(J.l_shin), shin: J.l_shin.distanceTo(J.l_foot), root, held };
+  return { bones, rest, thigh: J.l_thigh.distanceTo(J.l_shin), shin: J.l_shin.distanceTo(J.l_foot), root, held, head, grip };
 }
 
 // ─── Позы ──────────────────────────────────────────────────────────────
 
 /** Поза с телом и делом рук: «sit:read» — сидя читает, «stand:cook» — стоя готовит. */
 export type Stance = 'stand' | 'sit' | 'crouch' | 'lie';
-export type Act = 'none' | 'relax' | 'phone' | 'read' | 'cook' | 'eat' | 'drink' | 'wash' | 'type' | 'game' | 'paint' | 'piano' | 'pet' | 'play' | 'box' | 'dance' | 'vr' | 'talk' | 'massage' | 'sleep';
+export type Act =
+  | 'none'
+  | 'relax'
+  | 'tv'
+  | 'phone'
+  | 'text'
+  | 'read'
+  | 'cook'
+  | 'eat'
+  | 'drink'
+  | 'wash'
+  | 'type'
+  | 'game'
+  | 'paint'
+  | 'write'
+  | 'piano'
+  | 'pet'
+  | 'play'
+  | 'feed'
+  | 'call'
+  | 'pour'
+  | 'scoop'
+  | 'box'
+  | 'dance'
+  | 'vr'
+  | 'talk'
+  | 'watch'
+  | 'stretch'
+  | 'circles'
+  | 'massage'
+  | 'sleep';
 export type Motion = 'idle' | 'walk' | ExerciseId | `${Stance}:${Act}`;
 
 type Rot = [number, number, number];
@@ -363,11 +400,26 @@ interface Pose {
   lift?: number;
   /** Ноги ставятся по обратной кинематике (стопы на месте). */
   ik?: boolean;
+  /** Ходьба: цели голеностопов (смещение от покоя по y и z, в координатах тела) и наклон стоп. */
+  feet?: { l: [number, number, number]; r: [number, number, number]; yaw: number };
+  /** Наклон всего тела вбок (повороты на ходу). */
+  roll?: number;
+}
+
+/** Параметры движения: скорость (м/с) и наклон в повороте. */
+export interface AnimOpts {
+  speed?: number;
+  lean?: number;
 }
 
 const lerp = (a: number, b: number, t: number): number => a + (b - a) * t;
 /** Фаза повтора 0…1 → 0 (исходное) … 1 (нижняя точка) … 0. */
 const wave = (phase: number): number => 0.5 - 0.5 * Math.cos(phase * Math.PI * 2);
+/** Редкий «жест»: 0 почти всё время, плавный горб длиной width (доля периода) раз в period с. */
+const beat = (t: number, period: number, width = 0.18, shift = 0): number => {
+  const x = (((t + shift) / period) % 1 + 1) % 1;
+  return x < width ? Math.sin((x / width) * Math.PI) : 0;
+};
 
 type Rots = Partial<Record<BoneName, Rot>>;
 
@@ -377,46 +429,137 @@ function stancePose(stance: Stance, t: number): Pose {
   switch (stance) {
     case 'sit':
       return {
-        rot: { l_thigh: [-1.5, 0, 0.06], r_thigh: [-1.5, 0, -0.06], l_shin: [1.45, 0, 0], r_shin: [1.45, 0, 0], l_foot: [0.05, 0, 0], r_foot: [0.05, 0, 0], spine: [-0.05 + 0.01 * breath, 0, 0] },
+        rot: { l_thigh: [-1.5, 0, 0.08], r_thigh: [-1.5, 0, -0.08], l_shin: [1.45, 0, 0], r_shin: [1.45, 0, 0], l_foot: [0.05, 0, 0], r_foot: [0.05, 0, 0], spine: [-0.05 + 0.012 * breath, 0, 0], chest: [0.01 * breath, 0, 0] },
         hip: [0, -0.46, -0.4],
       };
     case 'crouch':
-      return { rot: { spine: [0.35, 0, 0], chest: [0.15, 0, 0] }, hip: [0, -0.42, -0.12], ik: true };
+      // Присед на корточки: колени врозь, корпус над стопами.
+      return { rot: { root: [0, 0, 0], spine: [0.42, 0, 0], chest: [0.15 + 0.01 * breath, 0, 0], neck: [-0.15, 0, 0], l_thigh: [0, 0, 0.18], r_thigh: [0, 0, -0.18] }, hip: [0, -0.52, -0.16], ik: true };
     case 'lie':
       return {
-        rot: { l_upper: [0.05, 0, 0.12], r_upper: [0.05, 0, -0.12], l_fore: [-0.2, 0, 0], r_fore: [-0.2, 0, 0], neck: [0.25, 0, 0], l_foot: [0.5, 0, 0], r_foot: [0.5, 0, 0], chest: [0.02 * breath, 0, 0] },
+        rot: { l_upper: [0.05, 0, 0.12], r_upper: [0.05, 0, -0.12], l_fore: [-0.2, 0, 0], r_fore: [-0.2, 0, 0], neck: [0.25, 0, 0], l_foot: [0.5, 0, 0], r_foot: [0.5, 0, 0], chest: [0.025 * breath, 0, 0] },
         pitch: -Math.PI / 2,
         lift: 0.13,
       };
     case 'stand':
     default:
-      return { rot: { spine: [0, 0.03 * Math.sin(t * 0.4), 0] } };
+      // Стоя: лёгкое переминание с ноги на ногу и дыхание.
+      return { rot: { spine: [0, 0.03 * Math.sin(t * 0.4), 0.012 * Math.sin(t * 0.35)], chest: [0.008 * breath, 0, 0] }, hip: [0.012 * Math.sin(t * 0.35), -0.004 * (1 + breath), 0], ik: true };
   }
 }
 
 /** Руки, корпус и голова для дела. */
 function actPose(act: Act, stance: Stance, t: number): Rots {
   const s = Math.sin;
+  const c = Math.cos;
+  const sit = stance === 'sit';
   switch (act) {
     case 'relax':
-      return { spine: [-0.22, 0, 0], l_upper: [0.25, 0, 0.45], r_upper: [0.25, 0, -0.45], l_fore: [-0.35, 0, 0], r_fore: [-0.35, 0, 0], neck: [0.12, 0.25 * s(t * 0.3), 0] };
+      // Откинулся на спинку, руки на подлокотниках, голова лениво поворачивается.
+      return { spine: [-0.24, 0, 0], chest: [-0.04, 0, 0], l_upper: [0.15, 0, 0.42], r_upper: [0.15, 0, -0.42], l_fore: [-0.55, 0, 0.1], r_fore: [-0.55, 0, -0.1], l_hand: [0.2, 0, 0], r_hand: [0.2, 0, 0], neck: [0.14, 0.28 * s(t * 0.3), 0.04 * s(t * 0.21)] };
+    case 'tv': {
+      // Смотрит сериал: откинулся, пульт в правой руке на колене, иногда нажимает.
+      const click = beat(t, 7, 0.12);
+      return {
+        spine: [-0.2, 0, 0],
+        chest: [-0.02, 0, 0],
+        l_upper: [0.1, 0, 0.4],
+        l_fore: [-0.5, 0, 0.1],
+        l_hand: [0.2, 0, 0],
+        r_upper: [-0.32 - 0.25 * click, 0, -0.16],
+        r_fore: [-0.95 - 0.25 * click, 0, 0.25],
+        r_hand: [-0.2, 0, 0],
+        neck: [0.05 + 0.04 * s(t * 0.4), 0.08 * s(t * 0.13), 0],
+      };
+    }
     case 'massage':
-      return { spine: [-0.28 + 0.02 * s(t * 18), 0, 0], l_upper: [0.1, 0, 0.3], r_upper: [0.1, 0, -0.3], l_fore: [-0.6, 0, 0], r_fore: [-0.6, 0, 0], neck: [-0.1, 0, 0.03 * s(t * 15)] };
+      return { spine: [-0.3 + 0.02 * s(t * 18), 0, 0], l_upper: [0.1, 0, 0.32], r_upper: [0.1, 0, -0.32], l_fore: [-0.6, 0, 0.05], r_fore: [-0.6, 0, -0.05], neck: [-0.12, 0, 0.04 * s(t * 15)] };
     case 'sleep':
       return { l_upper: [-0.4, 0, 0.2], r_upper: [-0.4, 0, -0.2], l_fore: [-1.9, 0, -0.5], r_fore: [-1.9, 0, 0.5], neck: [0.15, 0.25, 0] };
-    case 'phone':
-      return { r_upper: [-0.45, 0, -0.75], r_fore: [-2.45, 0, 0], r_hand: [0.3, 0, 0], l_upper: [-0.2, 0, 0.12], l_fore: [-0.6 + 0.3 * s(t * 1.7), 0, 0], neck: [0.05, 0.15 * s(t * 0.8), -0.12] };
-    case 'read':
-      return { l_upper: [-0.5, 0, 0.12], r_upper: [-0.5, 0, -0.12], l_fore: [-1.55, 0, -0.45], r_fore: [-1.55, 0, 0.45], neck: [0.45, 0.04 * s(t * 0.6), 0], chest: [0.08, 0, 0] };
-    case 'cook': {
-      const a = t * 4;
-      return { spine: [0.12, 0, 0], l_upper: [-0.55, 0, 0.1], l_fore: [-1.0, 0, -0.35], r_upper: [-0.65 + 0.12 * s(a), 0.12 * Math.cos(a), -0.1], r_fore: [-0.9 + 0.1 * Math.cos(a), 0, 0.3], neck: [0.4, 0, 0] };
+    case 'phone': {
+      // Разговор: телефон у уха, свободная рука жестикулирует, голова кивает.
+      const g = s(t * 1.9);
+      return {
+        spine: [sit ? -0.08 : 0, 0.06 * s(t * 0.5), 0],
+        r_upper: [-0.4, 0, -0.62],
+        r_fore: [-2.55, 0, 0.12],
+        r_hand: [0.35, 0, 0.15],
+        l_upper: [-0.25 - 0.12 * g, 0, 0.16],
+        l_fore: [-0.9 + 0.35 * g, 0, -0.05],
+        l_hand: [0.1 * s(t * 2.7), 0, 0],
+        neck: [0.05 + 0.06 * beat(t, 2.4, 0.3), 0.15 * s(t * 0.8), -0.14],
+      };
     }
-    case 'eat':
+    case 'text': {
+      // Печатает в телефоне: телефон перед грудью, взгляд вниз, большой палец двигается.
+      const tap = s(t * 11);
+      return {
+        spine: [0.04, 0, 0],
+        r_upper: [-0.32, 0, -0.1],
+        r_fore: [-1.55, 0, 0.42],
+        r_hand: [0.25 + 0.05 * tap, 0, 0.1],
+        l_upper: [-0.3, 0, 0.12],
+        l_fore: [-1.45, 0, -0.42],
+        l_hand: [0.1, 0, 0],
+        neck: [0.5, 0.03 * s(t * 0.6), 0],
+      };
+    }
+    case 'read': {
+      // Книга в обеих руках перед грудью, время от времени перелистывает страницу.
+      const turn = beat(t, 6.5, 0.16);
+      return {
+        spine: [sit ? -0.1 : 0.02, 0, 0],
+        chest: [0.08, 0, 0],
+        l_upper: [-0.42, 0, 0.12],
+        r_upper: [-0.42 - 0.12 * turn, 0, -0.12 - 0.12 * turn],
+        l_fore: [-1.5, 0, -0.5],
+        r_fore: [-1.5 - 0.1 * turn, 0, 0.5 + 0.25 * turn],
+        l_hand: [0.15, 0, 0.1],
+        r_hand: [0.15, 0, -0.1],
+        neck: [0.42 + 0.03 * s(t * 0.9), 0.06 * s(t * 0.6) - 0.1 * turn, 0],
+      };
+    }
+    case 'cook': {
+      // Помешивает лопаткой в сковороде, левая рука придерживает ручку, переступает.
+      const a = t * 3.6;
+      return {
+        spine: [0.16, 0.05 * s(t * 0.7), 0],
+        chest: [0.05, 0, 0],
+        l_upper: [-0.6, 0, 0.12],
+        l_fore: [-0.85, 0, -0.3],
+        l_hand: [0.2, 0, 0],
+        r_upper: [-0.72 + 0.12 * s(a), 0.15 * c(a), -0.12],
+        r_fore: [-0.95 + 0.15 * c(a), 0, 0.35],
+        r_hand: [0.3 + 0.2 * s(a), 0, 0],
+        neck: [0.42, 0.1 * s(t * 0.5), 0],
+      };
+    }
+    case 'eat': {
+      // Тарелка (или ведро попкорна) в левой руке, правая подносит еду ко рту.
+      const bite = s(Math.PI * Math.min(1, Math.max(0, ((t * 0.45) % 1) / 0.45))) ** 1.5;
+      return {
+        spine: [sit ? -0.12 : 0.04, 0, 0],
+        l_upper: [-0.4, 0, 0.14],
+        l_fore: [-1.25, 0, -0.38],
+        l_hand: [0.15, 0, 0],
+        r_upper: [-0.3 - 0.45 * bite, 0, -0.16 + 0.05 * bite],
+        r_fore: [-1.25 - 1.15 * bite, 0, 0.35],
+        r_hand: [0.1 + 0.2 * bite, 0, 0],
+        neck: [0.32 - 0.25 * bite, 0, 0],
+      };
+    }
     case 'drink': {
-      const slow = act === 'drink' ? 1.4 : 2.4;
-      const bite = Math.max(0, s(t * slow));
-      return { l_upper: [-0.45, 0, 0.1], l_fore: [-1.35, 0, -0.35], r_upper: [-0.35 - 0.55 * bite, 0, -0.12], r_fore: [-1.2 - 1.15 * bite, 0, 0.25], neck: [0.25 - 0.3 * bite * (act === 'drink' ? 1 : 0.4), 0, 0] };
+      // Подносит чашку ко рту, запрокидывает голову, ставит обратно к груди.
+      const sip = s(Math.PI * Math.min(1, Math.max(0, ((t * 0.32) % 1) / 0.5))) ** 1.3;
+      return {
+        spine: [sit ? -0.1 : 0, 0, 0],
+        l_upper: [-0.08, 0, 0.12],
+        l_fore: [-0.5, 0, 0],
+        r_upper: [-0.35 - 0.4 * sip, 0, -0.18 + 0.08 * sip],
+        r_fore: [-1.35 - 0.95 * sip, 0, 0.3],
+        r_hand: [0.1 - 0.35 * sip, 0, 0],
+        neck: [0.15 - 0.4 * sip, 0, 0],
+      };
     }
     case 'wash': {
       const a = t * 5;
@@ -424,31 +567,124 @@ function actPose(act: Act, stance: Stance, t: number): Rots {
     }
     case 'type': {
       const a = t * 9;
-      return { l_upper: [-0.55, 0, 0.18], r_upper: [-0.55, 0, -0.18], l_fore: [-1.0 + 0.06 * s(a), 0, -0.3], r_fore: [-1.0 + 0.06 * s(a + 2), 0, 0.3], neck: [0.15, 0, 0] };
+      const look = beat(t, 5, 0.25);
+      return {
+        spine: [0.08, 0, 0],
+        l_upper: [-0.55, 0, 0.2],
+        r_upper: [-0.55 + 0.08 * look, 0, -0.26],
+        l_fore: [-1.0 + 0.07 * s(a), 0, -0.32],
+        r_fore: [-1.0 + 0.07 * s(a + 2), 0, 0.32 + 0.1 * look],
+        l_hand: [0.15 + 0.08 * Math.max(0, s(a * 1.3)), 0, 0],
+        r_hand: [0.15 + 0.08 * Math.max(0, s(a * 1.1 + 1)), 0, 0],
+        neck: [0.12 + 0.04 * look, 0.08 * s(t * 0.4), 0],
+      };
     }
     case 'game': {
+      // Геймпад в обеих руках, азарт: наклоны корпуса вслед за игрой.
       const a = t * 6;
-      return { spine: [stance === 'sit' ? 0.1 : 0.05, 0.05 * s(t * 1.2), 0], l_upper: [-0.4, 0, 0.15], r_upper: [-0.4, 0, -0.15], l_fore: [-1.5 + 0.08 * s(a), 0, -0.5], r_fore: [-1.5 + 0.08 * s(a + 1.5), 0, 0.5], neck: [0.3, 0, 0] };
+      const sway = s(t * 1.3);
+      return {
+        spine: [(sit ? 0.12 : 0.06) + 0.04 * beat(t, 3.1, 0.3), 0.06 * sway, 0.05 * sway],
+        l_upper: [-0.32, 0, 0.16],
+        r_upper: [-0.32, 0, -0.16],
+        l_fore: [-1.45 + 0.06 * s(a), 0, -0.5],
+        r_fore: [-1.45 + 0.06 * s(a + 1.5), 0, 0.5],
+        l_hand: [0.2, 0, 0.05],
+        r_hand: [0.2, 0, -0.05],
+        neck: [0.22, -0.04 * sway, -0.03 * sway],
+      };
     }
     case 'vr': {
+      // В шлеме: руки с контроллерами тянутся к виртуальным предметам, голова оглядывается.
       const a = t * 2.2;
-      return { l_upper: [-1.0 + 0.5 * s(a), 0, 0.35 + 0.2 * s(a * 0.7)], r_upper: [-1.1 + 0.5 * s(a + 2), 0, -0.35 - 0.2 * s(a * 0.9)], l_fore: [-0.6, 0, 0], r_fore: [-0.6, 0, 0], neck: [-0.1, 0.5 * s(t * 0.9), 0], spine: [0, 0.25 * s(t * 0.9), 0] };
+      return {
+        l_upper: [-1.0 + 0.5 * s(a), 0, 0.35 + 0.2 * s(a * 0.7)],
+        r_upper: [-1.1 + 0.5 * s(a + 2), 0, -0.35 - 0.2 * s(a * 0.9)],
+        l_fore: [-0.6 - 0.3 * s(a + 1), 0, 0],
+        r_fore: [-0.6 - 0.3 * s(a + 3), 0, 0],
+        neck: [-0.1 + 0.08 * s(t * 0.7), 0.5 * s(t * 0.9), 0],
+        spine: [0.04 * s(t * 1.1), 0.25 * s(t * 0.9), 0],
+      };
     }
     case 'paint': {
+      // Кисть в правой руке мазками по холсту, палитра в левой у пояса.
       const a = t * 3;
-      return { r_upper: [-1.25 + 0.2 * s(a), 0.1, -0.15 + 0.15 * Math.cos(a)], r_fore: [-0.45, 0, 0], l_upper: [-0.45, 0, 0.15], l_fore: [-1.3, 0, -0.3], neck: [0, 0.1, 0] };
+      const dab = beat(t, 1.6, 0.4);
+      return {
+        spine: [0.04, -0.08, 0],
+        r_upper: [-1.15 + 0.18 * s(a) - 0.1 * dab, 0.1, -0.12 + 0.14 * c(a)],
+        r_fore: [-0.6 - 0.15 * dab, 0, 0.1],
+        r_hand: [0.2 * dab, 0, 0],
+        l_upper: [-0.25, 0, 0.22],
+        l_fore: [-1.3, 0, -0.35],
+        l_hand: [0.2, 0, 0],
+        neck: [0.05, 0.1 + 0.05 * s(t * 0.5), 0.03 * s(t * 0.3)],
+      };
+    }
+    case 'write': {
+      // Блокнот в левой руке, правая пишет; задумывается, подняв взгляд.
+      const think = beat(t, 6, 0.3);
+      const a = t * 7;
+      return {
+        spine: [0.06, 0, 0],
+        l_upper: [-0.3, 0, 0.14],
+        l_fore: [-1.45, 0, -0.45],
+        l_hand: [0.25, 0, 0],
+        r_upper: [-0.35 - 0.1 * think, 0, -0.1],
+        r_fore: [-1.45 - 0.5 * think + 0.04 * s(a), 0, 0.45 - 0.1 * think],
+        r_hand: [0.2 + 0.05 * s(a * 1.3), 0, 0],
+        neck: [0.45 - 0.45 * think, 0.1 * think, 0],
+      };
     }
     case 'piano': {
       const a = t * 7;
-      return { l_upper: [-0.6, 0, 0.12], r_upper: [-0.6, 0, -0.12], l_fore: [-0.85, 0, -0.2], r_fore: [-0.85, 0, 0.2], l_hand: [0.25 * Math.max(0, s(a)), 0, 0], r_hand: [0.25 * Math.max(0, s(a + 1.3)), 0, 0], spine: [0.05, 0.1 * s(t * 0.8), 0], neck: [0.2, 0.15 * s(t * 0.8), 0] };
+      return { l_upper: [-0.6, 0, 0.14], r_upper: [-0.6, 0, -0.14], l_fore: [-0.85, 0, -0.2 + 0.08 * s(t * 0.9)], r_fore: [-0.85, 0, 0.2 + 0.08 * s(t * 0.7)], l_hand: [0.25 * Math.max(0, s(a)), 0, 0], r_hand: [0.25 * Math.max(0, s(a + 1.3)), 0, 0], spine: [0.06 + 0.03 * s(t * 1.6), 0.1 * s(t * 0.8), 0], neck: [0.2 + 0.05 * s(t * 1.6), 0.15 * s(t * 0.8), 0] };
     }
     case 'pet': {
-      const a = t * 3;
-      return { r_upper: [-0.95 + 0.18 * s(a), 0, -0.12], r_fore: [-0.35, 0, 0], l_upper: [-0.3, 0, 0.25], l_fore: [-0.9, 0, 0], neck: [0.5, 0, 0] };
+      // Гладит кошку от головы к хвосту, второй рукой опирается на колено.
+      const a = (t * 0.9) % 1;
+      const stroke = a < 0.7 ? a / 0.7 : 1 - (a - 0.7) / 0.3;
+      return {
+        r_upper: [-0.95 + 0.3 * stroke, 0, -0.1],
+        r_fore: [-0.5 + 0.25 * stroke, 0, 0.1],
+        r_hand: [0.3, 0, 0],
+        l_upper: [-0.55, 0, 0.18],
+        l_fore: [-0.9, 0, -0.1],
+        neck: [0.35, 0.08 * s(t * 0.7), 0.06],
+      };
     }
     case 'play': {
-      const a = t * 5;
-      return { r_upper: [-0.9, 0, -0.35 + 0.45 * s(a)], r_fore: [-0.3, 0, 0], l_upper: [-0.2, 0, 0.3], l_fore: [-0.7, 0, 0], neck: [0.45, 0.25 * s(a), 0] };
+      // Дразнилка в правой руке: водит перышком по полу, кошка охотится.
+      const a = t * 2.6;
+      return {
+        r_upper: [-0.85 + 0.25 * s(a * 0.7), 0, -0.3 + 0.35 * s(a)],
+        r_fore: [-0.4 - 0.2 * c(a), 0, 0],
+        r_hand: [0.4 * s(a * 1.3), 0, 0],
+        l_upper: [-0.5, 0, 0.2],
+        l_fore: [-0.9, 0, -0.1],
+        spine: [0, 0.12 * s(a), 0],
+        neck: [0.35, 0.3 * s(a), 0],
+      };
+    }
+    case 'feed': {
+      // Протягивает угощение на ладони, кошка ест с руки.
+      return { r_upper: [-0.8, 0, -0.08], r_fore: [-0.35, 0, 0.1], r_hand: [-0.5, 0, 0.3], l_upper: [-0.5, 0, 0.18], l_fore: [-0.9, 0, -0.1], neck: [0.4, 0.05 * s(t), 0.08] };
+    }
+    case 'call': {
+      // Подзывает: рука вперёд и манит пальцами, голова чуть набок.
+      const lure = s(t * 6);
+      return { r_upper: [-0.85, 0, -0.15], r_fore: [-0.45 - 0.25 * Math.max(0, lure), 0, 0.1], r_hand: [-0.3 + 0.4 * Math.max(0, lure), 0, 0], l_upper: [-0.45, 0, 0.18], l_fore: [-0.9, 0, -0.1], neck: [0.1, 0.12 * s(t * 0.8), 0.12] };
+    }
+    case 'pour': {
+      // Сыплет корм из пакета в миску, придерживая миску левой.
+      const tilt = 0.5 + 0.5 * s(t * 2.2);
+      return { r_upper: [-0.95, 0, -0.08], r_fore: [-0.6, 0, 0.25], r_hand: [0.2, 0, 0.8 + 0.5 * tilt], l_upper: [-0.85, 0, 0.12], l_fore: [-0.25, 0, -0.1], neck: [0.45, 0, 0] };
+    }
+    case 'scoop': {
+      // Совком просеивает наполнитель лотка.
+      const a = (t * 1.3) % 1;
+      const dig = a < 0.5 ? a / 0.5 : 1 - (a - 0.5) / 0.5;
+      return { r_upper: [-0.85 + 0.35 * dig, 0, -0.12], r_fore: [-0.5 - 0.6 * dig, 0, 0.2], r_hand: [0.5 - 0.7 * dig, 0, 0], l_upper: [-0.5, 0, 0.2], l_fore: [-0.9, 0, -0.1], neck: [0.45, 0, 0] };
     }
     case 'box': {
       const a = (t * 2.2) % 2;
@@ -461,7 +697,7 @@ function actPose(act: Act, stance: Stance, t: number): Rots {
         r_upper: [-1.15 - 0.35 * r, 0, -0.25 + 0.15 * r],
         l_fore: [-2.0 + 1.85 * l, 0, -0.3],
         r_fore: [-2.0 + 1.85 * r, 0, 0.3],
-        neck: [0.15, 0, 0],
+        neck: [0.15, -0.15 * (l - r), 0],
       };
     }
     case 'dance': {
@@ -470,11 +706,26 @@ function actPose(act: Act, stance: Stance, t: number): Rots {
     }
     case 'talk': {
       const a = t * 2.6;
-      return { l_upper: [-0.55 + 0.25 * s(a), 0, 0.35], r_upper: [-0.6 + 0.25 * s(a + 1.7), 0, -0.4], l_fore: [-1.2, 0, 0.3 * s(a)], r_fore: [-1.1, 0, -0.3 * s(a + 1)], neck: [0, 0.18 * s(t * 0.9), 0.05 * s(a)] };
+      return { spine: [0, 0.08 * s(t * 0.6), 0], l_upper: [-0.55 + 0.25 * s(a), 0, 0.35], r_upper: [-0.6 + 0.25 * s(a + 1.7), 0, -0.4], l_fore: [-1.2, 0, 0.3 * s(a)], r_fore: [-1.1, 0, -0.3 * s(a + 1)], l_hand: [0.2 * s(a * 1.3), 0, 0], r_hand: [0.2 * s(a * 1.1 + 1), 0, 0], neck: [0.04 * beat(t, 1.8, 0.4), 0.18 * s(t * 0.9), 0.05 * s(a)] };
+    }
+    case 'watch': {
+      // Смотрит на рыбок: руки за спиной, наклоняется ближе, голова следит.
+      const lean = beat(t, 8, 0.5);
+      return { spine: [0.1 + 0.15 * lean, 0, 0], l_upper: [0.35, 0, 0.12], r_upper: [0.35, 0, -0.12], l_fore: [-0.9, 0, -0.6], r_fore: [-0.9, 0, 0.6], neck: [0.1, 0.35 * s(t * 0.5), 0.05 * s(t * 0.33)] };
+    }
+    case 'stretch': {
+      // Растяжка: руки вверх, наклоны в стороны.
+      const a = s(t * 1.1);
+      return { spine: [0, 0, 0.28 * a], chest: [0, 0, 0.12 * a], l_upper: [-0.2, 0, 2.75 - 0.15 * a], r_upper: [-0.2, 0, -2.75 - 0.15 * a], l_fore: [-0.2, 0, 0.3], r_fore: [-0.2, 0, -0.3], neck: [0, 0, -0.1 * a] };
+    }
+    case 'circles': {
+      // Круги руками в стороны.
+      const a = t * 4.2;
+      return { l_upper: [0.45 * s(a), 0, 1.45 + 0.35 * c(a)], r_upper: [0.45 * s(a), 0, -1.45 - 0.35 * c(a)], l_fore: [-0.1, 0, 0], r_fore: [-0.1, 0, 0], neck: [0, 0.1 * s(t * 0.7), 0] };
     }
     case 'none':
     default:
-      return stance === 'sit' ? { l_upper: [-0.4, 0, 0.05], r_upper: [-0.4, 0, -0.05], l_fore: [-0.7, 0, -0.35], r_fore: [-0.7, 0, 0.35] } : stance === 'lie' ? {} : { l_upper: [0, 0, 0.05], r_upper: [0, 0, -0.05], l_fore: [-0.15, 0, 0], r_fore: [-0.15, 0, 0] };
+      return sit ? { l_upper: [-0.4, 0, 0.05], r_upper: [-0.4, 0, -0.05], l_fore: [-0.7, 0, -0.35], r_fore: [-0.7, 0, 0.35] } : stance === 'lie' ? {} : { l_upper: [0, 0, 0.05], r_upper: [0, 0, -0.05], l_fore: [-0.15, 0, 0], r_fore: [-0.15, 0, 0] };
   }
 }
 
@@ -491,33 +742,109 @@ function composedPose(stance: Stance, act: Act, t: number): Pose {
   return { ...base, rot: { ...base.rot, ...arms } };
 }
 
+// ─── Ходьба ────────────────────────────────────────────────────────────
+
+/** Длина ноги модели в покое (бедро + голень), по ней масштабируется шаг. */
+const LEG = 1.12;
+const clamp01 = (x: number): number => Math.max(0, Math.min(1, x));
+const ss = (x: number): number => {
+  const k = clamp01(x);
+  return k * k * (3 - 2 * k);
+};
+
+/** Скорость в «ногах в секунду» (одинаковая походка у высоких и низких). */
+const legSpeed = (rig: Rig, speed: number): number => speed / Math.max(0.3, rig.root.scale.x * (rig.thigh + rig.shin));
+
+/**
+ * Частота шага (полных циклов в секунду) для скорости speed (м/с): с ростом скорости
+ * шаг и длиннее, и чаще. Сцена копит фазу cycle += dt · gaitFreq, и стопы не скользят.
+ */
+export function gaitFreq(rig: Rig, speed: number): number {
+  const v = legSpeed(rig, speed) * LEG;
+  return 0.6 + 0.4 * Math.min(3.2, v);
+}
+
+/**
+ * Шаг: фаза цикла u (0 — удар пяткой левой ноги), скорость v (м/с, для ноги LEG).
+ * Опорная стопа едет назад ровно со скоростью тела (по обратной кинематике), пятка
+ * встаёт первой, в конце опоры стопа перекатывается на носок; переносимая нога сгибается
+ * в колене. Таз поворачивается навстречу плечам, руки идут в противофазе к ногам со
+ * сгибом в локте, корпус покачивается, голова держится ровно. На бегу — короче опора,
+ * сильнее наклон и сгиб рук.
+ */
+function walkPose(u: number, v: number, t: number): Pose {
+  const run = ss((v - 2.1) / 0.9);
+  const amp = ss(v / 1.1);
+  const f = 0.6 + 0.4 * Math.min(3.2, v);
+  const D = 0.62 - 0.17 * run;
+  const travel = (v * D) / f;
+  const F = travel * 0.42;
+  const Bk = travel - F;
+  const Lf = 0.17;
+  const toe = 0.62 * amp;
+  const lift = (0.085 + 0.08 * run) * amp;
+  const foot = (p: number): [number, number, number] => {
+    if (p < D) {
+      const s = p / D;
+      let z = F - (F + Bk) * s;
+      let y = 0;
+      let pitch = s < 0.14 ? -0.24 * amp * (1 - s / 0.14) : 0;
+      if (s > 0.6) {
+        const phi = toe * ((s - 0.6) / 0.4) ** 1.6;
+        y += Lf * Math.sin(phi);
+        z += Lf * (1 - Math.cos(phi));
+        pitch = phi;
+      }
+      return [y, z, pitch];
+    }
+    const s = (p - D) / (1 - D);
+    const y0 = Lf * Math.sin(toe);
+    const z0 = -Bk + Lf * (1 - Math.cos(toe));
+    const z = z0 + (F - z0) * (0.5 - 0.5 * Math.cos(Math.PI * s));
+    const y = y0 * (1 - ss(s / 0.45)) + lift * Math.sin(Math.PI * Math.min(1, s * 1.1)) ** 0.8;
+    const pitch = toe + (-0.24 * amp - toe) * ss(s);
+    return [y, z, pitch];
+  };
+  const tau = Math.PI * 2;
+  const c = Math.cos(tau * u);
+  const ca = Math.cos(tau * (u - 0.06));
+  // Таз: ниже всего при двойной опоре, выше — над опорной ногой; на бегу наоборот.
+  const bob = 0.5 + 0.5 * Math.cos(2 * tau * u);
+  const vk = Math.min(1, v / 2.6);
+  const drop = (0.008 + 0.02 * vk + 0.03 * run) * amp + (0.03 + 0.02 * vk) * (run > 0.5 ? 1 - bob : bob) * amp;
+  const pelvis = -0.11 * amp * c * (1 - 0.4 * run);
+  const shoulders = 0.1 * amp * c;
+  const lean = 0.04 * amp + 0.13 * run;
+  const swing = (0.36 + 0.12 * run) * amp;
+  const elbow = (k: number): number => -(0.22 + 0.32 * Math.max(0, k) * amp) - 1.05 * run;
+  return {
+    rot: {
+      root: [0, pelvis, 0.035 * amp * Math.sin(tau * u)],
+      spine: [lean * 0.6, (shoulders - pelvis) * 0.45, -0.02 * amp * Math.sin(tau * u)],
+      chest: [lean * 0.4 + 0.01 * Math.sin(t * 1.6), (shoulders - pelvis) * 0.55, 0],
+      // Голова смотрит вперёд: шея гасит повороты плеч и наклон корпуса.
+      neck: [-lean * 0.7 + 0.015 * bob, -shoulders, 0],
+      // Рука впереди чуть отводится наружу, чтобы кисть не заходила на таз.
+      l_upper: [-0.04 + swing * ca, 0, 0.11 + 0.14 * Math.max(0, -ca) * amp + 0.04 * run],
+      r_upper: [-0.04 - swing * ca, 0, -0.11 - 0.14 * Math.max(0, ca) * amp - 0.04 * run],
+      l_fore: [elbow(-ca), 0, 0.08],
+      r_fore: [elbow(ca), 0, -0.08],
+      l_hand: [-0.12, 0, 0],
+      r_hand: [-0.12, 0, 0],
+    },
+    hip: [0.022 * amp * Math.cos(tau * (u - D / 2)), -drop, 0],
+    feet: { l: foot(u % 1), r: foot((u + 0.5) % 1), yaw: pelvis },
+  };
+}
+
 /** Поза для движения в момент t (с) с фазой повтора phase (0…1). */
 function poseFor(motion: Motion, t: number, phase: number): Pose {
   const k = wave(phase);
   const colon = motion.indexOf(':');
   if (colon > 0) return composedPose(motion.slice(0, colon) as Stance, motion.slice(colon + 1) as Act, t);
   switch (motion) {
-    case 'walk': {
-      const a = t * 7;
-      const s = Math.sin(a);
-      return {
-        rot: {
-          l_thigh: [-0.45 * s, 0, 0],
-          r_thigh: [0.45 * s, 0, 0],
-          l_shin: [Math.max(0, Math.sin(a - 1.4)) * 0.75, 0, 0],
-          r_shin: [Math.max(0, -Math.sin(a - 1.4)) * 0.75, 0, 0],
-          l_foot: [-0.15 * s, 0, 0],
-          r_foot: [0.15 * s, 0, 0],
-          l_upper: [0.38 * s, 0, 0.06],
-          r_upper: [-0.38 * s, 0, -0.06],
-          l_fore: [-0.25 - 0.15 * Math.max(0, -s), 0, 0],
-          r_fore: [-0.25 - 0.15 * Math.max(0, s), 0, 0],
-          spine: [0.04, 0.06 * s, 0],
-          chest: [0, -0.1 * s, 0],
-        },
-        hip: [0, -Math.abs(Math.cos(a)) * 0.025, 0],
-      };
-    }
+    case 'walk':
+      return walkPose(phase, 1.2, t);
     case 'squat':
       return {
         rot: { spine: [0.35 * k, 0, 0], chest: [0.15 * k, 0, 0], l_upper: [-1.35 * k, 0, 0.05], r_upper: [-1.35 * k, 0, -0.05], l_fore: [-0.15 * k, 0, 0], r_fore: [-0.15 * k, 0, 0] },
@@ -651,22 +978,64 @@ function poseFor(motion: Motion, t: number, phase: number): Pose {
   }
 }
 
+/** Ладонь (середина) в осях кисти: правая кисть, у левой x зеркально. */
+const PALM = new THREE.Vector3(0.022, -0.075, 0.018);
+
+/**
+ * Положение и поворот ладоней в позе motion в момент t (в координатах тела, без наклона
+ * всего тела): для крепления предметов так, чтобы в этой позе они смотрели как нужно.
+ */
+export function handPose(rig: Rig, motion: Motion, t: number): Record<'l' | 'r', { q: THREE.Quaternion; palm: THREE.Vector3 }> {
+  const p = poseFor(motion, t, 0);
+  const e = new THREE.Euler();
+  const side = (sd: 'l' | 'r'): { q: THREE.Quaternion; palm: THREE.Vector3 } => {
+    const q = new THREE.Quaternion();
+    const pos = rig.rest.root.clone();
+    if (p.hip) pos.add(new THREE.Vector3(...p.hip));
+    const chain: BoneName[] = ['root', 'spine', 'chest', `${sd}_upper`, `${sd}_fore`, `${sd}_hand`];
+    chain.forEach((b, i) => {
+      if (i > 0) pos.add(rig.rest[b].clone().applyQuaternion(q));
+      const r = p.rot[b];
+      if (r) q.multiply(new THREE.Quaternion().setFromEuler(e.set(r[0], r[1], r[2])));
+    });
+    const palm = PALM.clone();
+    if (sd === 'l') palm.x = -palm.x;
+    return { q, palm: pos.add(palm.applyQuaternion(q)) };
+  };
+  return { l: side('l'), r: side('r') };
+}
+
 /** Угол «вниз → направление» вокруг оси X: 0 — вниз, + — назад. */
 const sagittal = (d: THREE.Vector3): number => Math.atan2(-d.z, -d.y);
 
-/** Ставит ногу по обратной кинематике: стопа остаётся на месте при смещении таза. */
-function solveLeg(rig: Rig, side: 'l' | 'r', hip: THREE.Vector3): void {
+const LEG_BONES: readonly BoneName[] = ['l_thigh', 'l_shin', 'l_foot', 'r_thigh', 'r_shin', 'r_foot'];
+const legPrev = new Float32Array(6);
+const tmpA = new THREE.Vector3();
+const tmpD = new THREE.Vector3();
+const tmpH = new THREE.Vector3();
+const Y = new THREE.Vector3(0, 1, 0);
+
+/**
+ * Ставит ногу по обратной кинематике: голеностоп — в точку покоя, сдвинутую на (dy, dz)
+ * (без сдвига стопа остаётся на месте при смещении таза), колено сгибается вперёд,
+ * стопа — горизонтально с наклоном pitch (− носок вверх, + пятка вверх). yaw — поворот таза.
+ */
+function solveLeg(rig: Rig, side: 'l' | 'r', hip: THREE.Vector3, dy = 0, dz = 0, pitch = 0, yaw = 0): void {
   const th = rig.bones[`${side}_thigh`];
   const sh = rig.bones[`${side}_shin`];
   const restKnee = rig.rest[`${side}_shin`];
   const restAnkle = rig.rest[`${side}_foot`];
-  const restHipW = rig.rest.root.clone().add(rig.rest[`${side}_thigh`]);
-  const ankleW = restHipW.clone().add(restKnee).add(restAnkle);
-  const hipW = hip.clone().add(rig.rest[`${side}_thigh`]);
-  const d = ankleW.sub(hipW);
+  const off = rig.rest[`${side}_thigh`];
+  // Голеностоп в покое и цель.
+  tmpA.copy(rig.rest.root).add(off).add(restKnee).add(restAnkle);
+  tmpA.y += dy;
+  tmpA.z += dz;
+  // Вектор от тазобедренного сустава до цели — в повёрнутой системе таза.
+  tmpD.subVectors(tmpA, hip).applyAxisAngle(Y, -yaw).sub(off);
+  const d = tmpD;
   const a = rig.thigh;
   const b = rig.shin;
-  const L = Math.min(a + b - 1e-3, Math.max(Math.abs(a - b) + 1e-3, d.length()));
+  const L = Math.min(a + b - 1e-3, Math.max(Math.abs(a - b) + 1e-3, Math.hypot(d.y, d.z)));
   const beta = Math.acos(Math.min(1, Math.max(-1, (a * a + L * L - b * b) / (2 * a * L))));
   const gamma = Math.PI - Math.acos(Math.min(1, Math.max(-1, (a * a + b * b - L * L) / (2 * a * b))));
   const alphaD = sagittal(d);
@@ -676,8 +1045,8 @@ function solveLeg(rig: Rig, side: 'l' | 'r', hip: THREE.Vector3): void {
   th.rotation.x = thighW - bindThigh;
   // Голень: мировой угол thighW + gamma, относительно бедра — с поправкой на позу покоя.
   sh.rotation.x = gamma - bindShin + bindThigh;
-  // Стопа остаётся горизонтальной.
-  rig.bones[`${side}_foot`].rotation.x = -(th.rotation.x + sh.rotation.x);
+  // Стопа горизонтальна (плюс наклон переката).
+  rig.bones[`${side}_foot`].rotation.x = -(th.rotation.x + sh.rotation.x) + pitch;
 }
 
 /** Применяет движение к скелету: motion в момент t, фаза повтора phase. */
@@ -685,9 +1054,13 @@ function solveLeg(rig: Rig, side: 'l' | 'r', hip: THREE.Vector3): void {
  * Применяет движение к скелету: motion в момент t, фаза повтора phase. blend < 1 —
  * плавный переход от текущей позы (доля пути за кадр), 1 — сразу в позу.
  */
-export function animate(rig: Rig, motion: Motion, t: number, phase = 0, blend = 1): void {
-  const p = poseFor(motion, t, phase);
+export function animate(rig: Rig, motion: Motion, t: number, phase = 0, blend = 1, opts?: AnimOpts): void {
+  const p = motion === 'walk' ? walkPose(phase, legSpeed(rig, opts?.speed ?? 1.2) * LEG, t) : poseFor(motion, t, phase);
+  if (opts?.lean !== undefined) p.roll = opts.lean;
   const k = Math.min(1, Math.max(0, blend));
+  // Ноги по обратной кинематике при плавном переходе тоже смешиваются (без рывка).
+  const legIk = Boolean(p.feet || p.ik) && k < 1;
+  if (legIk) for (let i = 0; i < LEG_BONES.length; i += 1) legPrev[i] = rig.bones[LEG_BONES[i]!].rotation.x;
   for (const b of BONES) {
     const r = p.rot[b];
     const bone = rig.bones[b];
@@ -698,17 +1071,34 @@ export function animate(rig: Rig, motion: Motion, t: number, phase = 0, blend = 
     else bone.rotation.set(bone.rotation.x + (x - bone.rotation.x) * k, bone.rotation.y + (y - bone.rotation.y) * k, bone.rotation.z + (z - bone.rotation.z) * k);
     if (b !== 'root') bone.position.copy(rig.rest[b]);
   }
-  const hip = rig.rest.root.clone();
-  if (p.hip) hip.add(new THREE.Vector3(p.hip[0], p.hip[1], p.hip[2]));
+  const hip = tmpH.copy(rig.rest.root);
+  if (p.hip) {
+    hip.x += p.hip[0];
+    hip.y += p.hip[1];
+    hip.z += p.hip[2];
+  }
   if (k < 1) hip.lerpVectors(rig.bones.root.position, hip, k);
   rig.bones.root.position.copy(hip);
-  if (p.ik) {
+  if (p.feet) {
+    // Шаг: в масштабе персонажа (высокие шагают шире) — стопы точно по своим целям.
+    const sc = (rig.thigh + rig.shin) / LEG;
+    const yaw = rig.bones.root.rotation.y;
+    solveLeg(rig, 'l', hip, p.feet.l[0] * sc, p.feet.l[1] * sc, p.feet.l[2], yaw);
+    solveLeg(rig, 'r', hip, p.feet.r[0] * sc, p.feet.r[1] * sc, p.feet.r[2], yaw);
+  } else if (p.ik) {
     solveLeg(rig, 'l', hip);
     solveLeg(rig, 'r', hip);
   }
+  if (legIk)
+    for (let i = 0; i < LEG_BONES.length; i += 1) {
+      const b = rig.bones[LEG_BONES[i]!];
+      b.rotation.x = legPrev[i]! + (b.rotation.x - legPrev[i]!) * k;
+    }
   const pitch = p.pitch ?? 0;
   const lift = p.lift ?? 0;
+  const roll = p.roll ?? 0;
   rig.root.rotation.x = k >= 1 ? pitch : rig.root.rotation.x + (pitch - rig.root.rotation.x) * k;
+  rig.root.rotation.z = k >= 1 ? roll : rig.root.rotation.z + (roll - rig.root.rotation.z) * k;
   rig.root.position.y = k >= 1 ? lift : rig.root.position.y + (lift - rig.root.position.y) * k;
   const busy = motion !== 'idle' && motion !== 'walk';
   for (const h of rig.held) h.visible = !busy;
