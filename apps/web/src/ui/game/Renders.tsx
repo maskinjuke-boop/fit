@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { itemById, type Slot } from '../../game/items';
+import type { CatBreed, ObjectId } from '../../game/lifeTypes';
 import type { Appearance, Figure } from '../../game/state';
 import { Avatar, ItemIcon } from './Avatar';
 
@@ -76,6 +77,20 @@ export function ItemImage({ itemId, color, figure, size = 72 }: { itemId: string
 /** Заранее готовит иконки всех предметов, пока игрок на главной. */
 export function preloadItemImages(ids: readonly string[], color: string, figure: Figure): void {
   for (const id of ids) void request(itemKey(id, color, figure), (m) => m.renderItem(id, color, figure, 202)).catch(() => undefined);
+}
+
+/** Иконка предмета для дома из 3D-модели (пока грузится — эмодзи). */
+export function HomeImage({ id, icon, size = 72 }: { id: ObjectId; icon: string; size?: number }) {
+  const url = useSnapshot(`home|${id}`, (m) => m.renderHome(id, Math.min(256, Math.round(size * 2.4))));
+  if (!url) return <span className="home-emoji" style={{ fontSize: size * 0.55, width: size, height: size }}>{icon}</span>;
+  return <img className="item-render" src={url} width={size} height={size} alt="" draggable={false} />;
+}
+
+/** Портрет кошки из 3D-модели. */
+export function CatImage({ breed, size = 72 }: { breed: CatBreed; size?: number }) {
+  const url = useSnapshot(`cat|${breed}`, (m) => m.renderCat(breed, Math.min(256, Math.round(size * 2.4))));
+  if (!url) return <span className="home-emoji" style={{ fontSize: size * 0.55, width: size, height: size }}>🐈</span>;
+  return <img className="item-render" src={url} width={size} height={size} alt="" draggable={false} />;
 }
 
 const PORTRAIT_KEY = 'fitness-rpg.portrait.v2';

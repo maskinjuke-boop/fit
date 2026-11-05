@@ -15,7 +15,8 @@ import {
   effectiveAppearance,
   fee,
   fitness,
-  furnitureBlocker,
+  catName,
+  comfort,
   gymBlocker,
   gymOpen,
   hasObject,
@@ -28,11 +29,12 @@ import {
   SKILL_NAME,
   type Blocker,
 } from '../../game/life';
-import { FURNITURE, GYMS, GYM_HOURS, HOUSE_SLOTS, OBJECTS, SESSION_EXERCISES, actionById, lifeEventById } from '../../game/lifeContent';
+import { GYMS, GYM_HOURS, OBJECTS, SESSION_EXERCISES, actionById, catBreedById, lifeEventById } from '../../game/lifeContent';
 import { gymLayout, homeLayout, type P2 } from '../../game/lifeMap';
 import { NEEDS, SKILLS, type ActionDef, type Client, type NeedId, type ObjectId } from '../../game/lifeTypes';
 import { useI18n, type I18nKey } from '../../i18n';
 import type { ExerciseId } from '../../tracking/exercise';
+import { animFor } from './three/actionAnims';
 import type { Member } from './three/people';
 import { HeroPortrait } from './Renders';
 
@@ -325,14 +327,24 @@ function GymCard({ state }: { state: GameState }) {
 function FurnitureList({ state }: { state: GameState }) {
   const { t, tf, lang } = useI18n();
   const { life } = useGame();
+  const owned = state.life.furniture;
   return (
     <>
-      <p className="small">{tf('life.slots', { n: state.life.furniture.length, m: HOUSE_SLOTS })}</p>
+      <p className="small">
+        {t('life.comfort')}: <b>{comfort(state.life)}</b>
+      </p>
+      {owned.length === 0 && state.life.cats.length === 0 && <p className="muted small">{t('life.homeEmpty')}</p>}
       <ul className="life-list">
-        {FURNITURE.map((id: ObjectId) => {
+        {state.life.cats.map((c) => (
+          <li key={c.id}>
+            <div>
+              <b>🐈 {catName(c)[lang]}</b>
+              <div className="muted small">{catBreedById(c.breed).name[lang]}</div>
+            </div>
+          </li>
+        ))}
+        {owned.map((id: ObjectId) => {
           const o = OBJECTS[id];
-          const owned = state.life.furniture.includes(id);
-          const b = furnitureBlocker(state, id);
           return (
             <li key={id}>
               <div>
@@ -341,19 +353,14 @@ function FurnitureList({ state }: { state: GameState }) {
                 </b>
                 <div className="muted small">{o.desc?.[lang]}</div>
               </div>
-              {owned ? (
-                <button className="btn ghost small" onClick={() => life.sellFurniture(id)}>
-                  {tf('life.sell', { n: Math.round((o.price ?? 0) * 0.4) })}
-                </button>
-              ) : (
-                <button className="btn small" disabled={b !== null} onClick={() => life.buyFurniture(id)}>
-                  {b ? t(`fblock.${b}` as I18nKey) : `◈ ${o.price}`}
-                </button>
-              )}
+              <button className="btn ghost small" onClick={() => life.sellFurniture(id)}>
+                {tf('life.sell', { n: Math.round((o.price ?? 0) * 0.4) })}
+              </button>
             </li>
           );
         })}
       </ul>
+      <p className="muted small">{t('life.homeShopHint')}</p>
     </>
   );
 }
@@ -446,6 +453,12 @@ export function LifeTab({ state, onTrain, onSession }: { state: GameState; onTra
   });
   const [autoTask, setAutoTask] = useState<{ action: string; at: ObjectId; since: number } | null>(null);
   const lastInput = useRef(performance.now());
+  // Действие с анимацией: сначала герой занимает место и двигается, потом результат.
+  const [perform, setPerform] = useState<{ key: number; action: string; at: ObjectId } | null>(null);
+  const performRef = useRef(perform);
+  performRef.current = perform;
+  const performKey = useRef(0);
+  const catSpots = useRef<P2[]>([]);
   const live = useRef({ state, near: null as ObjectId | null, sheet: null as Sheet, auto, failed: false });
   const playerInput = (): void => {
     lastInput.current = performance.now();
@@ -473,6 +486,41 @@ export function LifeTab({ state, onTrain, onSession }: { state: GameState; onTra
   live.current = { state, near, sheet, auto, failed };
   const lifeRef = useRef(life);
   lifeRef.current = life;
+  const stateRef = useRef(state);
+  stateRef.current = state;
+
+  /** Выполнить действие: с анимацией у предмета, если она есть, иначе сразу. */
+  const doAction = (a: ActionDef): void => {
+    if (performRef.current) return;
+    const spec = animFor(a.id);
+    const st = stateRef.current;
+    lastInput.current = performance.now();
+    if (!spec || a.train || a.open || a.go || blocker(st, a) || st.life.event) {
+      const out = lifeRef.current.act(a.id);
+      if (out.train) onTrain();
+      if (out.open === 'session') setSheet('session');
+      else if (out.open === 'gym') {
+        setPhoneTab('gym');
+        setSheet('phone');
+      } else if (out.open === 'furniture') {
+        setPhoneTab('home');
+        setSheet('phone');
+      }
+      return;
+    }
+    performKey.current += 1;
+    const pf = { key: performKey.current, action: a.id, at: a.at };
+    performRef.current = pf;
+    setPerform(pf);
+    window.setTimeout(() => {
+      lifeRef.current.act(a.id);
+      performRef.current = null;
+      setPerform(null);
+      lastInput.current = performance.now() - IDLE_MS + AUTO_PAUSE_MS;
+    }, spec.ms ?? 2400);
+  };
+  const doActionRef = useRef(doAction);
+  doActionRef.current = doAction;
   const taskRef = useRef<{ action: string; at: ObjectId; since: number } | null>(null);
   const setTask = (t: { action: string; at: ObjectId; since: number } | null): void => {
     taskRef.current = t;
@@ -482,14 +530,19 @@ export function LifeTab({ state, onTrain, onSession }: { state: GameState; onTra
     const id = window.setInterval(() => {
       const { state: st, near: at, sheet: open, auto: on, failed: off } = live.current;
       const now = performance.now();
-      if (!on || off || open || st.life.event) return;
+      if (!on || off || open || st.life.event || performRef.current) return;
       const task = taskRef.current;
       if (task) {
         // Дошёл — делает; застрял — бросает затею.
-        if (at === task.at) {
+        const def = actionById(task.action);
+        if (at === task.at && def) {
           setTask(null);
-          lifeRef.current.act(task.action);
-          lastInput.current = now - IDLE_MS + AUTO_PAUSE_MS;
+          doActionRef.current(def);
+        } else if (task.at === 'cat' && catSpots.current.length) {
+          // Кошка ходит — догоняем ближайшую.
+          const c = catSpots.current[0]!;
+          goto.current = { ...c };
+          if (now - task.since > 25000) setTask(null);
         } else if (now - task.since > 25000) {
           goto.current = null;
           setTask(null);
@@ -500,10 +553,16 @@ export function LifeTab({ state, onTrain, onSession }: { state: GameState; onTra
       const a = autoAction(st);
       if (!a) return;
       const L2 = st.life;
-      const placed = L2.scene === 'home' ? homeLayout(L2.furniture) : gymLayout(GYMS[L2.gym]!.shower, GYMS[L2.gym]!.bar);
-      const spot = placed.find((p) => p.id === a.at);
-      if (!spot) return;
-      goto.current = { ...spot.use };
+      if (a.at === 'cat') {
+        const c = catSpots.current[0];
+        if (!c) return;
+        goto.current = { ...c };
+      } else {
+        const placed = L2.scene === 'home' ? homeLayout(L2.furniture) : gymLayout(GYMS[L2.gym]!.shower, GYMS[L2.gym]!.bar);
+        const spot = placed.find((p) => p.id === a.at);
+        if (!spot) return;
+        goto.current = { ...spot.use };
+      }
       setTask({ action: a.id, at: a.at, since: now });
     }, 600);
     return () => clearInterval(id);
@@ -524,22 +583,19 @@ export function LifeTab({ state, onTrain, onSession }: { state: GameState; onTra
     }
   };
 
-  const run = (a: ActionDef): void => {
-    lastInput.current = performance.now();
-    const out = life.act(a.id);
-    if (out.train) onTrain();
-    if (out.open === 'session') setSheet('session');
-    else if (out.open === 'gym') {
-      setPhoneTab('gym');
-      setSheet('phone');
-    } else if (out.open === 'furniture') {
-      setPhoneTab('home');
-      setSheet('phone');
-    }
-  };
+  const run = (a: ActionDef): void => doAction(a);
 
   let panel: ReactNode = null;
-  if (near && hasObject(state, near)) {
+  if (perform) {
+    const a = actionById(perform.action);
+    panel = (
+      <div className="life-panel performing">
+        <b>
+          {a?.icon} {a?.label[lang]}…
+        </b>
+      </div>
+    );
+  } else if (near && hasObject(state, near)) {
     const acts = actionsAt(near);
     panel = (
       <div className="life-panel">
@@ -566,7 +622,7 @@ export function LifeTab({ state, onTrain, onSession }: { state: GameState; onTra
   const hint = L.scene === 'home' ? t('life.hintHome') : open ? t('life.hintGym') : tf('life.hintClosed', { from: GYM_HOURS[0], to: GYM_HOURS[1] });
   return (
     <div className="world-tab life-tab">
-      <div className="world-view life-view">
+      <div className={`world-view life-view ${perform && /^(sleep|nap)$/.test(perform.action) ? 'sleeping' : ''}`}>
         {failed ? (
           <div className="world-fallback">
             <p className="muted" style={{ padding: 16 }}>
@@ -592,6 +648,9 @@ export function LifeTab({ state, onTrain, onSession }: { state: GameState; onTra
               goto={goto}
               onNear={setNear}
               onInput={playerInput}
+              cats={L.cats}
+              perform={perform}
+              catSpots={catSpots}
               onFail={() => setFailed(true)}
             />
           </Suspense>

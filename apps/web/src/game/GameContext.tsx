@@ -20,8 +20,8 @@ import {
 import type { Slot } from './items';
 import { createState, type Appearance, type Character, type GameState } from './state';
 import { clearGame, loadGame, saveGame } from './storage';
-import { act, answerEvent, buyFurniture, dismissResult, endSession, sellFurniture, startSession, upgradeGym, type LifeOutcome } from './life';
-import type { ObjectId } from './lifeTypes';
+import { act, adoptCat, answerEvent, buyFurniture, rehomeCat, dismissResult, endSession, sellFurniture, startSession, upgradeGym, type LifeOutcome } from './life';
+import type { CatBreed, ObjectId } from './lifeTypes';
 
 /** Действия режима администратора. */
 export interface AdminActions {
@@ -49,6 +49,8 @@ export interface LifeActions {
   upgradeGym(): void;
   buyFurniture(id: ObjectId): void;
   sellFurniture(id: ObjectId): void;
+  adoptCat(breed: CatBreed): void;
+  rehomeCat(id: string): void;
   dismiss(): void;
 }
 
@@ -223,6 +225,8 @@ export function GameProvider({ children }: { children: ReactNode }) {
       upgradeGym: () => plain(upgradeGym),
       buyFurniture: (id) => plain((s) => buyFurniture(s, id)),
       sellFurniture: (id) => plain((s) => sellFurniture(s, id)),
+      adoptCat: (b) => plain((s) => adoptCat(s, b)),
+      rehomeCat: (id) => plain((s) => rehomeCat(s, id)),
       dismiss: () => plain(dismissResult),
     };
     return {

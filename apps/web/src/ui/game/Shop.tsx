@@ -1,4 +1,6 @@
-import { effectiveAppearance } from '../../game/life';
+import { actionsAt, catBlocker, catName, comfort, effectiveAppearance, furnitureBlocker } from '../../game/life';
+import { CAT_BREEDS, FURNITURE, MAX_CATS, OBJECTS, catBreedById, mountOf, slotsFor, type HomeKind } from '../../game/lifeContent';
+import type { ObjectId } from '../../game/lifeTypes';
 import { useState, type MouseEvent } from 'react';
 import { canBuy, equipmentBonus } from '../../game/engine';
 import { useGame } from '../../game/GameContext';
@@ -7,7 +9,7 @@ import { levelOf } from '../../game/levels';
 import type { GameState } from '../../game/state';
 import { useI18n, type I18nKey } from '../../i18n';
 import { Hero3D } from './Hero3D';
-import { ItemImage } from './Renders';
+import { CatImage, HomeImage, ItemImage } from './Renders';
 
 const itemName = (t: (k: I18nKey) => string, id: string): string => t(`item.${id}` as I18nKey);
 
@@ -101,8 +103,168 @@ function ItemCard({ state, item, onOpen }: { state: GameState; item: ItemDef; on
   );
 }
 
+type ShopSection = 'clothes' | 'home' | 'cats';
+type HomeFilter = HomeKind | 'all';
+
+const NEED_ICON: Record<string, string> = { food: '🍔', energy: '⚡', hygiene: '🚿', fun: '🎉', social: '💬' };
+
+/** Что даёт предмет для дома: действия, уют, пассивные эффекты. */
+function homePerks(id: ObjectId, lang: 'ru' | 'en', tf: (k: I18nKey, v: Record<string, string | number>) => string): string[] {
+  const o = OBJECTS[id];
+  const out: string[] = actionsAt(id).map((a) => `${a.icon} ${a.label[lang]}`);
+  if (o.comfort) out.push(tf('home.comfort', { n: o.comfort }));
+  for (const [need, k] of Object.entries(o.slows ?? {})) out.push(tf('home.slows', { need: NEED_ICON[need] ?? need, n: Math.round((k ?? 0) * 100) }));
+  return out;
+}
+
+function HomeSheet({ state, id, onClose }: { state: GameState; id: ObjectId; onClose(): void }) {
+  const { t, tf, lang } = useI18n();
+  const { life } = useGame();
+  const o = OBJECTS[id];
+  const owned = state.life.furniture.includes(id);
+  const b = furnitureBlocker(state, id);
+  return (
+    <div className="overlay" onClick={onClose}>
+      <div className="sheet item-sheet" onClick={(e: MouseEvent<HTMLDivElement>) => e.stopPropagation()}>
+        <div className="item-sheet-art home-art">
+          <HomeImage id={id} icon={o.icon} size={200} />
+        </div>
+        <h2>
+          {o.icon} {o.name[lang]}
+        </h2>
+        <p className="muted small">
+          {t(`home.kind.${o.kind ?? 'furniture'}` as I18nKey)} · {o.desc?.[lang]}
+        </p>
+        <ul className="perks">
+          {homePerks(id, lang, tf).map((x) => (
+            <li key={x}>{x}</li>
+          ))}
+        </ul>
+        {!owned && b === 'space' && <p className="notice">{t('home.noSpace')}</p>}
+        {!owned && b === 'money' && <p className="notice">{t('notEnoughGold')}</p>}
+        <div className="row">
+          <button className="btn" onClick={onClose}>
+            {t('close')}
+          </button>
+          {owned ? (
+            <button
+              className="btn"
+              onClick={() => {
+                life.sellFurniture(id);
+                onClose();
+              }}
+            >
+              {tf('life.sell', { n: Math.round((o.price ?? 0) * 0.4) })}
+            </button>
+          ) : (
+            <button
+              className="btn primary"
+              disabled={b !== null}
+              onClick={() => {
+                life.buyFurniture(id);
+                onClose();
+              }}
+            >
+              {t('buy')} · ◈ {o.price}
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function HomeShop({ state }: { state: GameState }) {
+  const { t, tf, lang } = useI18n();
+  const [filter, setFilter] = useState<HomeFilter>('all');
+  const [open, setOpen] = useState<ObjectId | null>(null);
+  const items = FURNITURE.filter((id) => filter === 'all' || OBJECTS[id].kind === filter);
+  const used = (m: 'slot' | 'wall' | 'floor'): number => state.life.furniture.filter((x) => mountOf(x) === m).length;
+  return (
+    <>
+      <p className="muted small">
+        {tf('home.places', { a: used('slot'), am: slotsFor('slot'), b: used('wall'), bm: slotsFor('wall'), c: used('floor'), cm: slotsFor('floor') })} · {tf('home.comfortNow', { n: comfort(state.life) })}
+      </p>
+      <div className="chips">
+        {(['all', 'furniture', 'tech', 'decor'] as const).map((k) => (
+          <button key={k} className={`chip ${filter === k ? 'on' : ''}`} onClick={() => setFilter(k)}>
+            {t(k === 'all' ? 'slot.all' : (`home.kind.${k}` as I18nKey))}
+          </button>
+        ))}
+      </div>
+      <ul className="item-grid">
+        {items.map((id) => {
+          const o = OBJECTS[id];
+          const owned = state.life.furniture.includes(id);
+          const b = furnitureBlocker(state, id);
+          return (
+            <li key={id}>
+              <button className={`item-card ${owned ? 'equipped' : ''} ${!owned && b === 'space' ? 'locked' : ''}`} onClick={() => setOpen(id)}>
+                <span className="item-art home-art">
+                  <HomeImage id={id} icon={o.icon} size={92} />
+                </span>
+                <b>{o.name[lang]}</b>
+                <span className="muted small">{homePerks(id, lang, tf)[0] ?? ''}</span>
+                <span className={`item-price ${owned ? 'owned' : ''}`}>{owned ? `✓ ${t('home.owned')}` : b === 'space' ? t('home.full') : `◈ ${o.price}`}</span>
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+      {open && <HomeSheet state={state} id={open} onClose={() => setOpen(null)} />}
+    </>
+  );
+}
+
+function CatShop({ state }: { state: GameState }) {
+  const { t, tf, lang } = useI18n();
+  const { life } = useGame();
+  const cats = state.life.cats;
+  return (
+    <>
+      <p className="muted small">{tf('cats.hint', { n: cats.length, m: MAX_CATS })}</p>
+      {cats.length > 0 && (
+        <ul className="life-list cats-own">
+          {cats.map((c) => (
+            <li key={c.id}>
+              <span className="cat-thumb">
+                <CatImage breed={c.breed} size={56} />
+              </span>
+              <div>
+                <b>{catName(c)[lang]}</b>
+                <div className="muted small">{catBreedById(c.breed).name[lang]}</div>
+              </div>
+              <button className="btn ghost small" onClick={() => life.rehomeCat(c.id)}>
+                {t('cats.rehome')}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      <ul className="item-grid">
+        {CAT_BREEDS.map((b) => {
+          const block = catBlocker(state, b.id);
+          return (
+            <li key={b.id}>
+              <button className={`item-card ${block === 'max' ? 'locked' : ''}`} disabled={block !== null} onClick={() => life.adoptCat(b.id)}>
+                <span className="item-art home-art">
+                  <CatImage breed={b.id} size={92} />
+                </span>
+                <b>{b.name[lang]}</b>
+                <span className="muted small">{b.desc[lang]}</span>
+                <span className="item-price">{block === 'max' ? t('cats.max') : `${t('cats.adopt')} · ◈ ${b.price}`}</span>
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+    </>
+  );
+}
+
 export function ShopTab({ state }: { state: GameState }) {
   const { t } = useI18n();
+  const [section, setSection] = useState<ShopSection>('clothes');
   const [filter, setFilter] = useState<Slot | 'all'>('all');
   const [open, setOpen] = useState<string | null>(null);
   const items = ITEMS.filter((i) => filter === 'all' || i.slot === filter);
@@ -113,18 +275,31 @@ export function ShopTab({ state }: { state: GameState }) {
         <h2>{t('shop')}</h2>
         <span className="gold-pill">◈ {state.gold}</span>
       </div>
-      <div className="chips">
-        {(['all', ...SLOTS] as const).map((s) => (
-          <button key={s} className={`chip ${filter === s ? 'on' : ''}`} onClick={() => setFilter(s)}>
-            {t(`slot.${s}` as I18nKey)}
+      <div className="segmented shop-sections">
+        {(['clothes', 'home', 'cats'] as const).map((x) => (
+          <button key={x} className={section === x ? 'on' : ''} onClick={() => setSection(x)}>
+            {t(`shop.${x}` as I18nKey)}
           </button>
         ))}
       </div>
-      <ul className="item-grid">
-        {items.map((i) => (
-          <ItemCard key={i.id} state={state} item={i} onOpen={() => setOpen(i.id)} />
-        ))}
-      </ul>
+      {section === 'home' && <HomeShop state={state} />}
+      {section === 'cats' && <CatShop state={state} />}
+      {section === 'clothes' && (
+        <>
+          <div className="chips">
+            {(['all', ...SLOTS] as const).map((s) => (
+              <button key={s} className={`chip ${filter === s ? 'on' : ''}`} onClick={() => setFilter(s)}>
+                {t(`slot.${s}` as I18nKey)}
+              </button>
+            ))}
+          </div>
+          <ul className="item-grid">
+            {items.map((i) => (
+              <ItemCard key={i.id} state={state} item={i} onOpen={() => setOpen(i.id)} />
+            ))}
+          </ul>
+        </>
+      )}
       {openItem && <ItemSheet state={state} item={openItem} onClose={() => setOpen(null)} />}
     </div>
   );

@@ -1,4 +1,4 @@
-import { HOUSE_SLOTS } from './lifeContent';
+import { mountOf } from './lifeContent';
 import type { ObjectId, SceneId } from './lifeTypes';
 
 /**
@@ -30,42 +30,103 @@ export interface Placed {
   box: Box | null;
 }
 
-export const HOUSE = { w: 13, d: 9.5 };
+export const HOUSE = { w: 15, d: 11 };
 export const GYM_ROOM = { w: 16, d: 12 };
 
 const box = (x: number, z: number, hw: number, hd: number): Box => ({ x0: x - hw, x1: x + hw, z0: z - hd, z1: z + hd });
 
-/** Предметы дома: базовые на своих местах, купленные — по свободным местам у стен. */
-export function homeLayout(furniture: readonly ObjectId[]): Placed[] {
+interface Slot {
+  pos: P2;
+  rot: number;
+  use: P2;
+  /** Высота предмета на стене. */
+  y?: number;
+}
+
+/** Места у стен для мебели и техники. */
+function furnitureSlots(): Slot[] {
+  const { w, d } = HOUSE;
+  const L = -w / 2;
+  const R = w / 2;
+  const B = -d / 2;
+  const back = [-3.9, -2.2, -0.5, 1.2, 2.9, 4.4].map((x) => ({ pos: { x, z: B + 0.5 }, rot: 0, use: { x, z: B + 1.75 } }));
+  const left = [-2.6, 1.9].map((z) => ({ pos: { x: L + 0.7, z }, rot: Math.PI / 2, use: { x: L + 2, z } }));
+  const right = [-2.4, -0.7, 1.0, 2.7].map((z) => ({ pos: { x: R - 0.7, z }, rot: -Math.PI / 2, use: { x: R - 2, z } }));
+  // Порядок заполнения: сначала задняя стена (лучше видна), потом боковые.
+  return [back[1]!, back[3]!, right[1]!, left[0]!, back[0]!, back[4]!, right[2]!, back[2]!, left[1]!, right[0]!, back[5]!, right[3]!];
+}
+
+/** Места на стенах (картины, часы, неон, кондиционер). */
+function wallSlots(): Slot[] {
+  const { w, d } = HOUSE;
+  const B = -d / 2;
+  const L = -w / 2;
+  return [
+    { pos: { x: -6.3, z: B + 0.04 }, rot: 0, use: { x: -4.6, z: B + 1.9 }, y: 2.05 },
+    { pos: { x: -1.3, z: B + 0.04 }, rot: 0, use: { x: -1.3, z: B + 1.9 }, y: 2.35 },
+    { pos: { x: 2.0, z: B + 0.04 }, rot: 0, use: { x: 2.0, z: B + 1.9 }, y: 2.35 },
+    { pos: { x: 5.6, z: B + 0.04 }, rot: 0, use: { x: 4.4, z: B + 1.9 }, y: 2.45 },
+    { pos: { x: L + 0.04, z: -0.9 }, rot: Math.PI / 2, use: { x: L + 1.6, z: -0.9 }, y: 2.1 },
+  ];
+}
+
+/** Места на полу для декора. */
+function floorSlots(): Slot[] {
+  const { w, d } = HOUSE;
+  const L = -w / 2;
+  const R = w / 2;
+  const F = d / 2;
+  return [
+    { pos: { x: L + 0.45, z: -1.1 }, rot: 0, use: { x: L + 1.5, z: -1.1 } },
+    { pos: { x: R - 0.45, z: -3.9 }, rot: 0, use: { x: R - 1.5, z: -3.9 } },
+    { pos: { x: L + 0.45, z: 3.0 }, rot: 0, use: { x: L + 1.5, z: 3.0 } },
+    { pos: { x: -2.6, z: F - 0.45 }, rot: 0, use: { x: -2.6, z: F - 1.4 } },
+    { pos: { x: 3.0, z: F - 0.45 }, rot: 0, use: { x: 3.0, z: F - 1.4 } },
+  ];
+}
+
+/** Препятствия дома без действий (телевизор перед диваном). */
+export function homeObstacles(): Box[] {
+  return [box(0.4, -1.5, 0.85, 0.3)];
+}
+
+export interface PlacedHome extends Placed {
+  /** Высота на стене (для настенных предметов). */
+  y: number;
+}
+
+/** Предметы дома: базовые на своих местах, купленные — по свободным местам своего вида. */
+export function homeLayout(furniture: readonly ObjectId[]): PlacedHome[] {
   const { w, d } = HOUSE;
   const L = -w / 2;
   const R = w / 2;
   const B = -d / 2;
   const F = d / 2;
-  const out: Placed[] = [
+  const base: Placed[] = [
     { id: 'bed', pos: { x: L + 1.3, z: B + 1.4 }, rot: 0, use: { x: L + 2.9, z: B + 1.6 }, box: box(L + 1.3, B + 1.4, 1.05, 1.35) },
-    { id: 'sofa', pos: { x: 0.4, z: 0.9 }, rot: Math.PI, use: { x: 0.4, z: 2.2 }, box: box(0.4, 0.9, 1.25, 0.5) },
+    { id: 'sofa', pos: { x: 0.4, z: 1.4 }, rot: Math.PI, use: { x: 0.4, z: 0.25 }, box: box(0.4, 1.4, 1.25, 0.5) },
     { id: 'fridge', pos: { x: R - 0.55, z: B + 0.5 }, rot: 0, use: { x: R - 0.8, z: B + 1.8 }, box: box(R - 0.55, B + 0.5, 0.45, 0.4) },
     { id: 'stove', pos: { x: R - 1.65, z: B + 0.45 }, rot: 0, use: { x: R - 1.9, z: B + 1.7 }, box: box(R - 1.65, B + 0.45, 0.5, 0.4) },
     { id: 'shower', pos: { x: R - 0.75, z: F - 1.2 }, rot: -Math.PI / 2, use: { x: R - 2.1, z: F - 1.2 }, box: box(R - 0.75, F - 1.2, 0.7, 0.7) },
     { id: 'mirror', pos: { x: L + 0.08, z: 0.4 }, rot: Math.PI / 2, use: { x: L + 1.2, z: 0.4 }, box: null },
     { id: 'door', pos: { x: L + 0.06, z: F - 1.3 }, rot: Math.PI / 2, use: { x: L + 1.1, z: F - 1.3 }, box: null },
   ];
-  const slots: Array<{ pos: P2; rot: number; use: P2 }> = [
-    { pos: { x: 0.4, z: B + 0.45 }, rot: 0, use: { x: 0.4, z: B + 1.7 } },
-    { pos: { x: L + 0.7, z: -1.3 }, rot: Math.PI / 2, use: { x: L + 2, z: -1.3 } },
-    { pos: { x: R - 0.7, z: -0.9 }, rot: -Math.PI / 2, use: { x: R - 2, z: -0.9 } },
-    { pos: { x: -2.4, z: F - 0.8 }, rot: Math.PI, use: { x: -2.4, z: F - 2.1 } },
-    { pos: { x: 2.2, z: F - 0.8 }, rot: Math.PI, use: { x: 2.2, z: F - 2.1 } },
-    { pos: { x: -2.2, z: B + 0.45 }, rot: 0, use: { x: -2.2, z: B + 1.7 } },
-    { pos: { x: 3.2, z: B + 0.45 }, rot: 0, use: { x: 3.2, z: B + 1.7 } },
-    { pos: { x: R - 0.7, z: 1.5 }, rot: -Math.PI / 2, use: { x: R - 2, z: 1.5 } },
-  ];
-  furniture.slice(0, HOUSE_SLOTS).forEach((id, i) => {
-    const s = slots[i];
-    if (!s) return;
-    out.push({ id, pos: s.pos, rot: s.rot, use: s.use, box: box(s.pos.x, s.pos.z, 0.55, 0.55) });
-  });
+  const out: PlacedHome[] = base.map((p) => ({ ...p, y: 0 }));
+  const pools: Record<'slot' | 'wall' | 'floor', Slot[]> = { slot: furnitureSlots(), wall: wallSlots(), floor: floorSlots() };
+  const used = { slot: 0, wall: 0, floor: 0 };
+  for (const id of furniture) {
+    const mount = mountOf(id);
+    if (mount === 'free') {
+      // Робот-пылесос: станция у стены возле двери, сам ездит по дому.
+      out.push({ id, pos: { x: L + 0.35, z: 2.75 }, rot: Math.PI / 2, use: { x: L + 1.3, z: 2.75 }, box: null, y: 0 });
+      continue;
+    }
+    const sl = pools[mount][used[mount]];
+    if (!sl) continue;
+    used[mount] += 1;
+    const hw = mount === 'slot' ? 0.55 : 0.28;
+    out.push({ id, pos: sl.pos, rot: sl.rot, use: sl.use, box: mount === 'wall' ? null : box(sl.pos.x, sl.pos.z, hw, hw), y: sl.y ?? 0 });
+  }
   return out;
 }
 

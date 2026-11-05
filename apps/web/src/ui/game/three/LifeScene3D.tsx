@@ -1,12 +1,16 @@
 import { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
+import { actionsAt } from '../../../game/life';
 import { GYMS } from '../../../game/lifeContent';
-import { GYM_ROOM, HOUSE, REACH, bounds as sceneBounds, clientSpot, dist, gymGear, gymLayout, homeLayout, resolve, spawn, type Box, type GearKind, type P2, type Placed } from '../../../game/lifeMap';
-import type { ObjectId, SceneId } from '../../../game/lifeTypes';
+import { GYM_ROOM, HOUSE, REACH, bounds as sceneBounds, clientSpot, dist, gymGear, gymLayout, homeLayout, homeObstacles, resolve, spawn, type Box, type GearKind, type P2, type Placed } from '../../../game/lifeMap';
+import type { CatBreed, ObjectId, SceneId } from '../../../game/lifeTypes';
+import { animFor } from './actionAnims';
 import { disposeObject, type CharacterParts } from './buildCharacter';
-import { M, mat, mesh, retile } from './kit';
+import { buildCat, poseCat, type Cat3D, type CatMode } from './cats3d';
+import { contactShadow, objectModel, parquetTexture, plasterTexture, ticksOf, type HomeAnim } from './homeModels';
+import { M, mat, mesh } from './kit';
 import { blobShadow, loadCharacter, lookKey, type Look, type Member } from './people';
-import { animate } from './rig';
+import { animate, type Motion } from './rig';
 import { createStudio, setupRenderer } from './studio';
 
 /**
@@ -27,6 +31,12 @@ export interface LifeScene3DProps {
   hero: Look;
   /** Ученики в зале (пусто, если зал закрыт или герой дома). */
   clients: Member[];
+  /** Свои кошки (живут дома). */
+  cats: Array<{ id: string; breed: CatBreed }>;
+  /** Герой выполняет действие у предмета (анимация до результата). */
+  perform: { key: number; action: string; at: ObjectId } | null;
+  /** Куда сцена пишет, где сейчас кошки (для самостоятельного сима). */
+  catSpots?: { current: P2[] };
   stick: { current: { x: number; y: number } };
   goto: { current: P2 | null };
   onNear(target: ObjectId | null): void;
@@ -49,196 +59,6 @@ function loadZoom(): number {
   }
 }
 
-const wood = (c = '#8a5a30'): THREE.Material => M.wood(c, 1, 2);
-const paint = (c: string, r = 0.8): THREE.Material => mat(c, r);
-
-/** Модель предмета (лицевая сторона — к +Z). */
-function objectModel(id: ObjectId): THREE.Group {
-  const g = new THREE.Group();
-  switch (id) {
-    case 'bed': {
-      g.add(mesh(new THREE.BoxGeometry(2, 0.4, 2.6), wood('#6b4428'), [0, 0.2, 0]));
-      g.add(mesh(new THREE.BoxGeometry(1.9, 0.22, 2.45), paint('#f2f0ea', 0.9), [0, 0.5, 0.05]));
-      g.add(mesh(new THREE.BoxGeometry(1.92, 0.12, 1.6), M.cloth('#5b7fb3', 4), [0, 0.64, 0.45]));
-      g.add(mesh(new THREE.BoxGeometry(0.75, 0.16, 0.45), paint('#ffffff', 0.9), [-0.45, 0.68, -0.9]), mesh(new THREE.BoxGeometry(0.75, 0.16, 0.45), paint('#ffffff', 0.9), [0.45, 0.68, -0.9]));
-      g.add(mesh(new THREE.BoxGeometry(2.1, 1.1, 0.12), wood('#5a3a22'), [0, 0.75, -1.3]));
-      break;
-    }
-    case 'sofa': {
-      const c = M.cloth('#7d8b99', 5);
-      g.add(mesh(new THREE.BoxGeometry(2.4, 0.45, 0.95), c, [0, 0.25, 0]));
-      g.add(mesh(new THREE.BoxGeometry(2.4, 0.6, 0.25), c, [0, 0.65, -0.38]));
-      for (const x of [-1.15, 1.15]) g.add(mesh(new THREE.BoxGeometry(0.22, 0.5, 0.95), c, [x, 0.5, 0]));
-      g.add(mesh(new THREE.BoxGeometry(1.0, 0.12, 0.7), wood('#a0784a'), [0, 0.32, 1.0]));
-      // Телевизор напротив дивана (на стене перед ним).
-      const tv = new THREE.Group();
-      tv.add(mesh(new THREE.BoxGeometry(1.6, 0.5, 0.45), wood('#3a2a1e'), [0, 0.25, 0]));
-      tv.add(mesh(new THREE.BoxGeometry(1.5, 0.85, 0.06), paint('#111316', 0.3), [0, 0.95, 0]));
-      tv.add(mesh(new THREE.PlaneGeometry(1.4, 0.76), M.glow('#3a6ea5', 0.5), [0, 0.95, 0.035]));
-      tv.position.z = 2.9;
-      tv.rotation.y = Math.PI;
-      g.add(tv);
-      break;
-    }
-    case 'fridge': {
-      g.add(mesh(new THREE.BoxGeometry(0.85, 1.9, 0.75), paint('#e8ecef', 0.35), [0, 0.95, 0]));
-      g.add(mesh(new THREE.BoxGeometry(0.04, 0.5, 0.04), M.steel(), [0.33, 1.3, 0.39]), mesh(new THREE.BoxGeometry(0.04, 0.35, 0.04), M.steel(), [0.33, 0.55, 0.39]));
-      g.add(mesh(new THREE.BoxGeometry(0.86, 0.02, 0.02), paint('#9aa3ad'), [0, 0.95, 0.38]));
-      break;
-    }
-    case 'stove': {
-      g.add(mesh(new THREE.BoxGeometry(1.0, 0.9, 0.7), paint('#d9dde1', 0.4), [0, 0.45, 0]));
-      g.add(mesh(new THREE.BoxGeometry(1.0, 0.04, 0.7), paint('#1b1d21', 0.2), [0, 0.92, 0]));
-      for (const [x, z] of [[-0.25, -0.15], [0.25, -0.15], [-0.25, 0.15], [0.25, 0.15]] as const) {
-        const r = new THREE.Mesh(new THREE.TorusGeometry(0.11, 0.015, 6, 20), paint('#444'));
-        r.rotation.x = Math.PI / 2;
-        r.position.set(x, 0.95, z);
-        g.add(r);
-      }
-      g.add(mesh(new THREE.CylinderGeometry(0.16, 0.14, 0.12, 16), M.steel(), [0.25, 1.01, -0.15]));
-      g.add(mesh(new THREE.BoxGeometry(1.0, 0.7, 0.4), paint('#cfd5da', 0.5), [0, 1.9, -0.15]));
-      break;
-    }
-    case 'shower': {
-      const glass = mat('#bfe6ff', 0.05, 0, { transparent: true, opacity: 0.28, depthWrite: false });
-      g.add(mesh(new THREE.BoxGeometry(1.3, 0.12, 1.3), paint('#f4f6f8', 0.3), [0, 0.06, 0]));
-      g.add(mesh(new THREE.BoxGeometry(1.3, 2.1, 0.03), glass, [0, 1.1, 0.65]), mesh(new THREE.BoxGeometry(0.03, 2.1, 1.3), glass, [-0.65, 1.1, 0]));
-      g.add(mesh(new THREE.CylinderGeometry(0.02, 0.02, 1.9, 8), M.chrome(), [0.55, 1.1, -0.55]));
-      g.add(mesh(new THREE.CylinderGeometry(0.14, 0.1, 0.06, 16), M.chrome(), [0.45, 2.05, -0.45]));
-      break;
-    }
-    case 'mirror': {
-      g.add(mesh(new THREE.BoxGeometry(0.85, 1.7, 0.06), wood('#c9a66b'), [0, 1.15, 0]));
-      g.add(mesh(new THREE.PlaneGeometry(0.72, 1.55), mat('#cfe3f2', 0.02, 1), [0, 1.15, 0.035]));
-      break;
-    }
-    case 'door': {
-      g.add(mesh(new THREE.BoxGeometry(1.1, 2.2, 0.08), wood('#7a4e2d'), [0, 1.1, 0]));
-      g.add(mesh(new THREE.SphereGeometry(0.05, 10, 8), M.gold(), [0.4, 1.05, 0.06]));
-      g.add(mesh(new THREE.BoxGeometry(1.3, 0.08, 0.12), wood('#5a3a22'), [0, 2.24, 0]));
-      break;
-    }
-    case 'computer': {
-      g.add(mesh(new THREE.BoxGeometry(1.3, 0.05, 0.65), wood('#c9a66b'), [0, 0.75, 0]));
-      for (const x of [-0.6, 0.6]) g.add(mesh(new THREE.BoxGeometry(0.05, 0.75, 0.6), wood('#a0784a'), [x, 0.375, 0]));
-      g.add(mesh(new THREE.BoxGeometry(0.7, 0.42, 0.04), paint('#15171b', 0.3), [0, 1.05, -0.15]));
-      g.add(mesh(new THREE.PlaneGeometry(0.64, 0.36), M.glow('#5fb3ff', 0.6), [0, 1.05, -0.128]));
-      g.add(mesh(new THREE.BoxGeometry(0.45, 0.02, 0.15), paint('#2a2d33'), [0, 0.79, 0.12]));
-      g.add(mesh(new THREE.CylinderGeometry(0.22, 0.25, 0.08, 16), paint('#2a2d33'), [0, 0.45, 0.6]), mesh(new THREE.BoxGeometry(0.45, 0.5, 0.06), paint('#2a2d33'), [0, 0.75, 0.82]));
-      break;
-    }
-    case 'bookshelf': {
-      g.add(mesh(new THREE.BoxGeometry(1.1, 2, 0.4), wood('#8a5a30'), [0, 1, 0]));
-      const colors = ['#c0392b', '#2e86c1', '#27ae60', '#f39c12', '#8e44ad', '#16a085'];
-      for (let shelf = 0; shelf < 4; shelf += 1) {
-        for (let i = 0; i < 7; i += 1) g.add(mesh(new THREE.BoxGeometry(0.11, 0.32, 0.28), paint(colors[(i + shelf) % colors.length]!), [-0.42 + i * 0.14, 0.32 + shelf * 0.46, 0.06]));
-      }
-      break;
-    }
-    case 'yoga_mat': {
-      g.add(mesh(new THREE.BoxGeometry(0.7, 0.02, 1.8), paint('#8e44ad', 0.9), [0, 0.01, 0.3]));
-      g.add(mesh(new THREE.CylinderGeometry(0.12, 0.12, 0.7, 16), paint('#16a085', 0.9), [0, 0.12, -0.75]).rotateZ(Math.PI / 2));
-      break;
-    }
-    case 'dumbbells': {
-      g.add(mesh(new THREE.BoxGeometry(1.2, 0.08, 0.4), M.darkSteel(), [0, 0.5, 0]));
-      for (const x of [-0.55, 0.55]) g.add(mesh(new THREE.BoxGeometry(0.06, 0.5, 0.35), M.darkSteel(), [x, 0.25, 0]));
-      for (let i = 0; i < 4; i += 1) {
-        const x = -0.4 + i * 0.27;
-        g.add(mesh(new THREE.CylinderGeometry(0.025, 0.025, 0.3, 8), M.chrome(), [x, 0.6, 0]).rotateX(Math.PI / 2));
-        for (const z of [-0.12, 0.12]) g.add(mesh(new THREE.CylinderGeometry(0.07 + i * 0.01, 0.07 + i * 0.01, 0.06, 16), M.iron(), [x, 0.6, z]).rotateX(Math.PI / 2));
-      }
-      g.add(mesh(new THREE.BoxGeometry(0.5, 0.05, 1.2), paint('#2a2d33'), [0, 0.45, 0.9]));
-      break;
-    }
-    case 'coffee_machine': {
-      g.add(mesh(new THREE.BoxGeometry(0.9, 0.9, 0.55), wood('#c9a66b'), [0, 0.45, 0]));
-      g.add(mesh(new THREE.BoxGeometry(0.4, 0.45, 0.35), M.chrome(), [0, 1.13, 0]));
-      g.add(mesh(new THREE.CylinderGeometry(0.05, 0.04, 0.09, 12), paint('#ffffff', 0.4), [0, 0.96, 0.12]));
-      break;
-    }
-    case 'console': {
-      g.add(mesh(new THREE.BoxGeometry(1.3, 0.45, 0.45), wood('#3a2a1e'), [0, 0.22, 0]));
-      g.add(mesh(new THREE.BoxGeometry(0.35, 0.08, 0.28), paint('#f4f4f4', 0.3), [-0.3, 0.49, 0]));
-      g.add(mesh(new THREE.BoxGeometry(0.16, 0.04, 0.1), paint('#222'), [0.25, 0.47, 0.1]));
-      g.add(mesh(new THREE.BoxGeometry(1.2, 0.7, 0.05), paint('#111316', 0.3), [0, 1.1, -0.15]));
-      g.add(mesh(new THREE.PlaneGeometry(1.1, 0.62), M.glow('#e84393', 0.6), [0, 1.1, -0.12]));
-      break;
-    }
-    case 'piano': {
-      g.add(mesh(new THREE.BoxGeometry(1.5, 1.25, 0.6), paint('#141418', 0.25), [0, 0.62, 0]));
-      g.add(mesh(new THREE.BoxGeometry(1.4, 0.06, 0.25), paint('#f4f4f4', 0.3), [0, 0.78, 0.38]));
-      for (let i = 0; i < 9; i += 1) g.add(mesh(new THREE.BoxGeometry(0.06, 0.04, 0.14), paint('#111'), [-0.6 + i * 0.15, 0.82, 0.34]));
-      g.add(mesh(new THREE.BoxGeometry(0.8, 0.45, 0.35), paint('#141418', 0.3), [0, 0.22, 0.85]));
-      break;
-    }
-    case 'bathtub': {
-      g.add(mesh(new THREE.BoxGeometry(1.0, 0.6, 1.8), paint('#f4f6f8', 0.25), [0, 0.3, 0]));
-      g.add(mesh(new THREE.BoxGeometry(0.82, 0.05, 1.6), mat('#9fd3f0', 0.1, 0, { transparent: true, opacity: 0.8 }), [0, 0.52, 0]));
-      for (let i = 0; i < 6; i += 1) g.add(mesh(new THREE.SphereGeometry(0.1, 10, 8), paint('#ffffff', 0.9), [-0.25 + (i % 3) * 0.25, 0.58, -0.4 + Math.floor(i / 3) * 0.5]));
-      g.add(mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.4, 8), M.chrome(), [0, 0.8, -0.85]));
-      break;
-    }
-    case 'aquarium': {
-      g.add(mesh(new THREE.BoxGeometry(1.2, 0.8, 0.5), wood('#3a2a1e'), [0, 0.4, 0]));
-      g.add(mesh(new THREE.BoxGeometry(1.15, 0.65, 0.45), mat('#4fb6d6', 0.05, 0, { transparent: true, opacity: 0.55 }), [0, 1.13, 0]));
-      const colors = ['#ff8a00', '#ffd23a', '#e84393'];
-      for (let i = 0; i < 5; i += 1) g.add(mesh(new THREE.SphereGeometry(0.05, 10, 8), M.glow(colors[i % 3]!, 0.5), [-0.4 + i * 0.2, 1.0 + (i % 2) * 0.2, (i % 3) * 0.08 - 0.08], [1.6, 1, 0.6]));
-      break;
-    }
-    case 'easel': {
-      const w2 = wood('#a0784a');
-      for (const x of [-0.35, 0.35]) g.add(mesh(new THREE.BoxGeometry(0.05, 1.8, 0.05), w2, [x, 0.9, 0]).rotateZ(x > 0 ? -0.12 : 0.12));
-      g.add(mesh(new THREE.BoxGeometry(0.05, 1.7, 0.05), w2, [0, 0.85, -0.35]).rotateX(-0.25));
-      g.add(mesh(new THREE.BoxGeometry(0.9, 0.7, 0.04), paint('#fbf7ef', 0.9), [0, 1.3, 0.05]));
-      g.add(mesh(new THREE.CircleGeometry(0.15, 16), paint('#e67e22'), [-0.15, 1.35, 0.075]), mesh(new THREE.CircleGeometry(0.1, 16), paint('#2e86c1'), [0.18, 1.2, 0.075]));
-      break;
-    }
-    case 'coach': {
-      // Платформа тренера и колонка.
-      g.add(mesh(new THREE.CylinderGeometry(0.75, 0.8, 0.08, 32), paint('#e85d2a', 0.6), [0, 0.04, 0]));
-      g.add(mesh(new THREE.BoxGeometry(0.45, 0.9, 0.4), paint('#1b1d21', 0.4), [1.3, 0.45, 0.2]));
-      g.add(mesh(new THREE.CylinderGeometry(0.14, 0.14, 0.02, 20), paint('#555', 0.3), [1.3, 0.62, 0.41]).rotateX(Math.PI / 2));
-      g.add(mesh(new THREE.CylinderGeometry(0.08, 0.08, 0.02, 20), paint('#555', 0.3), [1.3, 0.3, 0.41]).rotateX(Math.PI / 2));
-      break;
-    }
-    case 'reception': {
-      g.add(mesh(new THREE.BoxGeometry(1.0, 1.1, 2.4), paint('#f2f2f2', 0.4), [0, 0.55, 0]));
-      g.add(mesh(new THREE.BoxGeometry(1.1, 0.06, 2.5), wood('#a0784a'), [0, 1.13, 0]));
-      g.add(mesh(new THREE.BoxGeometry(0.04, 0.5, 2.2), M.glow('#ff7a3d', 0.8), [0.52, 0.6, 0]));
-      g.add(mesh(new THREE.BoxGeometry(0.45, 0.3, 0.04), paint('#15171b', 0.3), [-0.2, 1.35, 0.3]).rotateY(Math.PI / 2));
-      g.add(mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.25, 12), paint('#ffffff', 0.4), [0.2, 1.28, -0.7]));
-      break;
-    }
-    case 'gym_door': {
-      g.add(mesh(new THREE.BoxGeometry(1.5, 2.3, 0.08), mat('#9fd0ee', 0.05, 0.2, { transparent: true, opacity: 0.55 }), [0, 1.15, 0]));
-      g.add(mesh(new THREE.BoxGeometry(1.6, 0.1, 0.12), M.darkSteel(), [0, 2.35, 0]));
-      for (const x of [-0.78, 0.78]) g.add(mesh(new THREE.BoxGeometry(0.06, 2.35, 0.1), M.darkSteel(), [x, 1.17, 0]));
-      g.add(mesh(new THREE.BoxGeometry(0.03, 0.6, 0.06), M.chrome(), [0.1, 1.1, 0.06]));
-      break;
-    }
-    case 'gym_shower': {
-      const tile = mat('#d9e7ee', 0.35);
-      g.add(mesh(new THREE.BoxGeometry(1.4, 2.3, 0.08), tile, [0, 1.15, -0.65]));
-      g.add(mesh(new THREE.BoxGeometry(0.08, 2.3, 2.4), tile, [0, 1.15, 0]).translateX(0));
-      for (const z of [-0.6, 0.6]) {
-        g.add(mesh(new THREE.CylinderGeometry(0.02, 0.02, 1.9, 8), M.chrome(), [0.5, 1.1, z - 0.55]));
-        g.add(mesh(new THREE.CylinderGeometry(0.12, 0.09, 0.05, 16), M.chrome(), [0.4, 2.05, z - 0.45]));
-      }
-      g.add(mesh(new THREE.BoxGeometry(1.4, 0.04, 2.4), paint('#b7c9d3', 0.3), [0, 0.02, 0]));
-      break;
-    }
-    case 'smoothie': {
-      g.add(mesh(new THREE.BoxGeometry(0.9, 1.05, 2.8), paint('#2c3e50', 0.5), [0, 0.52, 0]));
-      g.add(mesh(new THREE.BoxGeometry(1.0, 0.06, 2.9), paint('#f4f6f8', 0.3), [0, 1.08, 0]));
-      const fruit = ['#7bc043', '#f37736', '#ee4035', '#fdf498'];
-      for (let i = 0; i < 4; i += 1) g.add(mesh(new THREE.CylinderGeometry(0.07, 0.06, 0.22, 12), M.glow(fruit[i]!, 0.35), [0.1, 1.22, -1 + i * 0.6]));
-      g.add(mesh(new THREE.BoxGeometry(0.25, 0.4, 0.25), M.chrome(), [-0.1, 1.31, 1.0]));
-      break;
-    }
-  }
-  return g;
-}
 
 // ─── Оборудование зала ─────────────────────────────────────────────────
 
@@ -351,52 +171,122 @@ function signTexture(text: string, color: string): THREE.CanvasTexture {
 
 // ─── Комнаты ───────────────────────────────────────────────────────────
 
-function walls(w: number, d: number, tone: string, H = 3): THREE.Group {
+function walls(w: number, d: number, tone: string, H = 3, wainscot?: string): THREE.Group {
   const g = new THREE.Group();
+  const tex = plasterTexture();
   const wall = mat(tone, 0.95);
+  if (tex) {
+    const t = tex.clone();
+    t.repeat.set(w / 2.5, H / 2.5);
+    t.needsUpdate = true;
+    wall.map = t;
+  }
   g.add(mesh(new THREE.BoxGeometry(w + 0.3, H, 0.15), wall, [0, H / 2, -d / 2 - 0.07]));
   for (const sx of [-1, 1]) g.add(mesh(new THREE.BoxGeometry(0.15, H, d + 0.15), wall, [(sx * (w + 0.15)) / 2, H / 2, 0]));
-  g.add(mesh(new THREE.BoxGeometry(w, 0.1, 0.04), mat('#ffffff', 0.6), [0, 0.05, -d / 2 + 0.02]));
+  // Панели внизу стен и плинтус по периметру.
+  if (wainscot) {
+    const pm = mat(wainscot, 0.7);
+    g.add(mesh(new THREE.BoxGeometry(w, 0.9, 0.03), pm, [0, 0.45, -d / 2 + 0.015]));
+    for (const sx of [-1, 1]) g.add(mesh(new THREE.BoxGeometry(0.03, 0.9, d), pm, [sx * (w / 2 - 0.015), 0.45, 0]));
+    const rail = mat('#ffffff', 0.5);
+    g.add(mesh(new THREE.BoxGeometry(w, 0.05, 0.05), rail, [0, 0.92, -d / 2 + 0.03]));
+    for (const sx of [-1, 1]) g.add(mesh(new THREE.BoxGeometry(0.05, 0.05, d), rail, [sx * (w / 2 - 0.03), 0.92, 0]));
+  }
+  const base = mat('#f7f5f0', 0.55);
+  g.add(mesh(new THREE.BoxGeometry(w, 0.12, 0.05), base, [0, 0.06, -d / 2 + 0.04]));
+  for (const sx of [-1, 1]) g.add(mesh(new THREE.BoxGeometry(0.05, 0.12, d), base, [sx * (w / 2 - 0.04), 0.06, 0]));
   return g;
 }
 
-function addPlaced(g: THREE.Group, placed: readonly Placed[]): void {
+/** Окно в боковой стене со светлым проёмом и пятном света на полу. */
+function sideWindow(x: number, z: number, side: number, night: boolean): THREE.Group {
+  const g = new THREE.Group();
+  const frame = mat('#ffffff', 0.45);
+  const glass = night ? M.glow('#1d2b55', 0.45) : M.glow('#cfe9ff', 0.9);
+  const w = 1.7;
+  const h = 1.4;
+  g.add(mesh(new THREE.PlaneGeometry(w, h), glass, [0, 0, 0.005]));
+  g.add(mesh(new THREE.BoxGeometry(w + 0.12, 0.08, 0.1), frame, [0, h / 2 + 0.04, 0.03]), mesh(new THREE.BoxGeometry(w + 0.2, 0.07, 0.2), frame, [0, -h / 2 - 0.03, 0.08]));
+  for (const dx of [-w / 2 - 0.04, 0, w / 2 + 0.04]) g.add(mesh(new THREE.BoxGeometry(0.06, h, 0.08), frame, [dx, 0, 0.03]));
+  g.add(mesh(new THREE.BoxGeometry(w, 0.04, 0.05), frame, [0, 0.15, 0.03]));
+  // Шторы.
+  const curtain = M.cloth('#e9dcc7', 3);
+  for (const dx of [-w / 2 - 0.25, w / 2 + 0.25]) g.add(mesh(new THREE.BoxGeometry(0.32, h + 0.5, 0.06), curtain, [dx, -0.1, 0.1]));
+  g.position.set(x, 1.75, z);
+  g.rotation.y = side > 0 ? -Math.PI / 2 : Math.PI / 2;
+  if (!night) {
+    const lightPool = new THREE.Mesh(
+      new THREE.PlaneGeometry(2.4, 1.6),
+      new THREE.MeshBasicMaterial({ color: '#fff3d6', transparent: true, opacity: 0.16, depthWrite: false, blending: THREE.AdditiveBlending }),
+    );
+    lightPool.rotation.x = -Math.PI / 2;
+    lightPool.position.set(x - side * 1.6, 0.012, z);
+    const pool = new THREE.Group();
+    pool.add(lightPool);
+    pool.userData.pool = true;
+    const out = new THREE.Group();
+    out.add(g, pool);
+    return out;
+  }
+  return g;
+}
+
+/** Расставляет предметы: настенные — на высоте, напольным — мягкая контактная тень. */
+function addPlaced(g: THREE.Group, placed: ReadonlyArray<Placed & { y?: number }>): void {
   for (const p of placed) {
     const m = objectModel(p.id);
-    m.position.set(p.pos.x, 0, p.pos.z);
+    m.position.set(p.pos.x, p.y ?? 0, p.pos.z);
     m.rotation.y = p.rot;
     g.add(m);
+    if (p.box && !p.y) {
+      const sh = contactShadow((p.box.x1 - p.box.x0) * 1.45, (p.box.z1 - p.box.z0) * 1.45, 0.75);
+      sh.position.x = p.pos.x;
+      sh.position.z = p.pos.z;
+      g.add(sh);
+    }
   }
 }
 
-function house(placed: Placed[], night: boolean): THREE.Group {
+function house(placed: Array<Placed & { y?: number }>, night: boolean): THREE.Group {
   const g = new THREE.Group();
   const { w, d } = HOUSE;
-  // Паркет: текстура повторяется по площади, а не растягивается на весь пол.
-  const parquet = M.planks('#c39a6b') as THREE.MeshStandardMaterial;
-  if (parquet.map) parquet.map = retile(parquet.map, 4);
-  if (parquet.bumpMap) parquet.bumpMap = retile(parquet.bumpMap, 4);
-  const floor = mesh(new THREE.PlaneGeometry(w, d), parquet, [0, 0, 0]);
+  const pq = parquetTexture();
+  const floorMat = mat('#ffffff', 0.62);
+  if (pq) {
+    const t = pq.clone();
+    t.repeat.set(w / 1.2, d / 1.2);
+    t.needsUpdate = true;
+    floorMat.map = t;
+  } else floorMat.color.set('#b88a5e');
+  const floor = mesh(new THREE.PlaneGeometry(w, d), floorMat, [0, 0, 0]);
   floor.rotation.x = -Math.PI / 2;
   floor.name = 'ground';
   floor.receiveShadow = true;
-  g.add(floor, walls(w, d, '#e8e1d6'));
-  // Кухонная зона — плитка.
-  const tiles = mesh(new THREE.PlaneGeometry(3.6, 2.6), mat('#d9d4cc', 0.5), [w / 2 - 1.8, 0.005, -d / 2 + 1.3]);
+  g.add(floor, walls(w, d, '#ece4d6', 3, '#d8cbb6'));
+  // Кухонная зона: плитка на полу и фартук на стене.
+  const tiles = mesh(new THREE.PlaneGeometry(3.4, 2.6), mat('#d9d4cc', 0.35), [w / 2 - 1.7, 0.004, -d / 2 + 1.3]);
   tiles.rotation.x = -Math.PI / 2;
+  tiles.receiveShadow = true;
   g.add(tiles);
-  for (const x of [-w / 2 + 4.2, 1.8]) {
-    g.add(mesh(new THREE.PlaneGeometry(1.8, 1.2), night ? M.glow('#1d2b55', 0.5) : M.glow('#bfe3ff', 0.7), [x, 1.8, -d / 2 + 0.01]));
-    g.add(mesh(new THREE.BoxGeometry(1.95, 0.08, 0.08), mat('#ffffff', 0.5), [x, 1.18, -d / 2 + 0.04]));
-  }
-  const rug = mesh(new THREE.CircleGeometry(1.4, 32), M.cloth('#b04a4a', 3), [0.4, 0.01, 2.6]);
+  g.add(mesh(new THREE.PlaneGeometry(3.3, 0.7), mat('#a7c7d9', 0.25), [w / 2 - 1.7, 1.25, -d / 2 + 0.02]));
+  // Окна на левой стене.
+  for (const z of [-3.6, 2.2]) g.add(sideWindow(-w / 2 + 0.01, z, -1, night));
+  // Ковёр у дивана: овал с каймой.
+  const rug = mesh(new THREE.CircleGeometry(1.4, 48), M.cloth('#a24b45', 3), [0.4, 0.008, -0.2]);
   rug.rotation.x = -Math.PI / 2;
-  rug.scale.set(1.4, 1, 1);
-  g.add(rug);
+  rug.scale.set(1.5, 1.05, 1);
+  rug.receiveShadow = true;
+  const rim = mesh(new THREE.RingGeometry(1.25, 1.4, 48), M.cloth('#e3c7a0', 3), [0.4, 0.01, -0.2]);
+  rim.rotation.x = -Math.PI / 2;
+  rim.scale.set(1.5, 1.05, 1);
+  g.add(rug, rim);
   addPlaced(g, placed);
-  const lamp = new THREE.PointLight('#ffe2b0', night ? 14 : 4, 18, 1.6);
-  lamp.position.set(0, 2.8, 0);
-  g.add(lamp);
+  // Потолочные светильники: днём слабее, вечером теплее и ярче.
+  for (const [x, z] of [[-3.5, -1], [3.5, -1], [0, 2.8]] as const) {
+    const lamp = new THREE.PointLight('#ffd9a0', night ? 9 : 2.5, 11, 1.7);
+    lamp.position.set(x, 2.85, z);
+    g.add(lamp);
+  }
   return g;
 }
 
@@ -462,7 +352,7 @@ export default function LifeScene3D(props: LifeScene3DProps) {
   const host = useRef<HTMLDivElement | null>(null);
   const propsRef = useRef(props);
   propsRef.current = props;
-  const api = useRef<{ rebuildScene(): void; rebuildHero(): void; syncClients(): void; zoomBy(k: number): void } | null>(null);
+  const api = useRef<{ rebuildScene(): void; rebuildHero(): void; syncClients(): void; syncCats(): void; zoomBy(k: number): void } | null>(null);
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
@@ -477,6 +367,8 @@ export default function LifeScene3D(props: LifeScene3DProps) {
     }
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.75));
     setupRenderer(renderer, true);
+    // Мягкие края теней.
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     const canvas = renderer.domElement;
     canvas.className = 'world-canvas';
     el.appendChild(canvas);
@@ -485,12 +377,15 @@ export default function LifeScene3D(props: LifeScene3DProps) {
     scene.environmentIntensity = 0.4;
     studio.rim.intensity = 0.15;
     const sun = studio.key;
-    sun.shadow.camera.left = -6;
-    sun.shadow.camera.right = 6;
-    sun.shadow.camera.top = 6;
-    sun.shadow.camera.bottom = -6;
+    sun.shadow.mapSize.set(2048, 2048);
+    sun.shadow.camera.left = -7;
+    sun.shadow.camera.right = 7;
+    sun.shadow.camera.top = 7;
+    sun.shadow.camera.bottom = -7;
+    sun.shadow.camera.far = 30;
+    sun.shadow.radius = 4;
     sun.shadow.camera.updateProjectionMatrix();
-    const hemi = new THREE.HemisphereLight('#dfe9ff', '#4a4030', 1);
+    const hemi = new THREE.HemisphereLight('#fff1dc', '#5a4a3a', 1);
     scene.add(hemi);
     scene.background = new THREE.Color('#1a1d22');
 
@@ -500,7 +395,9 @@ export default function LifeScene3D(props: LifeScene3DProps) {
     let ground: THREE.Object3D | null = null;
     let bounds: Box = sceneBounds('home');
     let boxes: Box[] = [];
-    let targets: Array<{ id: ObjectId; pos: P2 }> = [];
+    let targets: Array<{ id: ObjectId; pos: P2; obj: Placed }> = [];
+    let placedNow: Placed[] = [];
+    let ticks: HomeAnim[] = [];
     const pos = new THREE.Vector3();
     const camPos = new THREE.Vector3();
     let builtScene: SceneId | null = null;
@@ -515,15 +412,19 @@ export default function LifeScene3D(props: LifeScene3DProps) {
       if (p.scene === 'home') {
         const placed = homeLayout(p.furniture);
         world.add(house(placed, night));
-        boxes = placed.map((x) => x.box).filter((b): b is Box => b !== null);
-        targets = placed.map((x) => ({ id: x.id, pos: x.use }));
+        boxes = [...placed.map((x) => x.box).filter((b): b is Box => b !== null), ...homeObstacles()];
+        placedNow = placed;
       } else {
         const def = GYMS[tier]!;
         const placed = gymLayout(def.shower, def.bar);
         world.add(gymRoom(tier, placed, night));
         boxes = [...placed.map((x) => x.box), ...gymGear(tier).map((x) => x.box)].filter((b): b is Box => b !== null);
-        targets = placed.map((x) => ({ id: x.id, pos: x.use }));
+        placedNow = placed;
       }
+      // Подойти можно только к предметам с действиями (декор просто украшает).
+      targets = placedNow.filter((x) => actionsAt(x.id).length > 0).map((x) => ({ id: x.id, pos: x.use, obj: x }));
+      ticks = ticksOf(world);
+      sun.position.set(-9, 10, 3);
       bounds = sceneBounds(p.scene);
       ground = world.getObjectByName('ground') ?? null;
       // Новое место — герой у двери; та же сцена — остаётся где был.
@@ -539,7 +440,69 @@ export default function LifeScene3D(props: LifeScene3DProps) {
       }
       lastNear = undefined;
       syncClients();
+      syncCats();
+      vacuum.visible = p.scene === 'home' && p.furniture.includes('robot_vacuum');
     };
+
+    // ── Кошки: свой распорядок (бродят, сидят, умываются, спят), подходят к герою. ──
+    interface CatAI {
+      cat: Cat3D;
+      id: string;
+      shadow: THREE.Mesh;
+      pos: P2;
+      heading: number;
+      mode: CatMode;
+      goal: P2 | null;
+      until: number;
+      speed: number;
+      seed: number;
+    }
+    const cats = new Map<string, CatAI>();
+    const catRand = (() => {
+      let a = 12345;
+      return (): number => {
+        a = (a * 1103515245 + 12345) & 0x7fffffff;
+        return a / 0x7fffffff;
+      };
+    })();
+    const randomSpot = (): P2 => {
+      for (let i = 0; i < 20; i += 1) {
+        const q = { x: bounds.x0 + 0.6 + catRand() * (bounds.x1 - bounds.x0 - 1.2), z: bounds.z0 + 0.6 + catRand() * (bounds.z1 - bounds.z0 - 1.2) };
+        const r = resolve(q, bounds, boxes);
+        if (Math.hypot(r.x - q.x, r.z - q.z) < 0.01) return q;
+      }
+      return { x: 0, z: 0.5 };
+    };
+    const syncCats = (): void => {
+      const p = propsRef.current;
+      const want = p.scene === 'home' ? p.cats : [];
+      for (const [id, c] of cats) {
+        if (!want.some((w) => w.id === id && w.breed === c.cat.breed)) {
+          scene.remove(c.cat.root, c.shadow);
+          disposeObject(c.cat.root);
+          cats.delete(id);
+        }
+      }
+      want.forEach((w, i) => {
+        if (cats.has(w.id)) return;
+        const cat = buildCat(w.breed, i + 1);
+        const shadow = blobShadow(0.55);
+        const start = randomSpot();
+        cat.root.position.set(start.x, 0, start.z);
+        scene.add(cat.root, shadow);
+        cats.set(w.id, { cat, id: w.id, shadow, pos: start, heading: catRand() * Math.PI * 2, mode: 'idle', goal: null, until: 0, speed: 0, seed: i * 2.1 });
+      });
+    };
+
+    // Робот-пылесос: катается по дому и отворачивает от препятствий.
+    const vacuum = new THREE.Group();
+    vacuum.add(mesh(new THREE.CylinderGeometry(0.17, 0.17, 0.08, 28), mat('#2b2e33', 0.35, 0.2), [0, 0.045, 0]));
+    vacuum.add(mesh(new THREE.CylinderGeometry(0.12, 0.12, 0.012, 24), mat('#c8ccd1', 0.3, 0.6), [0, 0.09, 0]));
+    vacuum.add(mesh(new THREE.BoxGeometry(0.06, 0.01, 0.02), M.glow('#5bff8a', 1.4), [0, 0.098, 0.1]));
+    vacuum.add(mesh(new THREE.CylinderGeometry(0.035, 0.035, 0.01, 12), mat('#e85d2a', 0.5), [0.12, 0.012, 0.11]));
+    vacuum.visible = false;
+    scene.add(vacuum);
+    const vac = { pos: { x: -6.2, z: 2.4 } as P2, heading: 0.4, turn: 0 };
 
     // Пока строятся сетки персонажей, кадры рисуются реже, чтобы сборка шла быстрее.
     let loading = 0;
@@ -628,7 +591,7 @@ export default function LifeScene3D(props: LifeScene3DProps) {
         }
       }, 300);
     };
-    api.current = { rebuildScene, rebuildHero, syncClients, zoomBy };
+    api.current = { rebuildScene, rebuildHero, syncClients, syncCats, zoomBy };
 
     const camera = new THREE.PerspectiveCamera(48, 1, 0.1, 120);
     const resize = (): void => {
@@ -726,6 +689,150 @@ export default function LifeScene3D(props: LifeScene3DProps) {
     };
     canvas.addEventListener('webglcontextlost', onLost);
 
+    // ── Действие героя ──
+    interface Acting {
+      key: number;
+      motion: Motion;
+      anchor: P2;
+      y: number;
+      face: number;
+      exit: P2;
+      cat: string | null;
+    }
+    let act: Acting | null = null;
+    let exiting: { to: P2 } | null = null;
+    let heroY = 0;
+    const startPerform = (pf: { key: number; action: string; at: ObjectId }): void => {
+      const spec = animFor(pf.action);
+      const here = { x: pos.x, z: pos.z };
+      const placed = placedNow.find((x) => x.id === pf.at);
+      if (!spec) {
+        act = { key: pf.key, motion: 'stand:none', anchor: here, y: 0, face: facing, exit: here, cat: null };
+        return;
+      }
+      if (spec.place === 'cat') {
+        let best: CatAI | null = null;
+        for (const c of cats.values()) if (!best || dist(pos, c.pos) < dist(pos, best.pos)) best = c;
+        if (!best) {
+          act = { key: pf.key, motion: spec.motion, anchor: here, y: 0, face: facing, exit: here, cat: null };
+          return;
+        }
+        const dx = pos.x - best.pos.x;
+        const dz = pos.z - best.pos.z;
+        const d = Math.hypot(dx, dz) || 1;
+        const anchor = resolve({ x: best.pos.x + (dx / d) * 0.5, z: best.pos.z + (dz / d) * 0.5 }, bounds, boxes);
+        act = { key: pf.key, motion: spec.motion, anchor, y: 0, face: Math.atan2(best.pos.x - anchor.x, best.pos.z - anchor.z), exit: anchor, cat: best.id };
+        best.goal = null;
+        best.heading = Math.atan2(anchor.x - best.pos.x, anchor.z - best.pos.z);
+        return;
+      }
+      if (!placed) {
+        act = { key: pf.key, motion: spec.motion, anchor: here, y: 0, face: facing, exit: here, cat: null };
+        return;
+      }
+      if (spec.place === 'front') {
+        act = { key: pf.key, motion: spec.motion, anchor: { ...placed.use }, y: 0, face: Math.atan2(placed.pos.x - placed.use.x, placed.pos.z - placed.use.z), exit: { ...placed.use }, cat: null };
+        return;
+      }
+      const [lx, lz] = spec.at ?? [0, 0];
+      const c = Math.cos(placed.rot);
+      const sn = Math.sin(placed.rot);
+      const anchor = { x: placed.pos.x + lx * c + lz * sn, z: placed.pos.z - lx * sn + lz * c };
+      act = { key: pf.key, motion: spec.motion, anchor, y: spec.y ?? 0, face: placed.rot + (spec.face ?? 0), exit: { ...placed.use }, cat: null };
+    };
+
+    const updateCats = (t: number, dt: number): void => {
+      const blend = 1 - Math.exp(-dt * 6);
+      for (const c of cats.values()) {
+        const target = act?.cat === c.id;
+        if (target) {
+          c.mode = act!.motion === 'crouch:play' ? 'play' : 'sit';
+          c.goal = null;
+          c.until = t + 2;
+        } else if (t > c.until) {
+          const r = catRand();
+          const heroNear = dist(pos, c.pos) < 4.5;
+          if (heroNear && r < 0.2) {
+            const a = catRand() * Math.PI * 2;
+            c.goal = resolve({ x: pos.x + Math.sin(a) * 0.9, z: pos.z + Math.cos(a) * 0.9 }, bounds, boxes);
+            c.mode = dist(pos, c.pos) > 2.5 ? 'trot' : 'walk';
+            c.until = t + 12;
+          } else if (r < 0.45) {
+            c.goal = randomSpot();
+            c.mode = 'walk';
+            c.until = t + 16;
+          } else {
+            c.goal = null;
+            const q = catRand();
+            c.mode = q < 0.3 ? 'sit' : q < 0.48 ? 'groom' : q < 0.65 ? 'idle' : q < 0.82 ? 'lie' : 'sleep';
+            const dur = { sit: [4, 9], groom: [3, 6], idle: [2, 5], lie: [6, 12], sleep: [14, 30], walk: [0, 0], trot: [0, 0], play: [2, 3] }[c.mode];
+            c.until = t + dur[0]! + catRand() * (dur[1]! - dur[0]!);
+          }
+        }
+        let want = c.mode === 'trot' ? 0.95 : c.mode === 'walk' ? 0.42 : 0;
+        if (c.goal && want > 0) {
+          const gx = c.goal.x - c.pos.x;
+          const gz = c.goal.z - c.pos.z;
+          const d = Math.hypot(gx, gz);
+          if (d < 0.15) {
+            c.goal = null;
+            c.until = t;
+            want = 0;
+          } else {
+            let diff = Math.atan2(gx, gz) - c.heading;
+            while (diff > Math.PI) diff -= Math.PI * 2;
+            while (diff < -Math.PI) diff += Math.PI * 2;
+            c.heading += diff * Math.min(1, dt * 5);
+            if (d < 0.5) want *= 0.5 + d;
+          }
+        } else want = 0;
+        c.speed += (want - c.speed) * Math.min(1, dt * 6);
+        if (c.speed > 0.01) {
+          const step = c.speed * dt;
+          const next = resolve({ x: c.pos.x + Math.sin(c.heading) * step, z: c.pos.z + Math.cos(c.heading) * step }, bounds, boxes);
+          // Упёрлась — выбирает другое место.
+          if (Math.hypot(next.x - c.pos.x, next.z - c.pos.z) < step * 0.3) c.until = t;
+          c.pos = next;
+        }
+        if (target) {
+          let diff = Math.atan2(pos.x - c.pos.x, pos.z - c.pos.z) - c.heading;
+          while (diff > Math.PI) diff -= Math.PI * 2;
+          while (diff < -Math.PI) diff += Math.PI * 2;
+          c.heading += diff * Math.min(1, dt * 4);
+        }
+        // Голова поворачивается к герою, если он рядом.
+        let look = 0;
+        const dh = dist(pos, c.pos);
+        if (dh < 2.8) {
+          let a = Math.atan2(pos.x - c.pos.x, pos.z - c.pos.z) - c.heading;
+          while (a > Math.PI) a -= Math.PI * 2;
+          while (a < -Math.PI) a += Math.PI * 2;
+          look = Math.max(-1, Math.min(1, a / 1.2));
+        }
+        const mode: CatMode = c.speed > 0.05 ? (c.speed > 0.6 ? 'trot' : 'walk') : c.mode === 'walk' || c.mode === 'trot' ? 'idle' : c.mode;
+        poseCat(c.cat, mode, t + c.seed, c.speed, blend, mode === 'sleep' ? 0 : look);
+        c.cat.root.position.set(c.pos.x, 0, c.pos.z);
+        c.cat.root.rotation.y = c.heading;
+        c.shadow.position.set(c.pos.x, 0.015, c.pos.z);
+      }
+    };
+
+    const updateVacuum = (t: number, dt: number): void => {
+      if (!vacuum.visible) return;
+      const step = 0.3 * dt;
+      const next = resolve({ x: vac.pos.x + Math.sin(vac.heading) * step, z: vac.pos.z + Math.cos(vac.heading) * step }, bounds, boxes);
+      const moved = Math.hypot(next.x - vac.pos.x, next.z - vac.pos.z);
+      if (vac.turn > 0) {
+        vac.heading += dt * 2.2;
+        vac.turn -= dt;
+      } else if (moved < step * 0.5 || dist(next, pos) < 0.5) vac.turn = 0.6 + catRand() * 1.2;
+      else vac.pos = next;
+      vacuum.position.set(vac.pos.x, 0, vac.pos.z);
+      vacuum.rotation.y = vac.heading;
+      const brush = vacuum.children[3];
+      if (brush) brush.rotation.y = t * 12;
+    };
+
     let raf = 0;
     let prev = performance.now();
     let speed = 0;
@@ -737,12 +844,23 @@ export default function LifeScene3D(props: LifeScene3DProps) {
       prev = now;
       if (!visible || document.visibilityState === 'hidden') return;
       const p = propsRef.current;
-      let dx = p.stick.current.x;
-      let dz = -p.stick.current.y;
-      if (keys.has('w') || keys.has('arrowup') || keys.has('ц')) dz -= 1;
-      if (keys.has('s') || keys.has('arrowdown') || keys.has('ы')) dz += 1;
-      if (keys.has('a') || keys.has('arrowleft') || keys.has('ф')) dx -= 1;
-      if (keys.has('d') || keys.has('arrowright') || keys.has('в')) dx += 1;
+      const t = now / 1000;
+      const ease = 1 - Math.exp(-dt * 10);
+      // ── Действие у предмета: герой занимает место и играет анимацию ──
+      const pf = p.perform;
+      if (pf && (!act || act.key !== pf.key)) startPerform(pf);
+      if (!pf && act) {
+        exiting = { to: act.exit };
+        act = null;
+      }
+      let dx = act || exiting ? 0 : p.stick.current.x;
+      let dz = act || exiting ? 0 : -p.stick.current.y;
+      if (!act && !exiting) {
+        if (keys.has('w') || keys.has('arrowup') || keys.has('ц')) dz -= 1;
+        if (keys.has('s') || keys.has('arrowdown') || keys.has('ы')) dz += 1;
+        if (keys.has('a') || keys.has('arrowleft') || keys.has('ф')) dx -= 1;
+        if (keys.has('d') || keys.has('arrowright') || keys.has('в')) dx += 1;
+      } else p.goto.current = null;
       let mag = Math.min(1, Math.hypot(dx, dz));
       if (mag > 0.05) p.goto.current = null;
       else if (p.goto.current) {
@@ -763,23 +881,45 @@ export default function LifeScene3D(props: LifeScene3DProps) {
         while (diff < -Math.PI) diff += Math.PI * 2;
         facing += diff * Math.min(1, dt * 11);
       }
-      if (speed > 0.01) {
+      if (act || exiting) {
+        // Плавно на место действия (или обратно к месту использования).
+        const to = act ? act.anchor : exiting!.to;
+        const k = Math.min(1, dt * 7);
+        pos.x += (to.x - pos.x) * k;
+        pos.z += (to.z - pos.z) * k;
+        heroY += ((act ? act.y : 0) - heroY) * k;
+        if (act) {
+          let diff = act.face - facing;
+          while (diff > Math.PI) diff -= Math.PI * 2;
+          while (diff < -Math.PI) diff += Math.PI * 2;
+          facing += diff * k;
+        }
+        speed = 0;
+        if (!act && exiting && Math.hypot(to.x - pos.x, to.z - pos.z) < 0.03 && Math.abs(heroY) < 0.01) {
+          exiting = null;
+          heroY = 0;
+        }
+      } else if (speed > 0.01) {
         const next = resolve({ x: pos.x + Math.sin(facing) * speed * dt, z: pos.z + Math.cos(facing) * speed * dt }, bounds, boxes);
         if (p.goto.current && Math.hypot(next.x - pos.x, next.z - pos.z) < speed * dt * 0.2) p.goto.current = null;
         pos.x = next.x;
         pos.z = next.z;
       }
-      const t = now / 1000;
       // Шаг: частота шагов растёт со скоростью, на месте — стойка с дыханием.
       stride += dt * (0.55 + (speed / TOP) * 0.65);
-      heroRoot.position.set(pos.x, 0, pos.z);
+      heroRoot.position.set(pos.x, heroY, pos.z);
       heroRoot.rotation.set(0, facing, 0);
       shadow.position.set(pos.x, 0.02, pos.z);
+      shadow.visible = heroY < 0.3;
       if (hero) {
-        if (speed > 0.25) animate(hero.rig, 'walk', stride);
-        else animate(hero.rig, 'idle', t);
+        const motion: Motion = act ? act.motion : speed > 0.25 ? 'walk' : 'idle';
+        animate(hero.rig, motion, motion === 'walk' ? stride : t, 0, ease);
         for (const f of hero.anim) f(t);
       }
+      const nightNow = isNight(p.minute);
+      for (const f of ticks) f(t, p.minute, nightNow);
+      updateCats(t, dt);
+      updateVacuum(t, dt);
       // Ученики смотрят на тренера и разминаются.
       const coach = p.scene === 'gym' ? { x: 0, z: 2.4 } : pos;
       for (const e of crew.values()) {
@@ -813,17 +953,29 @@ export default function LifeScene3D(props: LifeScene3DProps) {
       const light = daylight(p.minute);
       hemi.intensity = 0.6 + light * 0.45;
       sun.intensity = 0.7 + light * 1.1;
-      sun.position.set(pos.x + 5, 11, pos.z + 6);
-      // Ближайший предмет.
-      let near: ObjectId | null = null;
-      let best = REACH;
-      for (const x of targets) {
-        const d = dist(pos, x.pos);
-        if (d < best) {
-          best = d;
-          near = x.id;
+      // Свет из окон слева; тени падают вправо и к зрителю.
+      sun.position.set(pos.x - 7, 10, pos.z + 3);
+      // Ближайший предмет или кошка (во время действия — без изменений).
+      let near: ObjectId | null = lastNear ?? null;
+      if (!act && !exiting) {
+        near = null;
+        let best = REACH;
+        for (const x of targets) {
+          const d = dist(pos, x.pos);
+          if (d < best) {
+            best = d;
+            near = x.id;
+          }
+        }
+        for (const c of cats.values()) {
+          const d = dist(pos, c.pos) + 0.25;
+          if (d < Math.min(best, 1.4)) {
+            best = d;
+            near = 'cat';
+          }
         }
       }
+      if (p.catSpots) p.catSpots.current = [...cats.values()].map((c) => ({ ...c.pos }));
       if (near !== lastNear) {
         lastNear = near;
         p.onNear(near);
@@ -879,6 +1031,11 @@ export default function LifeScene3D(props: LifeScene3DProps) {
     firstHero.current = heroKey;
     api.current?.rebuildHero();
   }, [heroKey]);
+
+  const catsKey = JSON.stringify(props.cats);
+  useEffect(() => {
+    api.current?.syncCats();
+  }, [catsKey]);
 
   const clientsKey = JSON.stringify(props.clients.map((c) => [c.id, lookKey(c)]));
   useEffect(() => {

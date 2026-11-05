@@ -1,5 +1,5 @@
 import type { ExerciseId } from '../tracking/exercise';
-import type { ActionDef, LifeEffect, ObjectId, Txt } from './lifeTypes';
+import type { ActionDef, CatBreed, LifeEffect, NeedId, ObjectId, Txt } from './lifeTypes';
 
 /**
  * Содержимое симулятора фитнес-тренера: две локации (свой дом и фитнес-зал),
@@ -11,13 +11,23 @@ const t = (ru: string, en: string): Txt => ({ ru, en });
 
 // ─── Предметы ──────────────────────────────────────────────────────────
 
+/** Раздел магазина для дома: мебель, техника, декор. */
+export type HomeKind = 'furniture' | 'tech' | 'decor';
+
 export interface ObjectDef {
   id: ObjectId;
   icon: string;
   name: Txt;
-  /** Покупается в мебельном (в доме). */
+  /** Продаётся в магазине (раздел «Дом»). */
   price?: number;
   desc?: Txt;
+  kind?: HomeKind;
+  /** Где стоит: у стены на полу (по умолчанию), на стене или где угодно (робот-пылесос). */
+  mount?: 'slot' | 'wall' | 'floor' | 'free';
+  /** Уют: замедляет падение отдыха и общения дома. */
+  comfort?: number;
+  /** Пассивно: во сколько раз медленнее падает потребность (0,2 — на 20%). */
+  slows?: Partial<Record<NeedId, number>>;
 }
 
 export const OBJECTS: Record<ObjectId, ObjectDef> = {
@@ -28,16 +38,36 @@ export const OBJECTS: Record<ObjectId, ObjectDef> = {
   sofa: { id: 'sofa', icon: '🛋️', name: t('Диван и телевизор', 'Sofa and TV') },
   door: { id: 'door', icon: '🚪', name: t('Входная дверь', 'Front door') },
   mirror: { id: 'mirror', icon: '🪞', name: t('Зеркало', 'Mirror') },
-  computer: { id: 'computer', icon: '💻', name: t('Компьютер', 'Computer'), price: 450, desc: t('Онлайн-консультации, учёба и игры', 'Online coaching, study and games') },
-  bookshelf: { id: 'bookshelf', icon: '📚', name: t('Книжный шкаф', 'Bookshelf'), price: 200, desc: t('Книги о спорте и питании', 'Books on sport and nutrition') },
-  yoga_mat: { id: 'yoga_mat', icon: '🧘', name: t('Коврик для йоги', 'Yoga mat'), price: 60, desc: t('Своя тренировка дома', 'Your own workout at home') },
-  dumbbells: { id: 'dumbbells', icon: '🏋️', name: t('Стойка с гантелями', 'Dumbbell rack'), price: 300, desc: t('Силовые дома', 'Strength work at home') },
-  coffee_machine: { id: 'coffee_machine', icon: '☕', name: t('Кофемашина', 'Coffee machine'), price: 180, desc: t('Бодрость перед занятиями', 'A boost before classes') },
-  console: { id: 'console', icon: '🎮', name: t('Игровая приставка', 'Game console'), price: 380, desc: t('Лучший отдых', 'The best way to unwind') },
-  piano: { id: 'piano', icon: '🎹', name: t('Пианино', 'Piano'), price: 900, desc: t('Творчество и настроение', 'Creativity and mood') },
-  bathtub: { id: 'bathtub', icon: '🛁', name: t('Ванна', 'Bathtub'), price: 650, desc: t('Восстановление после занятий', 'Recovery after classes') },
-  aquarium: { id: 'aquarium', icon: '🐠', name: t('Аквариум', 'Aquarium'), price: 350, desc: t('Спокойствие', 'Calm') },
-  easel: { id: 'easel', icon: '🎨', name: t('Мольберт', 'Easel'), price: 150, desc: t('Программы тренировок и рисование', 'Training plans and painting') },
+  computer: { id: 'computer', icon: '💻', name: t('Компьютер', 'Computer'), price: 450, desc: t('Онлайн-консультации, учёба и игры', 'Online coaching, study and games'), kind: 'tech' },
+  bookshelf: { id: 'bookshelf', icon: '📚', name: t('Книжный шкаф', 'Bookshelf'), price: 200, desc: t('Книги о спорте и питании', 'Books on sport and nutrition'), kind: 'furniture' },
+  yoga_mat: { id: 'yoga_mat', icon: '🧘', name: t('Коврик для йоги', 'Yoga mat'), price: 60, desc: t('Своя тренировка дома', 'Your own workout at home'), kind: 'furniture' },
+  dumbbells: { id: 'dumbbells', icon: '🏋️', name: t('Стойка с гантелями', 'Dumbbell rack'), price: 300, desc: t('Силовые дома', 'Strength work at home'), kind: 'furniture' },
+  coffee_machine: { id: 'coffee_machine', icon: '☕', name: t('Кофемашина', 'Coffee machine'), price: 180, desc: t('Бодрость перед занятиями', 'A boost before classes'), kind: 'tech' },
+  console: { id: 'console', icon: '🎮', name: t('Игровая приставка', 'Game console'), price: 380, desc: t('Лучший отдых', 'The best way to unwind'), kind: 'tech' },
+  piano: { id: 'piano', icon: '🎹', name: t('Пианино', 'Piano'), price: 900, desc: t('Творчество и настроение', 'Creativity and mood'), kind: 'furniture' },
+  bathtub: { id: 'bathtub', icon: '🛁', name: t('Ванна', 'Bathtub'), price: 650, desc: t('Восстановление после занятий', 'Recovery after classes'), kind: 'furniture' },
+  aquarium: { id: 'aquarium', icon: '🐠', name: t('Аквариум', 'Aquarium'), price: 350, desc: t('Спокойствие', 'Calm'), kind: 'decor' },
+  easel: { id: 'easel', icon: '🎨', name: t('Мольберт', 'Easel'), price: 150, desc: t('Программы тренировок и рисование', 'Training plans and painting'), kind: 'furniture' },
+  armchair: { id: 'armchair', icon: '🪑', name: t('Кресло для чтения', 'Reading armchair'), price: 220, desc: t('Уютный отдых с книгой', 'Cosy rest with a book'), comfort: 1, kind: 'furniture' },
+  massage_chair: { id: 'massage_chair', icon: '💆', name: t('Массажное кресло', 'Massage chair'), price: 1200, desc: t('Восстанавливает силы после занятий', 'Restores energy after classes'), comfort: 1, kind: 'furniture' },
+  treadmill: { id: 'treadmill', icon: '🏃', name: t('Беговая дорожка', 'Treadmill'), price: 800, desc: t('Кардио дома перед камерой', 'Cardio at home in front of the camera'), kind: 'tech' },
+  punching_bag: { id: 'punching_bag', icon: '🥊', name: t('Боксёрская груша', 'Punching bag'), price: 350, desc: t('Сбросить стресс', 'Blow off steam'), kind: 'furniture' },
+  big_tv: { id: 'big_tv', icon: '📺', name: t('Домашний кинотеатр', 'Home cinema'), price: 1500, desc: t('Большой экран и кресло-мешок', 'A huge screen and a bean bag'), comfort: 1, kind: 'tech' },
+  smart_speaker: { id: 'smart_speaker', icon: '🔊', name: t('Умная колонка', 'Smart speaker'), price: 160, desc: t('Музыка и танцы', 'Music and dancing'), kind: 'tech' },
+  blender: { id: 'blender', icon: '🥤', name: t('Блендер', 'Blender'), price: 120, desc: t('Протеиновые коктейли дома', 'Protein shakes at home'), kind: 'tech' },
+  microwave: { id: 'microwave', icon: '♨️', name: t('Микроволновка', 'Microwave'), price: 140, desc: t('Быстрый горячий ужин', 'A quick hot dinner'), kind: 'tech' },
+  vr_headset: { id: 'vr_headset', icon: '🥽', name: t('VR-шлем', 'VR headset'), price: 950, desc: t('Виртуальные миры и фитнес-игры', 'Virtual worlds and fitness games'), kind: 'tech' },
+  robot_vacuum: { id: 'robot_vacuum', icon: '🤖', name: t('Робот-пылесос', 'Robot vacuum'), price: 500, desc: t('Сам убирает дом: гигиена падает медленнее', 'Cleans by itself: hygiene drops slower'), mount: 'free', slows: { hygiene: 0.25 }, kind: 'tech' },
+  air_conditioner: { id: 'air_conditioner', icon: '❄️', name: t('Кондиционер', 'Air conditioner'), price: 700, desc: t('Прохлада: энергия тратится медленнее', 'Cool air: energy drains slower'), mount: 'wall', slows: { energy: 0.15 }, kind: 'tech' },
+  painting: { id: 'painting', icon: '🖼️', name: t('Картина', 'Painting'), price: 180, desc: t('Яркий акцент на стене', 'A bright accent on the wall'), mount: 'wall', comfort: 2, kind: 'decor' },
+  wall_clock: { id: 'wall_clock', icon: '🕰️', name: t('Настенные часы', 'Wall clock'), price: 90, desc: t('Тикают по игровому времени', 'Ticks with game time'), mount: 'wall', comfort: 1, kind: 'decor' },
+  neon_sign: { id: 'neon_sign', icon: '💡', name: t('Неоновая вывеска', 'Neon sign'), price: 260, desc: t('«FIT» светится вечером', '“FIT” glows at night'), mount: 'wall', comfort: 2, kind: 'decor' },
+  photo_wall: { id: 'photo_wall', icon: '📸', name: t('Стена с фото', 'Photo wall'), price: 120, desc: t('Фото с учениками', 'Photos with your clients'), mount: 'wall', comfort: 2, kind: 'decor' },
+  house_plant: { id: 'house_plant', icon: '🪴', name: t('Монстера', 'Monstera'), price: 70, desc: t('Зелень в доме', 'Greenery at home'), mount: 'floor', comfort: 1, kind: 'decor' },
+  floor_lamp: { id: 'floor_lamp', icon: '🛋️', name: t('Торшер', 'Floor lamp'), price: 150, desc: t('Тёплый свет по вечерам', 'Warm light in the evening'), mount: 'floor', comfort: 2, kind: 'decor' },
+  flower_vase: { id: 'flower_vase', icon: '💐', name: t('Ваза с цветами', 'Vase of flowers'), price: 60, desc: t('Свежие цветы', 'Fresh flowers'), mount: 'floor', comfort: 1, kind: 'decor' },
+  palm: { id: 'palm', icon: '🌴', name: t('Пальма в кадке', 'Potted palm'), price: 240, desc: t('Курорт дома', 'A resort at home'), mount: 'floor', comfort: 2, kind: 'decor' },
+  cat: { id: 'cat', icon: '🐈', name: t('Кошка', 'Cat') },
   coach: { id: 'coach', icon: '📣', name: t('Место тренера', 'Coach’s spot') },
   reception: { id: 'reception', icon: '🛎️', name: t('Ресепшен', 'Reception') },
   gym_door: { id: 'gym_door', icon: '🚪', name: t('Выход', 'Exit') },
@@ -47,10 +77,46 @@ export const OBJECTS: Record<ObjectId, ObjectDef> = {
 
 /** Предметы, которые есть в доме всегда. */
 export const HOME_OBJECTS: readonly ObjectId[] = ['bed', 'fridge', 'stove', 'shower', 'sofa', 'door', 'mirror'];
-/** Мебель для дома в порядке показа. */
-export const FURNITURE: readonly ObjectId[] = ['yoga_mat', 'easel', 'coffee_machine', 'bookshelf', 'dumbbells', 'aquarium', 'console', 'computer', 'bathtub', 'piano'];
-/** Сколько мебели помещается в доме. */
-export const HOUSE_SLOTS = 8;
+/** Всё для дома из магазина — в порядке показа. */
+export const FURNITURE: readonly ObjectId[] = [
+  // Мебель.
+  'yoga_mat', 'easel', 'armchair', 'bookshelf', 'dumbbells', 'punching_bag', 'bathtub', 'piano', 'massage_chair',
+  // Техника.
+  'blender', 'microwave', 'smart_speaker', 'coffee_machine', 'console', 'computer', 'robot_vacuum', 'air_conditioner', 'treadmill', 'vr_headset', 'big_tv',
+  // Декор.
+  'flower_vase', 'house_plant', 'wall_clock', 'photo_wall', 'floor_lamp', 'painting', 'palm', 'neon_sign', 'aquarium',
+];
+/** Места в доме: у стен для мебели и техники, на стенах, на полу для декора. */
+export const HOUSE_SLOTS = 12;
+export const WALL_SLOTS = 5;
+export const FLOOR_SLOTS = 5;
+/** Где стоит предмет (у стены — по умолчанию). */
+export const mountOf = (id: ObjectId): 'slot' | 'wall' | 'floor' | 'free' => OBJECTS[id].mount ?? 'slot';
+export const slotsFor = (mount: 'slot' | 'wall' | 'floor' | 'free'): number => (mount === 'wall' ? WALL_SLOTS : mount === 'floor' ? FLOOR_SLOTS : mount === 'free' ? 1 : HOUSE_SLOTS);
+
+// ─── Кошки ─────────────────────────────────────────────────────────────
+
+export interface CatBreedDef {
+  id: CatBreed;
+  name: Txt;
+  desc: Txt;
+  price: number;
+}
+
+export const CAT_BREEDS: readonly CatBreedDef[] = [
+  { id: 'ginger', name: t('Рыжий кот', 'Ginger tabby'), desc: t('Солнечный и вечно голодный.', 'Sunny and always hungry.'), price: 150 },
+  { id: 'black', name: t('Чёрная кошка', 'Black cat'), desc: t('К удаче! Глаза как янтарь.', 'For luck! Amber eyes.'), price: 180 },
+  { id: 'british', name: t('Британская короткошёрстная', 'British Shorthair'), desc: t('Плюшевая и невозмутимая.', 'Plush and unflappable.'), price: 420 },
+  { id: 'siamese', name: t('Сиамская', 'Siamese'), desc: t('Разговорчивая, с голубыми глазами.', 'Chatty, with blue eyes.'), price: 450 },
+  { id: 'scottish_fold', name: t('Скоттиш-фолд', 'Scottish Fold'), desc: t('Вислоухая и любопытная.', 'Folded ears, endless curiosity.'), price: 520 },
+  { id: 'bengal', name: t('Бенгальская', 'Bengal'), desc: t('Леопардовые пятна и много энергии.', 'Leopard spots and lots of energy.'), price: 650 },
+  { id: 'persian', name: t('Персидская', 'Persian'), desc: t('Пушистое облако, любит поспать.', 'A fluffy cloud that loves naps.'), price: 600 },
+  { id: 'maine_coon', name: t('Мейн-кун', 'Maine Coon'), desc: t('Огромный ласковый великан с кисточками.', 'A huge gentle giant with ear tufts.'), price: 800 },
+  { id: 'sphynx', name: t('Сфинкс', 'Sphynx'), desc: t('Тёплый, бархатный и без шерсти.', 'Warm, velvety and hairless.'), price: 750 },
+];
+export const catBreedById = (id: CatBreed): CatBreedDef => CAT_BREEDS.find((b) => b.id === id) ?? CAT_BREEDS[0]!;
+export const MAX_CATS = 3;
+export const CAT_NAMES: readonly Txt[] = [t('Мурка', 'Murka'), t('Барсик', 'Barsik'), t('Пушок', 'Fluffy'), t('Луна', 'Luna'), t('Симба', 'Simba'), t('Тиша', 'Tisha'), t('Персик', 'Peach'), t('Оскар', 'Oscar'), t('Соня', 'Sonya'), t('Феликс', 'Felix'), t('Багира', 'Bagheera'), t('Кекс', 'Muffin')];
 
 // ─── Зал ───────────────────────────────────────────────────────────────
 
@@ -131,6 +197,18 @@ export const ACTIONS: readonly ActionDef[] = [
   { id: 'fish', icon: '🐠', label: t('Смотреть на рыбок', 'Watch the fish'), at: 'aquarium', minutes: 20, effect: fx({ needs: { fun: 12, energy: 4 } }) },
   { id: 'paint', icon: '🎨', label: t('Рисовать', 'Paint'), at: 'easel', minutes: 90, effect: fx({ needs: { fun: 14 }, skills: { creativity: 18 } }) },
   { id: 'plan', icon: '📝', label: t('Составить программу тренировок', 'Write a training plan'), at: 'easel', minutes: 60, requires: { skill: ['creativity', 2] }, effect: fx({ needs: { fun: 6 }, loyalty: 6, skills: { creativity: 8, logic: 6 } }) },
+  { id: 'armchair_read', icon: '📖', label: t('Почитать в кресле', 'Read in the armchair'), at: 'armchair', minutes: 45, effect: fx({ needs: { fun: 14, energy: 6 }, skills: { logic: 8 } }) },
+  { id: 'massage', icon: '💆', label: t('Массаж', 'Massage'), at: 'massage_chair', minutes: 30, effect: fx({ needs: { energy: 22, fun: 10 } }) },
+  { id: 'treadmill_run', icon: '🏃', label: t('Пробежка (камера)', 'Run (camera)'), at: 'treadmill', minutes: 30, train: true, effect: fx({ needs: { fun: 8, energy: -8, hygiene: -15 } }) },
+  { id: 'boxing', icon: '🥊', label: t('Побоксировать', 'Hit the bag'), at: 'punching_bag', minutes: 30, effect: fx({ needs: { fun: 16, energy: -10, hygiene: -12 }, fat: -0.004 }) },
+  { id: 'cinema', icon: '🍿', label: t('Кино на большом экране', 'Movie on the big screen'), at: 'big_tv', minutes: 120, effect: fx({ needs: { fun: 45, energy: 6 }, fat: 0.003 }) },
+  { id: 'dance', icon: '💃', label: t('Потанцевать под музыку', 'Dance to music'), at: 'smart_speaker', minutes: 30, effect: fx({ needs: { fun: 18, energy: -6 }, fat: -0.002, skills: { creativity: 4 } }) },
+  { id: 'shake', icon: '🥤', label: t('Протеиновый коктейль', 'Protein shake'), at: 'blender', minutes: 10, requires: { groceries: 1 }, effect: fx({ needs: { food: 40, energy: 10 }, groceries: -1 }) },
+  { id: 'microwave_meal', icon: '♨️', label: t('Разогреть ужин', 'Heat up dinner'), at: 'microwave', minutes: 10, requires: { groceries: 1 }, effect: fx({ needs: { food: 55 }, groceries: -1 }) },
+  { id: 'vr', icon: '🥽', label: t('VR-приключение', 'VR adventure'), at: 'vr_headset', minutes: 60, effect: fx({ needs: { fun: 40, energy: -6 } }) },
+  { id: 'pet_cat', icon: '🤲', label: t('Погладить кошку', 'Pet the cat'), at: 'cat', minutes: 10, effect: fx({ needs: { fun: 12, social: 10 } }) },
+  { id: 'play_cat', icon: '🧶', label: t('Поиграть с кошкой', 'Play with the cat'), at: 'cat', minutes: 20, effect: fx({ needs: { fun: 22, social: 8, energy: -4 } }) },
+  { id: 'feed_cat', icon: '🐟', label: t('Угостить кошку', 'Give the cat a treat'), at: 'cat', minutes: 5, cost: 5, effect: fx({ needs: { fun: 6, social: 6 } }) },
   // Зал.
   { id: 'session', icon: '📣', label: t('Провести занятие', 'Run a class'), at: 'coach', minutes: 0, open: 'session', effect: fx({}) },
   { id: 'own_workout', icon: '💪', label: t('Своя тренировка (камера)', 'Own workout (camera)'), at: 'coach', minutes: 45, train: true, effect: fx({ needs: { fun: 10, energy: -8, hygiene: -15 } }) },

@@ -39,6 +39,29 @@ export type ObjectId =
   | 'bathtub'
   | 'aquarium'
   | 'easel'
+  // Мебель и техника из магазина.
+  | 'armchair'
+  | 'massage_chair'
+  | 'treadmill'
+  | 'punching_bag'
+  | 'big_tv'
+  | 'smart_speaker'
+  | 'blender'
+  | 'microwave'
+  | 'vr_headset'
+  // Пассивная техника и декор (без действий: уют и меньше расход потребностей).
+  | 'robot_vacuum'
+  | 'air_conditioner'
+  | 'painting'
+  | 'wall_clock'
+  | 'neon_sign'
+  | 'photo_wall'
+  | 'house_plant'
+  | 'floor_lamp'
+  | 'flower_vase'
+  | 'palm'
+  // Кошки (любая из своих кошек рядом).
+  | 'cat'
   // Зал.
   | 'coach'
   | 'reception'
@@ -84,6 +107,17 @@ export interface ActionDef {
   go?: SceneId;
   /** Открыть экран: мебель, выбор занятия, зал. */
   open?: 'furniture' | 'session' | 'gym';
+}
+
+/** Породы кошек. */
+export type CatBreed = 'ginger' | 'black' | 'british' | 'siamese' | 'scottish_fold' | 'bengal' | 'persian' | 'maine_coon' | 'sphynx';
+
+export interface Cat {
+  id: string;
+  breed: CatBreed;
+  /** Индекс имени в списке. */
+  name: number;
+  adopted: number;
 }
 
 /** Ученик: внешность из зерна, форма улучшается с занятиями. */
@@ -139,8 +173,10 @@ export interface LifeState {
   groceries: number;
   /** Опыт навыков. */
   skills: Record<SkillId, number>;
-  /** Купленная мебель для дома. */
+  /** Купленная мебель, техника и декор для дома. */
   furniture: ObjectId[];
+  /** Свои кошки. */
+  cats: Cat[];
   /** «Лишний вес» героя: −1…1. */
   fat: number;
   /** Уровень зала 0…4. */

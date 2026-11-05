@@ -6,6 +6,9 @@ import { HEAD_CENTER_WORLD, HEAD_GROW } from './body';
 import { buildCharacter, buildItemModel, disposeObject, garmentsFor, iconFigure, itemGarments } from './buildCharacter';
 import { loadHairTexture } from './hairMesh';
 import { createStudio, enableShadows, setupRenderer, type Studio } from './studio';
+import { buildCat, poseCat } from './cats3d';
+import { objectModel, ticksOf } from './homeModels';
+import type { CatBreed, ObjectId } from '../../../game/lifeTypes';
 
 /**
  * Снимки 3D-моделей в картинки: иконки предметов для магазина и сумки
@@ -200,3 +203,45 @@ export async function renderPortrait(appearance: Appearance, color: string, equi
 }
 
 
+
+/** Иконка предмета для дома (мебель, техника, декор) из его 3D-модели. */
+export function renderHome(id: ObjectId, size = 192): Promise<string> {
+  return enqueue(() => {
+    const { studio: st } = ensure();
+    const object = objectModel(id);
+    for (const f of ticksOf(object)) f(1.2, 10 * 60 + 10, true);
+    enableShadows(object);
+    st.rim.color.set('#ffd9a0');
+    st.scene.environmentIntensity = 0.8;
+    st.scene.add(object);
+    try {
+      const cam = frame(object, new THREE.Vector3(0.75, 0.55, 1), 26, 0.86, size);
+      const c = new THREE.Box3().setFromObject(object).getCenter(new THREE.Vector3());
+      return shoot(st.scene, cam, size, c);
+    } finally {
+      st.scene.remove(object);
+      disposeObject(object);
+    }
+  }, 1);
+}
+
+/** Портрет кошки породы breed (сидит вполоборота). */
+export function renderCat(breed: CatBreed, size = 192): Promise<string> {
+  return enqueue(() => {
+    const { studio: st } = ensure();
+    const cat = buildCat(breed, 3);
+    for (let i = 0; i < 30; i += 1) poseCat(cat, 'sit', 2.2, 0, 0.35, 0.4);
+    enableShadows(cat.root);
+    st.rim.color.set('#ffffff');
+    st.scene.environmentIntensity = 0.8;
+    st.scene.add(cat.root);
+    try {
+      const cam = frame(cat.root, new THREE.Vector3(0.7, 0.25, 1), 26, 0.86, size);
+      const c = new THREE.Box3().setFromObject(cat.root).getCenter(new THREE.Vector3());
+      return shoot(st.scene, cam, size, c);
+    } finally {
+      st.scene.remove(cat.root);
+      disposeObject(cat.root);
+    }
+  }, 1);
+}

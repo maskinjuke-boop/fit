@@ -4,10 +4,10 @@ import { addDays, daysBetween } from './dates';
 import type { GameEvent } from './engine';
 import type { Slot } from './items';
 import { levelOf } from './levels';
-import { ACTIONS, CLIENT_NAMES, FURNITURE, GYMS, GYM_HOURS, HOME_OBJECTS, HOUSE_SLOTS, LIFE_EVENTS, OBJECTS, SESSION_EXERCISES, actionById, lifeEventById } from './lifeContent';
+import { ACTIONS, CAT_BREEDS, CAT_NAMES, CLIENT_NAMES, FURNITURE, GYMS, GYM_HOURS, HOME_OBJECTS, LIFE_EVENTS, MAX_CATS, OBJECTS, SESSION_EXERCISES, actionById, catBreedById, lifeEventById, mountOf, slotsFor } from './lifeContent';
 import { rng } from './random';
 import type { Appearance, BodyPart, GameState, HairStyle } from './state';
-import { NEEDS, SKILLS, type ActionDef, type Client, type LifeEffect, type LifeResult, type LifeState, type NeedId, type ObjectId, type SkillId, type Txt } from './lifeTypes';
+import { NEEDS, SKILLS, type ActionDef, type CatBreed, type Client, type LifeEffect, type LifeResult, type LifeState, type NeedId, type ObjectId, type SkillId, type Txt } from './lifeTypes';
 
 /**
  * Симулятор фитнес-тренера. Две локации — свой дом и фитнес-зал. В зале герой
@@ -34,6 +34,7 @@ export function newLife(): LifeState {
     groceries: 4,
     skills: { cooking: 0, charisma: 0, logic: 0, creativity: 0 },
     furniture: [],
+    cats: [],
     fat: 0,
     gym: 0,
     clients: [firstClient()],
@@ -61,6 +62,7 @@ export function migrateLife(raw: Partial<LifeState> | undefined): LifeState {
     groceries: typeof r.groceries === 'number' ? r.groceries : base.groceries,
     skills: { ...base.skills, ...(r.skills ?? {}) },
     furniture: (r.furniture ?? []).filter((id) => FURNITURE.includes(id)),
+    cats: Array.isArray(r.cats) ? r.cats.filter((c) => CAT_BREEDS.some((b) => b.id === c.breed)) : [],
     fat: typeof r.fat === 'number' ? r.fat : 0,
     gym: typeof r.gym === 'number' ? r.gym : 0,
     clients: Array.isArray(r.clients) && r.clients.length ? r.clients : base.clients,
@@ -212,12 +214,30 @@ interface Tally {
 }
 const startTally = (): Tally => ({ needs: {}, money: 0, notes: [], skills: {} });
 
+/** Уют дома: декор, мебель и кошки (до 15). */
+export function comfort(life: LifeState): number {
+  const items = life.furniture.reduce((a, id) => a + (OBJECTS[id].comfort ?? 0), 0);
+  return Math.min(15, items + life.cats.length * 2);
+}
+
+/** Во сколько раз медленнее падает потребность дома (уют, робот-пылесос, кондиционер). */
+export function homeSlowdown(life: LifeState, need: NeedId): number {
+  if (life.scene !== 'home') return 0;
+  let k = need === 'fun' || need === 'social' ? comfort(life) * 0.02 : 0;
+  for (const id of life.furniture) k += OBJECTS[id].slows?.[need] ?? 0;
+  return Math.min(0.4, k);
+}
+
 function passTime(s: GameState, minutes: number, asleep: boolean, tally: Tally): void {
   const life = s.life;
   let left = minutes;
   while (left > 0) {
     const step = Math.min(left, DAY - life.minute, 60);
-    for (const n of NEEDS) tally.needs[n] = (tally.needs[n] ?? 0) + bump(life, n, ((asleep ? ASLEEP : AWAKE)[n] * step) / 60);
+    for (const n of NEEDS) {
+      const rate = (asleep ? ASLEEP : AWAKE)[n];
+      const k = rate < 0 ? 1 - homeSlowdown(life, n) : 1;
+      tally.needs[n] = (tally.needs[n] ?? 0) + bump(life, n, (rate * k * step) / 60);
+    }
     life.minute += step;
     left -= step;
     if (life.minute >= DAY) {
@@ -283,6 +303,7 @@ export type Blocker = 'closed' | 'money' | 'groceries' | 'need' | 'skill' | 'mis
 /** Есть ли предмет в текущей локации. */
 export function hasObject(s: GameState, id: ObjectId): boolean {
   const life = s.life;
+  if (id === 'cat') return life.scene === 'home' && life.cats.length > 0;
   if (life.scene === 'home') return HOME_OBJECTS.includes(id) || life.furniture.includes(id);
   const g = GYMS[life.gym]!;
   if (id === 'gym_shower') return g.shower;
@@ -489,7 +510,8 @@ export type FurnitureBlocker = 'owned' | 'money' | 'space' | null;
 export function furnitureBlocker(s: GameState, id: ObjectId): FurnitureBlocker {
   const o = OBJECTS[id];
   if (o.price === undefined || s.life.furniture.includes(id)) return 'owned';
-  if (s.life.furniture.length >= HOUSE_SLOTS) return 'space';
+  const mount = mountOf(id);
+  if (s.life.furniture.filter((x) => mountOf(x) === mount).length >= slotsFor(mount)) return 'space';
   if (s.gold < o.price) return 'money';
   return null;
 }
@@ -509,6 +531,41 @@ export function sellFurniture(state: GameState, id: ObjectId): GameState {
   s.gold += Math.round((OBJECTS[id].price ?? 0) * 0.4);
   return s;
 }
+
+// ─── Кошки ──────────────────────────────────────────────────────────────
+
+export type CatBlocker = 'max' | 'money' | null;
+
+export function catBlocker(s: GameState, breed: CatBreed): CatBlocker {
+  if (s.life.cats.length >= MAX_CATS) return 'max';
+  if (s.gold < catBreedById(breed).price) return 'money';
+  return null;
+}
+
+/** Взять кошку: имя выбирается так, чтобы не повторяться. */
+export function adoptCat(state: GameState, breed: CatBreed): GameState {
+  if (catBlocker(state, breed)) return state;
+  const s = structuredClone(state);
+  const life = s.life;
+  s.gold -= catBreedById(breed).price;
+  const used = new Set(life.cats.map((c) => c.name));
+  const r = rng(`${s.character.id}:cat:${life.cats.length}:${breed}`);
+  let name = Math.floor(r() * CAT_NAMES.length);
+  while (used.has(name)) name = (name + 1) % CAT_NAMES.length;
+  const n = life.cats.reduce((m, c) => Math.max(m, Number(c.id.slice(3)) || 0), 0) + 1;
+  life.cats.push({ id: `cat${n}`, breed, name, adopted: life.day });
+  return s;
+}
+
+/** Отдать кошку в добрые руки (деньги не возвращаются). */
+export function rehomeCat(state: GameState, id: string): GameState {
+  if (!state.life.cats.some((c) => c.id === id)) return state;
+  const s = structuredClone(state);
+  s.life.cats = s.life.cats.filter((c) => c.id !== id);
+  return s;
+}
+
+export const catName = (c: { name: number }): Txt => CAT_NAMES[c.name % CAT_NAMES.length]!;
 
 export type GymBlocker = 'max' | 'level' | 'money' | null;
 

@@ -348,7 +348,10 @@ export function buildRig(root: THREE.Object3D, torso: THREE.Object3D, head: THRE
 
 // ─── Позы ──────────────────────────────────────────────────────────────
 
-export type Motion = 'idle' | 'walk' | ExerciseId;
+/** Поза с телом и делом рук: «sit:read» — сидя читает, «stand:cook» — стоя готовит. */
+export type Stance = 'stand' | 'sit' | 'crouch' | 'lie';
+export type Act = 'none' | 'relax' | 'phone' | 'read' | 'cook' | 'eat' | 'drink' | 'wash' | 'type' | 'game' | 'paint' | 'piano' | 'pet' | 'play' | 'box' | 'dance' | 'vr' | 'talk' | 'massage' | 'sleep';
+export type Motion = 'idle' | 'walk' | ExerciseId | `${Stance}:${Act}`;
 
 type Rot = [number, number, number];
 interface Pose {
@@ -366,9 +369,133 @@ const lerp = (a: number, b: number, t: number): number => a + (b - a) * t;
 /** Фаза повтора 0…1 → 0 (исходное) … 1 (нижняя точка) … 0. */
 const wave = (phase: number): number => 0.5 - 0.5 * Math.cos(phase * Math.PI * 2);
 
+type Rots = Partial<Record<BoneName, Rot>>;
+
+/** Ноги, таз и наклон тела для позы. */
+function stancePose(stance: Stance, t: number): Pose {
+  const breath = Math.sin(t * 1.6);
+  switch (stance) {
+    case 'sit':
+      return {
+        rot: { l_thigh: [-1.5, 0, 0.06], r_thigh: [-1.5, 0, -0.06], l_shin: [1.45, 0, 0], r_shin: [1.45, 0, 0], l_foot: [0.05, 0, 0], r_foot: [0.05, 0, 0], spine: [-0.05 + 0.01 * breath, 0, 0] },
+        hip: [0, -0.46, -0.4],
+      };
+    case 'crouch':
+      return { rot: { spine: [0.35, 0, 0], chest: [0.15, 0, 0] }, hip: [0, -0.42, -0.12], ik: true };
+    case 'lie':
+      return {
+        rot: { l_upper: [0.05, 0, 0.12], r_upper: [0.05, 0, -0.12], l_fore: [-0.2, 0, 0], r_fore: [-0.2, 0, 0], neck: [0.25, 0, 0], l_foot: [0.5, 0, 0], r_foot: [0.5, 0, 0], chest: [0.02 * breath, 0, 0] },
+        pitch: -Math.PI / 2,
+        lift: 0.13,
+      };
+    case 'stand':
+    default:
+      return { rot: { spine: [0, 0.03 * Math.sin(t * 0.4), 0] } };
+  }
+}
+
+/** Руки, корпус и голова для дела. */
+function actPose(act: Act, stance: Stance, t: number): Rots {
+  const s = Math.sin;
+  switch (act) {
+    case 'relax':
+      return { spine: [-0.22, 0, 0], l_upper: [0.25, 0, 0.45], r_upper: [0.25, 0, -0.45], l_fore: [-0.35, 0, 0], r_fore: [-0.35, 0, 0], neck: [0.12, 0.25 * s(t * 0.3), 0] };
+    case 'massage':
+      return { spine: [-0.28 + 0.02 * s(t * 18), 0, 0], l_upper: [0.1, 0, 0.3], r_upper: [0.1, 0, -0.3], l_fore: [-0.6, 0, 0], r_fore: [-0.6, 0, 0], neck: [-0.1, 0, 0.03 * s(t * 15)] };
+    case 'sleep':
+      return { l_upper: [-0.4, 0, 0.2], r_upper: [-0.4, 0, -0.2], l_fore: [-1.9, 0, -0.5], r_fore: [-1.9, 0, 0.5], neck: [0.15, 0.25, 0] };
+    case 'phone':
+      return { r_upper: [-0.45, 0, -0.75], r_fore: [-2.45, 0, 0], r_hand: [0.3, 0, 0], l_upper: [-0.2, 0, 0.12], l_fore: [-0.6 + 0.3 * s(t * 1.7), 0, 0], neck: [0.05, 0.15 * s(t * 0.8), -0.12] };
+    case 'read':
+      return { l_upper: [-0.5, 0, 0.12], r_upper: [-0.5, 0, -0.12], l_fore: [-1.55, 0, -0.45], r_fore: [-1.55, 0, 0.45], neck: [0.45, 0.04 * s(t * 0.6), 0], chest: [0.08, 0, 0] };
+    case 'cook': {
+      const a = t * 4;
+      return { spine: [0.12, 0, 0], l_upper: [-0.55, 0, 0.1], l_fore: [-1.0, 0, -0.35], r_upper: [-0.65 + 0.12 * s(a), 0.12 * Math.cos(a), -0.1], r_fore: [-0.9 + 0.1 * Math.cos(a), 0, 0.3], neck: [0.4, 0, 0] };
+    }
+    case 'eat':
+    case 'drink': {
+      const slow = act === 'drink' ? 1.4 : 2.4;
+      const bite = Math.max(0, s(t * slow));
+      return { l_upper: [-0.45, 0, 0.1], l_fore: [-1.35, 0, -0.35], r_upper: [-0.35 - 0.55 * bite, 0, -0.12], r_fore: [-1.2 - 1.15 * bite, 0, 0.25], neck: [0.25 - 0.3 * bite * (act === 'drink' ? 1 : 0.4), 0, 0] };
+    }
+    case 'wash': {
+      const a = t * 5;
+      return { l_upper: [-0.6, 0, 1.9 + 0.12 * s(a)], r_upper: [-0.6, 0, -1.9 - 0.12 * s(a + 1)], l_fore: [-1.9, 0, 0], r_fore: [-1.9, 0, 0], neck: [-0.25, 0.15 * s(t), 0], spine: [0, 0.08 * s(t * 1.3), 0] };
+    }
+    case 'type': {
+      const a = t * 9;
+      return { l_upper: [-0.55, 0, 0.18], r_upper: [-0.55, 0, -0.18], l_fore: [-1.0 + 0.06 * s(a), 0, -0.3], r_fore: [-1.0 + 0.06 * s(a + 2), 0, 0.3], neck: [0.15, 0, 0] };
+    }
+    case 'game': {
+      const a = t * 6;
+      return { spine: [stance === 'sit' ? 0.1 : 0.05, 0.05 * s(t * 1.2), 0], l_upper: [-0.4, 0, 0.15], r_upper: [-0.4, 0, -0.15], l_fore: [-1.5 + 0.08 * s(a), 0, -0.5], r_fore: [-1.5 + 0.08 * s(a + 1.5), 0, 0.5], neck: [0.3, 0, 0] };
+    }
+    case 'vr': {
+      const a = t * 2.2;
+      return { l_upper: [-1.0 + 0.5 * s(a), 0, 0.35 + 0.2 * s(a * 0.7)], r_upper: [-1.1 + 0.5 * s(a + 2), 0, -0.35 - 0.2 * s(a * 0.9)], l_fore: [-0.6, 0, 0], r_fore: [-0.6, 0, 0], neck: [-0.1, 0.5 * s(t * 0.9), 0], spine: [0, 0.25 * s(t * 0.9), 0] };
+    }
+    case 'paint': {
+      const a = t * 3;
+      return { r_upper: [-1.25 + 0.2 * s(a), 0.1, -0.15 + 0.15 * Math.cos(a)], r_fore: [-0.45, 0, 0], l_upper: [-0.45, 0, 0.15], l_fore: [-1.3, 0, -0.3], neck: [0, 0.1, 0] };
+    }
+    case 'piano': {
+      const a = t * 7;
+      return { l_upper: [-0.6, 0, 0.12], r_upper: [-0.6, 0, -0.12], l_fore: [-0.85, 0, -0.2], r_fore: [-0.85, 0, 0.2], l_hand: [0.25 * Math.max(0, s(a)), 0, 0], r_hand: [0.25 * Math.max(0, s(a + 1.3)), 0, 0], spine: [0.05, 0.1 * s(t * 0.8), 0], neck: [0.2, 0.15 * s(t * 0.8), 0] };
+    }
+    case 'pet': {
+      const a = t * 3;
+      return { r_upper: [-0.95 + 0.18 * s(a), 0, -0.12], r_fore: [-0.35, 0, 0], l_upper: [-0.3, 0, 0.25], l_fore: [-0.9, 0, 0], neck: [0.5, 0, 0] };
+    }
+    case 'play': {
+      const a = t * 5;
+      return { r_upper: [-0.9, 0, -0.35 + 0.45 * s(a)], r_fore: [-0.3, 0, 0], l_upper: [-0.2, 0, 0.3], l_fore: [-0.7, 0, 0], neck: [0.45, 0.25 * s(a), 0] };
+    }
+    case 'box': {
+      const a = (t * 2.2) % 2;
+      const jab = (x: number): number => Math.max(0, Math.sin(Math.min(1, Math.max(0, x)) * Math.PI));
+      const l = jab(a);
+      const r = jab(a - 1);
+      return {
+        spine: [0.12, 0.25 * (l - r), 0],
+        l_upper: [-1.15 - 0.35 * l, 0, 0.25 - 0.15 * l],
+        r_upper: [-1.15 - 0.35 * r, 0, -0.25 + 0.15 * r],
+        l_fore: [-2.0 + 1.85 * l, 0, -0.3],
+        r_fore: [-2.0 + 1.85 * r, 0, 0.3],
+        neck: [0.15, 0, 0],
+      };
+    }
+    case 'dance': {
+      const a = t * 4.2;
+      return { spine: [0, 0.3 * s(a / 2), 0.08 * s(a)], chest: [0, 0.15 * s(a / 2), 0], l_upper: [-0.4, 0, 1.2 + 0.9 * s(a)], r_upper: [-0.4, 0, -1.2 - 0.9 * s(a + Math.PI)], l_fore: [-0.9, 0, 0], r_fore: [-0.9, 0, 0], neck: [0, 0.2 * s(a / 2), 0.1 * s(a)] };
+    }
+    case 'talk': {
+      const a = t * 2.6;
+      return { l_upper: [-0.55 + 0.25 * s(a), 0, 0.35], r_upper: [-0.6 + 0.25 * s(a + 1.7), 0, -0.4], l_fore: [-1.2, 0, 0.3 * s(a)], r_fore: [-1.1, 0, -0.3 * s(a + 1)], neck: [0, 0.18 * s(t * 0.9), 0.05 * s(a)] };
+    }
+    case 'none':
+    default:
+      return stance === 'sit' ? { l_upper: [-0.4, 0, 0.05], r_upper: [-0.4, 0, -0.05], l_fore: [-0.7, 0, -0.35], r_fore: [-0.7, 0, 0.35] } : stance === 'lie' ? {} : { l_upper: [0, 0, 0.05], r_upper: [0, 0, -0.05], l_fore: [-0.15, 0, 0], r_fore: [-0.15, 0, 0] };
+  }
+}
+
+/** Поза с телом и делом рук. */
+function composedPose(stance: Stance, act: Act, t: number): Pose {
+  const base = stancePose(stance, t);
+  const arms = actPose(act, stance, t);
+  // Танец — с покачиванием таза и пружинящими коленями.
+  if (act === 'dance' && stance === 'stand') {
+    const a = t * 4.2;
+    return { rot: { ...base.rot, ...arms }, hip: [0.05 * Math.sin(a / 2), -0.06 * Math.abs(Math.sin(a)), 0], ik: true };
+  }
+  if (act === 'box' && stance === 'stand') return { rot: { ...base.rot, ...arms }, hip: [0, -0.07, 0], ik: true };
+  return { ...base, rot: { ...base.rot, ...arms } };
+}
+
 /** Поза для движения в момент t (с) с фазой повтора phase (0…1). */
 function poseFor(motion: Motion, t: number, phase: number): Pose {
   const k = wave(phase);
+  const colon = motion.indexOf(':');
+  if (colon > 0) return composedPose(motion.slice(0, colon) as Stance, motion.slice(colon + 1) as Act, t);
   switch (motion) {
     case 'walk': {
       const a = t * 7;
@@ -554,22 +681,35 @@ function solveLeg(rig: Rig, side: 'l' | 'r', hip: THREE.Vector3): void {
 }
 
 /** Применяет движение к скелету: motion в момент t, фаза повтора phase. */
-export function animate(rig: Rig, motion: Motion, t: number, phase = 0): void {
+/**
+ * Применяет движение к скелету: motion в момент t, фаза повтора phase. blend < 1 —
+ * плавный переход от текущей позы (доля пути за кадр), 1 — сразу в позу.
+ */
+export function animate(rig: Rig, motion: Motion, t: number, phase = 0, blend = 1): void {
   const p = poseFor(motion, t, phase);
+  const k = Math.min(1, Math.max(0, blend));
   for (const b of BONES) {
     const r = p.rot[b];
-    rig.bones[b].rotation.set(r ? r[0] : 0, r ? r[1] : 0, r ? r[2] : 0);
-    rig.bones[b].position.copy(rig.rest[b]);
+    const bone = rig.bones[b];
+    const x = r ? r[0] : 0;
+    const y = r ? r[1] : 0;
+    const z = r ? r[2] : 0;
+    if (k >= 1) bone.rotation.set(x, y, z);
+    else bone.rotation.set(bone.rotation.x + (x - bone.rotation.x) * k, bone.rotation.y + (y - bone.rotation.y) * k, bone.rotation.z + (z - bone.rotation.z) * k);
+    if (b !== 'root') bone.position.copy(rig.rest[b]);
   }
   const hip = rig.rest.root.clone();
   if (p.hip) hip.add(new THREE.Vector3(p.hip[0], p.hip[1], p.hip[2]));
+  if (k < 1) hip.lerpVectors(rig.bones.root.position, hip, k);
   rig.bones.root.position.copy(hip);
   if (p.ik) {
     solveLeg(rig, 'l', hip);
     solveLeg(rig, 'r', hip);
   }
-  rig.root.rotation.x = p.pitch ?? 0;
-  rig.root.position.y = p.lift ?? 0;
+  const pitch = p.pitch ?? 0;
+  const lift = p.lift ?? 0;
+  rig.root.rotation.x = k >= 1 ? pitch : rig.root.rotation.x + (pitch - rig.root.rotation.x) * k;
+  rig.root.position.y = k >= 1 ? lift : rig.root.position.y + (lift - rig.root.position.y) * k;
   const busy = motion !== 'idle' && motion !== 'walk';
   for (const h of rig.held) h.visible = !busy;
 }

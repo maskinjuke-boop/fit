@@ -3,8 +3,13 @@ import { applyRep, ensureDay, newCharacterState, type GameEvent } from '../src/g
 import { xpForLevel } from '../src/game/levels';
 import {
   act,
+  adoptCat,
   answerEvent,
   autoAction,
+  catBlocker,
+  comfort,
+  hasObject,
+  rehomeCat,
   blocker,
   buyFurniture,
   clientOutfit,
@@ -26,7 +31,7 @@ import {
   trainerLevel,
   upgradeGym,
 } from '../src/game/life';
-import { ACTIONS, FURNITURE, GYMS, HOUSE_SLOTS, LIFE_EVENTS, OBJECTS, SESSION_EXERCISES, actionById } from '../src/game/lifeContent';
+import { ACTIONS, CAT_BREEDS, FURNITURE, GYMS, HOUSE_SLOTS, LIFE_EVENTS, MAX_CATS, OBJECTS, SESSION_EXERCISES, actionById, mountOf, slotsFor } from '../src/game/lifeContent';
 import { bounds, clientSpot, gymGear, gymLayout, homeLayout, resolve, spawn } from '../src/game/lifeMap';
 import type { Txt } from '../src/game/lifeTypes';
 import { itemById } from '../src/game/items';
@@ -309,6 +314,73 @@ describe('норма дня', () => {
     const q = dailyQuota(s);
     expect(dailyQuota(withLevel(s, 10))).toBe(q);
     expect(dailyQuota(ensureDay(withLevel(s, 10), tomorrow).state)).toBeGreaterThan(q);
+  });
+});
+
+describe('дом и кошки', () => {
+  it('у всего для дома есть цена, раздел и текст; кошки — на двух языках', () => {
+    for (const id of FURNITURE) {
+      const o = OBJECTS[id];
+      expect(o.price ?? 0).toBeGreaterThan(0);
+      expect(['furniture', 'tech', 'decor']).toContain(o.kind);
+      both(o.name);
+      both(o.desc!);
+    }
+    for (const b of CAT_BREEDS) {
+      both(b.name);
+      both(b.desc);
+    }
+  });
+
+  it('места считаются по виду: у стен, на стенах, на полу', () => {
+    let s = hero();
+    s.gold = 1e6;
+    for (const id of FURNITURE) s = buyFurniture(s, id);
+    for (const m of ['slot', 'wall', 'floor'] as const) expect(s.life.furniture.filter((x) => mountOf(x) === m).length).toBe(Math.min(slotsFor(m), FURNITURE.filter((x) => mountOf(x) === m).length));
+    // Мебели и техники больше, чем мест у стен: часть приходится выбирать.
+    expect(FURNITURE.filter((x) => mountOf(x) === 'slot').length).toBeGreaterThan(slotsFor('slot'));
+    expect(s.life.furniture).toContain('robot_vacuum');
+    // Всё купленное получает место в доме.
+    const placed = homeLayout(s.life.furniture);
+    for (const id of s.life.furniture) expect(placed.some((p) => p.id === id)).toBe(true);
+    for (const p of placed) {
+      const b = bounds('home');
+      expect(p.pos.x).toBeGreaterThanOrEqual(b.x0 - 0.5);
+      expect(p.pos.x).toBeLessThanOrEqual(b.x1 + 0.5);
+      expect(p.pos.z).toBeGreaterThanOrEqual(b.z0 - 0.5);
+    }
+  });
+
+  it('уют и робот-пылесос замедляют падение потребностей дома', () => {
+    const plain = hero();
+    const cosy = hero();
+    cosy.gold = 1e6;
+    let c = cosy;
+    for (const id of ['robot_vacuum', 'painting', 'palm', 'neon_sign'] as const) c = buyFurniture(c, id);
+    expect(comfort(c.life)).toBeGreaterThan(0);
+    const a = act(plain, 'pose').state;
+    const b = act(c, 'pose').state;
+    expect(b.life.needs.hygiene).toBeGreaterThan(a.life.needs.hygiene);
+    expect(b.life.needs.social).toBeGreaterThan(a.life.needs.social);
+  });
+
+  it('кошки: не больше трёх, имена не повторяются, с ними можно играть', () => {
+    let s = hero();
+    s.gold = 10000;
+    expect(hasObject(s, 'cat')).toBe(false);
+    for (const b of ['ginger', 'sphynx', 'maine_coon', 'persian'] as const) s = adoptCat(s, b);
+    expect(s.life.cats.length).toBe(MAX_CATS);
+    expect(new Set(s.life.cats.map((c) => c.name)).size).toBe(MAX_CATS);
+    expect(catBlocker(s, 'black')).toBe('max');
+    expect(hasObject(s, 'cat')).toBe(true);
+    const played = act(s, 'play_cat').state;
+    expect(played.life.needs.fun).toBeGreaterThan(s.life.needs.fun);
+    // В зале кошек нет.
+    expect(hasObject(inGym(10, s), 'cat')).toBe(false);
+    const less = rehomeCat(s, s.life.cats[0]!.id);
+    expect(less.life.cats.length).toBe(MAX_CATS - 1);
+    // Кошки сохраняются при миграции.
+    expect(migrateLife(structuredClone(s.life)).cats.length).toBe(MAX_CATS);
   });
 });
 
