@@ -30,7 +30,23 @@ export interface LifeScene3DProps {
   stick: { current: { x: number; y: number } };
   goto: { current: P2 | null };
   onNear(target: ObjectId | null): void;
+  /** Игрок сам управляет героем (клавиши, касание пола) — сим перестаёт действовать сам. */
+  onInput?(): void;
   onFail(): void;
+}
+
+const ZOOM_KEY = 'fitness-rpg.lifeZoom';
+const ZOOM_MIN = 0.45;
+const ZOOM_MAX = 1.8;
+const clampZoom = (z: number): number => Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, z));
+
+function loadZoom(): number {
+  try {
+    const v = Number(localStorage.getItem(ZOOM_KEY));
+    return v > 0 ? clampZoom(v) : 1;
+  } catch {
+    return 1;
+  }
 }
 
 const wood = (c = '#8a5a30'): THREE.Material => M.wood(c, 1, 2);
@@ -446,7 +462,7 @@ export default function LifeScene3D(props: LifeScene3DProps) {
   const host = useRef<HTMLDivElement | null>(null);
   const propsRef = useRef(props);
   propsRef.current = props;
-  const api = useRef<{ rebuildScene(): void; rebuildHero(): void; syncClients(): void } | null>(null);
+  const api = useRef<{ rebuildScene(): void; rebuildHero(): void; syncClients(): void; zoomBy(k: number): void } | null>(null);
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
@@ -598,7 +614,21 @@ export default function LifeScene3D(props: LifeScene3DProps) {
         setReady(true);
       });
     };
-    api.current = { rebuildScene, rebuildHero, syncClients };
+    // Масштаб: колесо мыши, щипок двумя пальцами или кнопки ＋/−.
+    let zoom = loadZoom();
+    let saveTimer = 0;
+    const zoomBy = (k: number): void => {
+      zoom = clampZoom(zoom * k);
+      clearTimeout(saveTimer);
+      saveTimer = window.setTimeout(() => {
+        try {
+          localStorage.setItem(ZOOM_KEY, String(zoom));
+        } catch {
+          // хранилище недоступно — масштаб живёт до перезагрузки
+        }
+      }, 300);
+    };
+    api.current = { rebuildScene, rebuildHero, syncClients, zoomBy };
 
     const camera = new THREE.PerspectiveCamera(48, 1, 0.1, 120);
     const resize = (): void => {
@@ -622,8 +652,10 @@ export default function LifeScene3D(props: LifeScene3DProps) {
       if (!['w', 'a', 's', 'd', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright', 'ц', 'ф', 'ы', 'в'].includes(k)) return;
       const tag = (e.target as HTMLElement | null)?.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA') return;
-      if (e.type === 'keydown') keys.add(k);
-      else keys.delete(k);
+      if (e.type === 'keydown') {
+        keys.add(k);
+        propsRef.current.onInput?.();
+      } else keys.delete(k);
       e.preventDefault();
     };
     window.addEventListener('keydown', onKey);
@@ -631,18 +663,57 @@ export default function LifeScene3D(props: LifeScene3DProps) {
 
     const ray = new THREE.Raycaster();
     let downAt = { x: 0, y: 0, t: 0 };
+    const touches = new Map<number, { x: number; y: number }>();
+    let pinch = 0;
+    let pinched = false;
+    const spread = (): number => {
+      const [a, b] = [...touches.values()];
+      return a && b ? Math.hypot(a.x - b.x, a.y - b.y) : 0;
+    };
     const onDown = (e: PointerEvent): void => {
-      downAt = { x: e.clientX, y: e.clientY, t: performance.now() };
+      touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (touches.size === 2) {
+        pinch = spread();
+        pinched = true;
+      } else if (touches.size === 1) {
+        pinched = false;
+        downAt = { x: e.clientX, y: e.clientY, t: performance.now() };
+      }
+    };
+    const onMove = (e: PointerEvent): void => {
+      if (!touches.has(e.pointerId)) return;
+      touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (touches.size === 2 && pinch > 0) {
+        const d = spread();
+        if (d > 0) zoomBy(pinch / d);
+        pinch = d;
+      }
+    };
+    const onLeave = (e: PointerEvent): void => {
+      touches.delete(e.pointerId);
+      if (touches.size < 2) pinch = 0;
+    };
+    const onWheel = (e: WheelEvent): void => {
+      e.preventDefault();
+      zoomBy(Math.exp(e.deltaY * 0.0015));
     };
     const onUp = (e: PointerEvent): void => {
-      if (!ground || Math.hypot(e.clientX - downAt.x, e.clientY - downAt.y) > 12 || performance.now() - downAt.t > 500) return;
+      const multi = touches.size > 1 || pinched;
+      onLeave(e);
+      if (multi || !ground || Math.hypot(e.clientX - downAt.x, e.clientY - downAt.y) > 12 || performance.now() - downAt.t > 500) return;
       const r = canvas.getBoundingClientRect();
       ray.setFromCamera(new THREE.Vector2(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1), camera);
       const hit = ray.intersectObject(ground, false)[0];
-      if (hit) propsRef.current.goto.current = { x: hit.point.x, z: hit.point.z };
+      if (hit) {
+        propsRef.current.onInput?.();
+        propsRef.current.goto.current = { x: hit.point.x, z: hit.point.z };
+      }
     };
     canvas.addEventListener('pointerdown', onDown);
+    canvas.addEventListener('pointermove', onMove);
     canvas.addEventListener('pointerup', onUp);
+    canvas.addEventListener('pointercancel', onLeave);
+    canvas.addEventListener('wheel', onWheel, { passive: false });
 
     let visible = true;
     const io = new IntersectionObserver((entries) => {
@@ -732,10 +803,13 @@ export default function LifeScene3D(props: LifeScene3DProps) {
       }
       // Камера сверху-спереди, комната видна в разрезе.
       const gym = p.scene === 'gym';
-      const want = new THREE.Vector3(pos.x * 0.55, gym ? 7.8 : 6.8, pos.z + (gym ? 7.4 : 6.4));
-      camPos.lerp(want, Math.min(1, dt * 4));
+      // Ближе — камера следует за героем плотнее, дальше — видна вся комната.
+      const follow = 1 - 0.45 * Math.min(1, zoom);
+      const want = new THREE.Vector3(pos.x * follow, 0.9 + ((gym ? 7.8 : 6.8) - 0.9) * zoom, pos.z + (gym ? 7.4 : 6.4) * zoom);
+      camPos.lerp(want, Math.min(1, dt * 5));
       camera.position.copy(camPos);
-      camera.lookAt(pos.x * 0.8, 0.6, pos.z - 1.2);
+      const lookF = 1 - 0.2 * Math.min(1, zoom);
+      camera.lookAt(pos.x * lookF, 0.6 + 0.5 * Math.max(0, 1 - zoom), pos.z - 1.2 * Math.min(1, zoom));
       const light = daylight(p.minute);
       hemi.intensity = 0.6 + light * 0.45;
       sun.intensity = 0.7 + light * 1.1;
@@ -773,7 +847,11 @@ export default function LifeScene3D(props: LifeScene3DProps) {
       window.removeEventListener('keydown', onKey);
       window.removeEventListener('keyup', onKey);
       canvas.removeEventListener('pointerdown', onDown);
+      canvas.removeEventListener('pointermove', onMove);
       canvas.removeEventListener('pointerup', onUp);
+      canvas.removeEventListener('pointercancel', onLeave);
+      canvas.removeEventListener('wheel', onWheel);
+      clearTimeout(saveTimer);
       canvas.removeEventListener('webglcontextlost', onLost);
       api.current = null;
       disposeObject(scene);
@@ -809,6 +887,14 @@ export default function LifeScene3D(props: LifeScene3DProps) {
 
   return (
     <div ref={host} className="world3d">
+      <div className="zoom-btns">
+        <button className="btn ghost" aria-label="+" onClick={() => api.current?.zoomBy(1 / 1.25)}>
+          ＋
+        </button>
+        <button className="btn ghost" aria-label="−" onClick={() => api.current?.zoomBy(1.25)}>
+          −
+        </button>
+      </div>
       {!ready && (
         <div className="hero3d-busy">
           <div className="spinner" />

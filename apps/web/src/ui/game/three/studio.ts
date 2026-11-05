@@ -95,7 +95,10 @@ export function createStudio(renderer: THREE.WebGLRenderer, shadows: boolean): S
   };
 }
 
-/** Включает отбрасывание и приём теней для непрозрачных частей модели. */
+/**
+ * Непрозрачные части модели отбрасывают тень на пол. Сами модели тень не принимают:
+ * иначе руки, волосы и одежда кладут на тело тёмные пятна.
+ */
 export function enableShadows(obj: THREE.Object3D): void {
   obj.traverse((o) => {
     const m = o as THREE.Mesh;
@@ -103,6 +106,6 @@ export function enableShadows(obj: THREE.Object3D): void {
     const mt = m.material as THREE.Material;
     const solid = !mt.transparent && !(mt instanceof THREE.MeshBasicMaterial);
     m.castShadow = solid;
-    m.receiveShadow = solid;
+    m.receiveShadow = false;
   });
 }

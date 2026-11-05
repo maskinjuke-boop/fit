@@ -537,4 +537,57 @@ export function dismissResult(state: GameState): GameState {
   return { ...state, life: { ...state.life, last: null } };
 }
 
+// ─── Самостоятельность сима ────────────────────────────────────────────
+
+/** Насколько важно поднять потребность: чем ниже, тем срочнее. */
+const urgency = (v: number): number => ((100 - v) / 100) ** 2 * 4 + 0.05;
+
+/** Польза действия для сима: прибавка потребностей с учётом срочности, деньги, вред фигуре. */
+function actionValue(state: GameState, a: ActionDef): number {
+  const after = act(state, a.id).state;
+  if (after === state) return -Infinity;
+  const before = state.life;
+  let v = 0;
+  for (const n of NEEDS) v += urgency(before.needs[n]) * (after.life.needs[n] - before.needs[n]);
+  v += (after.gold - state.gold) * 0.08;
+  v -= Math.max(0, after.life.fat - before.fat) * 300;
+  const xp = SKILLS.reduce((acc, k) => acc + (after.life.skills[k] - before.skills[k]), 0);
+  v += xp * 0.05;
+  // Ночью сим ложится спать, а не дремлет урывками.
+  const h = hourOf(before.minute);
+  const night = h >= 22 || h < 5;
+  if (a.id === 'sleep') v += night && before.needs.energy < 75 ? 40 : -20;
+  if (a.id === 'nap' && night) v -= 20;
+  return v;
+}
+
+/**
+ * Что сим сделает сам, пока игрок ничего не трогает: самое полезное действие у предметов
+ * текущей локации. Камерные тренировки и занятия сим без игрока не начинает. Из зала
+ * уходит домой, если пора спать или нужно поесть, а в зале нечем. null — всё хорошо, стоит.
+ */
+export function autoAction(state: GameState): ActionDef | null {
+  const life = state.life;
+  if (life.event || life.session) return null;
+  let best: ActionDef | null = null;
+  // Порог: сим не бросается к холодильнику из-за пары пунктов сытости.
+  let score = 14;
+  for (const a of ACTIONS) {
+    if (a.train || a.open || a.go || !hasObject(state, a.at) || blocker(state, a)) continue;
+    const v = a.id === 'groceries' ? (life.groceries === 0 && life.needs.food < 70 ? urgency(life.needs.food) * 25 : -Infinity) : actionValue(state, a);
+    if (v > score) {
+      score = v;
+      best = a;
+    }
+  }
+  if (life.scene === 'gym') {
+    const h = hourOf(life.minute);
+    const late = h >= 22 || h < 6 || !gymOpen(life.minute);
+    const tired = life.needs.energy < 30;
+    const hungry = life.needs.food < 35 && !GYMS[life.gym]!.bar;
+    if (late || tired || hungry || (!best && life.needs.hygiene < 30)) return actionById('go_home') ?? null;
+  }
+  return best;
+}
+
 export { SKILLS, NEEDS };

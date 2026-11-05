@@ -4,6 +4,7 @@ import { xpForLevel } from '../src/game/levels';
 import {
   act,
   answerEvent,
+  autoAction,
   blocker,
   buyFurniture,
   clientOutfit,
@@ -308,6 +309,62 @@ describe('норма дня', () => {
     const q = dailyQuota(s);
     expect(dailyQuota(withLevel(s, 10))).toBe(q);
     expect(dailyQuota(ensureDay(withLevel(s, 10), tomorrow).state)).toBeGreaterThan(q);
+  });
+});
+
+describe('самостоятельность сима', () => {
+  const full = (s: GameState): GameState => {
+    for (const n of Object.keys(s.life.needs) as Array<keyof GameState['life']['needs']>) s.life.needs[n] = 95;
+    return s;
+  };
+
+  it('всё хорошо — сим ничего не делает', () => {
+    expect(autoAction(full(hero()))).toBe(null);
+  });
+
+  it('голоден — ест из холодильника или готовит', () => {
+    const s = full(hero());
+    s.life.needs.food = 15;
+    expect(['snack', 'cook', 'cook_fit']).toContain(autoAction(s)?.id);
+  });
+
+  it('без продуктов и голоден — заказывает продукты или еду', () => {
+    const s = full(hero());
+    s.life.groceries = 0;
+    s.life.needs.food = 20;
+    expect(['groceries', 'order']).toContain(autoAction(s)?.id);
+  });
+
+  it('ночью уставший ложится спать', () => {
+    const s = full(hero());
+    s.life.minute = 23 * 60;
+    s.life.needs.energy = 30;
+    expect(autoAction(s)?.id).toBe('sleep');
+  });
+
+  it('грязный — в душ', () => {
+    const s = full(hero());
+    s.life.needs.hygiene = 10;
+    expect(autoAction(s)?.id).toBe('shower');
+  });
+
+  it('поздно или нет сил в зале — едет домой; камерных занятий сам не начинает', () => {
+    const late = full(inGym(23));
+    expect(autoAction(late)?.id).toBe('go_home');
+    const tired = full(inGym(12));
+    tired.life.needs.energy = 15;
+    expect(autoAction(tired)?.id).toBe('go_home');
+    const fine = full(inGym(12));
+    const a = autoAction(fine);
+    expect(a?.train ?? false).toBe(false);
+    expect(a?.open).toBe(undefined);
+  });
+
+  it('при событии сим ждёт решения игрока', () => {
+    const s = hero();
+    s.life.needs.food = 5;
+    s.life.event = { id: 'blogger' };
+    expect(autoAction(s)).toBe(null);
   });
 });
 

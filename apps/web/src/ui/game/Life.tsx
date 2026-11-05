@@ -1,8 +1,9 @@
-import { lazy, Suspense, useMemo, useRef, useState, type ReactNode } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useGame } from '../../game/GameContext';
 import type { GameState } from '../../game/state';
 import {
   actionsAt,
+  autoAction,
   blocker,
   clientAppearance,
   clientForm,
@@ -27,8 +28,8 @@ import {
   SKILL_NAME,
   type Blocker,
 } from '../../game/life';
-import { FURNITURE, GYMS, GYM_HOURS, HOUSE_SLOTS, OBJECTS, SESSION_EXERCISES, lifeEventById } from '../../game/lifeContent';
-import type { P2 } from '../../game/lifeMap';
+import { FURNITURE, GYMS, GYM_HOURS, HOUSE_SLOTS, OBJECTS, SESSION_EXERCISES, actionById, lifeEventById } from '../../game/lifeContent';
+import { gymLayout, homeLayout, type P2 } from '../../game/lifeMap';
 import { NEEDS, SKILLS, type ActionDef, type Client, type NeedId, type ObjectId } from '../../game/lifeTypes';
 import { useI18n, type I18nKey } from '../../i18n';
 import type { ExerciseId } from '../../tracking/exercise';
@@ -43,6 +44,11 @@ interface PointerLike {
   clientY: number;
 }
 
+const AUTO_KEY = 'fitness-rpg.lifeAuto';
+/** Через сколько без касаний сим начинает действовать сам и пауза между его делами. */
+const IDLE_MS = 6000;
+const AUTO_PAUSE_MS = 2500;
+
 const NEED_ICON: Record<NeedId, string> = { food: '🍔', energy: '⚡', hygiene: '🚿', fun: '🎉', social: '💬' };
 const CLIENT_COLORS = ['#e85d2a', '#2f6fb5', '#3a9d6a', '#8e44ad', '#d4a017', '#c0392b', '#16a085', '#e84393'];
 
@@ -51,7 +57,7 @@ export function clientMember(c: Client): Member {
   return { id: c.id, color: CLIENT_COLORS[c.seed % CLIENT_COLORS.length]!, appearance: clientAppearance(c), equipped: clientOutfit(c) };
 }
 
-function Joystick({ stick }: { stick: { current: { x: number; y: number } } }) {
+function Joystick({ stick, onInput }: { stick: { current: { x: number; y: number } }; onInput(): void }) {
   const [knob, setKnob] = useState({ x: 0, y: 0 });
   const base = useRef<HTMLDivElement | null>(null);
   const R = 46;
@@ -67,6 +73,7 @@ function Joystick({ stick }: { stick: { current: { x: number; y: number } } }) {
     }
     setKnob({ x, y });
     stick.current = { x: x / R, y: -y / R };
+    onInput();
   };
   const end = (): void => {
     setKnob({ x: 0, y: 0 });
@@ -133,6 +140,13 @@ function ResultCard({ state }: { state: GameState }) {
   const { t, lang } = useI18n();
   const { life } = useGame();
   const r = state.life.last;
+  // Итог сам скрывается через несколько секунд, чтобы не закрывать сцену.
+  useEffect(() => {
+    if (!r) return;
+    const id = window.setTimeout(() => life.dismiss(), 6000);
+    return () => clearTimeout(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [r]);
   if (!r) return null;
   const chips: Array<{ text: string; cls: string }> = [];
   if (r.minutes) chips.push({ text: `⏱ ${lang === 'ru' ? hours(r.minutes) : hoursEn(r.minutes)}`, cls: '' });
@@ -422,6 +436,26 @@ export function LifeTab({ state, onTrain, onSession }: { state: GameState; onTra
   const stick = useRef({ x: 0, y: 0 });
   const goto = useRef<P2 | null>(null);
 
+  // ── Самостоятельность: без игрока сим сам подходит к предметам и пользуется ими ──
+  const [auto, setAuto] = useState(() => {
+    try {
+      return localStorage.getItem(AUTO_KEY) !== '0';
+    } catch {
+      return true;
+    }
+  });
+  const [autoTask, setAutoTask] = useState<{ action: string; at: ObjectId; since: number } | null>(null);
+  const lastInput = useRef(performance.now());
+  const live = useRef({ state, near: null as ObjectId | null, sheet: null as Sheet, auto, failed: false });
+  const playerInput = (): void => {
+    lastInput.current = performance.now();
+    if (taskRef.current) {
+      taskRef.current = null;
+      setAutoTask(null);
+      goto.current = null;
+    }
+  };
+
   const heroLook = useMemo(
     () => ({ color: state.character.color, appearance: effectiveAppearance(state.character.appearance, state), equipped: state.equipped }),
     // Фигура меняется с тренировками и питанием.
@@ -436,7 +470,62 @@ export function LifeTab({ state, onTrain, onSession }: { state: GameState; onTra
     [L.scene, open, clientsKey],
   );
 
+  live.current = { state, near, sheet, auto, failed };
+  const lifeRef = useRef(life);
+  lifeRef.current = life;
+  const taskRef = useRef<{ action: string; at: ObjectId; since: number } | null>(null);
+  const setTask = (t: { action: string; at: ObjectId; since: number } | null): void => {
+    taskRef.current = t;
+    setAutoTask(t);
+  };
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      const { state: st, near: at, sheet: open, auto: on, failed: off } = live.current;
+      const now = performance.now();
+      if (!on || off || open || st.life.event) return;
+      const task = taskRef.current;
+      if (task) {
+        // Дошёл — делает; застрял — бросает затею.
+        if (at === task.at) {
+          setTask(null);
+          lifeRef.current.act(task.action);
+          lastInput.current = now - IDLE_MS + AUTO_PAUSE_MS;
+        } else if (now - task.since > 25000) {
+          goto.current = null;
+          setTask(null);
+        }
+        return;
+      }
+      if (now - lastInput.current < IDLE_MS) return;
+      const a = autoAction(st);
+      if (!a) return;
+      const L2 = st.life;
+      const placed = L2.scene === 'home' ? homeLayout(L2.furniture) : gymLayout(GYMS[L2.gym]!.shower, GYMS[L2.gym]!.bar);
+      const spot = placed.find((p) => p.id === a.at);
+      if (!spot) return;
+      goto.current = { ...spot.use };
+      setTask({ action: a.id, at: a.at, since: now });
+    }, 600);
+    return () => clearInterval(id);
+  }, []);
+
+  const toggleAuto = (): void => {
+    const next = !auto;
+    setAuto(next);
+    if (!next && taskRef.current) {
+      taskRef.current = null;
+      setAutoTask(null);
+      goto.current = null;
+    }
+    try {
+      localStorage.setItem(AUTO_KEY, next ? '1' : '0');
+    } catch {
+      // без хранилища выбор живёт до перезагрузки
+    }
+  };
+
   const run = (a: ActionDef): void => {
+    lastInput.current = performance.now();
     const out = life.act(a.id);
     if (out.train) onTrain();
     if (out.open === 'session') setSheet('session');
@@ -502,6 +591,7 @@ export function LifeTab({ state, onTrain, onSession }: { state: GameState; onTra
               stick={stick}
               goto={goto}
               onNear={setNear}
+              onInput={playerInput}
               onFail={() => setFailed(true)}
             />
           </Suspense>
@@ -524,7 +614,15 @@ export function LifeTab({ state, onTrain, onSession }: { state: GameState; onTra
         <button className="phone-btn" onClick={() => setSheet('phone')} aria-label={t('life.phone')}>
           📱
         </button>
-        <Joystick stick={stick} />
+        <button className={`auto-btn ${auto ? 'on' : ''}`} onClick={toggleAuto} title={t('life.autoHint')}>
+          🤖 {t(auto ? 'life.autoOn' : 'life.autoOff')}
+        </button>
+        {autoTask && (
+          <div className="auto-thought" role="status">
+            💭 {actionById(autoTask.action)?.icon} {actionById(autoTask.action)?.label[lang]}
+          </div>
+        )}
+        <Joystick stick={stick} onInput={playerInput} />
         <div className="life-actions">{panel ?? <span className="world-note">{hint}</span>}</div>
         <ResultCard state={state} />
       </div>

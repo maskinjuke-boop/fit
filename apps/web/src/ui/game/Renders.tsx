@@ -78,7 +78,7 @@ export function preloadItemImages(ids: readonly string[], color: string, figure:
   for (const id of ids) void request(itemKey(id, color, figure), (m) => m.renderItem(id, color, figure, 202)).catch(() => undefined);
 }
 
-const PORTRAIT_KEY = 'fitness-rpg.portrait.v1';
+const PORTRAIT_KEY = 'fitness-rpg.portrait.v2';
 
 function savedPortrait(key: string): string | undefined {
   try {
