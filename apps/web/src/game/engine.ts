@@ -21,8 +21,7 @@ import { levelOf, xpForLevel } from './levels';
 import { QUESTS, effectiveObjective, objectiveTarget, questById, type QuestDef } from './quests';
 import { checkAchievements } from './achievements';
 import { addXp, grantReward } from './progress';
-import { storyNewDay, storyOnRep } from './story';
-import type { MonsterId } from './storyTypes';
+import { lifeOnRep } from './life';
 import { emptyDay, type Character, type DayStats, type GameState } from './state';
 
 export type GameEvent =
@@ -37,17 +36,17 @@ export type GameEvent =
   | { kind: 'streak'; count: number }
   | { kind: 'freezeUsed'; days: number }
   | { kind: 'streakLost' }
-  | { kind: 'storyEnergy'; energy: number }
-  | { kind: 'storyTrialDone'; event: string }
-  | { kind: 'storyPowerStrike'; monster: MonsterId }
   | { kind: 'achievement'; id: string; xp: number; gold: number };
 
 export type ShopError = 'owned' | 'level' | 'gold' | 'unknown';
 
+/** Деньги на старте жизни. */
+export const START_MONEY = 100;
+
 const STARTER_ITEM: Record<Character['archetype'], string> = {
-  guardian: 'wooden_shield',
-  ranger: 'leather_cap',
-  mystic: 'headband',
+  guardian: 'dumbbell',
+  ranger: 'running_shoes',
+  mystic: 'yoga_mat',
 };
 
 export interface Result {
@@ -208,7 +207,6 @@ export function ensureDay(state: GameState, now: Date): Result {
 
   for (const day of Object.keys(s.days)) if (daysBetween(day, today) > HISTORY_DAYS) delete s.days[day];
   todayStats(s);
-  storyNewDay(s, today);
   settleQuests(s, events);
   checkAchievements(s, events);
   return { state: s, events };
@@ -258,7 +256,7 @@ export function applyRep(state: GameState, rep: { exercise: ExerciseId; quality:
   events.push({ kind: 'xp', amount: xp, stat: info.stat, overLimit });
   addXp(s, xp, info.stat, events);
   questRepProgress(s, rep.exercise, rep.quality);
-  storyOnRep(s, rep.exercise, xp, events);
+  lifeOnRep(s, rep.exercise);
   settleDailies(s, events);
   settleStreak(s, events);
   settleQuests(s, events);
@@ -327,6 +325,8 @@ export function newCharacterState(character: Omit<Character, 'id' | 'createdDay'
   const id = typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `c${Date.now()}${Math.random()}`;
   const s = createState({ ...character, id, createdDay: dayKey(now) });
   // Стартовый предмет по выбранному пути — чтобы экипировка была видна сразу.
+  // Немного денег на первые продукты в симуляторе жизни.
+  s.gold = START_MONEY;
   const starter = STARTER_ITEM[character.archetype];
   s.inventory.push(starter);
   const slot = itemById(starter)?.slot;
@@ -336,8 +336,8 @@ export function newCharacterState(character: Omit<Character, 'id' | 'createdDay'
 
 export { STATS };
 
-/** После действий в истории: достижения (s уже скопировано). */
-export function settleAfterStory(state: GameState, events: GameEvent[]): Result {
+/** После действий в жизни: квесты и достижения. */
+export function settleAfterLife(state: GameState, events: GameEvent[]): Result {
   const s = structuredClone(state);
   settleQuests(s, events);
   checkAchievements(s, events);

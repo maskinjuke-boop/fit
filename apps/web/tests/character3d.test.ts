@@ -45,7 +45,7 @@ describe('3D-персонаж', () => {
   it('причёска не пропадает целиком под шапкой, кроме шлема', () => {
     for (const hair of HAIR_STYLES) {
       const bare = meshCount(buildCharacter({ ...DEFAULT_APPEARANCE, hair }, '#4da3ff', {}).root);
-      const capped = meshCount(buildCharacter({ ...DEFAULT_APPEARANCE, hair }, '#4da3ff', { head: 'feathered_cap' }).root);
+      const capped = meshCount(buildCharacter({ ...DEFAULT_APPEARANCE, hair }, '#4da3ff', { head: 'sports_cap' }).root);
       expect(capped).toBeGreaterThan(bare - 60);
     }
   });
@@ -74,7 +74,7 @@ describe('3D-персонаж', () => {
     }
   });
 
-  it('оружие и предметы второй руки лежат в кулаке за рукоять и не входят в тело', () => {
+  it('вещи в руке и сумки лежат в кулаке за ручку и не входят в тело', () => {
     const held = ITEMS.filter((i) => i.slot === 'weapon' || i.slot === 'offhand');
     expect(held.length).toBeGreaterThan(20);
     const problems: string[] = [];
@@ -96,7 +96,7 @@ describe('3D-персонаж', () => {
           continue;
         }
         // Точка хвата кулака — внутри рукояти: в начале координат модели есть тонкая деталь
-        // (рукоять, древко, ремень, дужка, горлышко), а не пустота или толстый корпус.
+        // (ручка, гриф, ремешок, дужка, ножка бокала), а не пустота или толстый корпус.
         expect(obj.position.distanceTo(hand.at)).toBeLessThan(1e-6);
         let handle = false;
         obj.updateMatrixWorld(true);
@@ -109,7 +109,7 @@ describe('3D-персонаж', () => {
           const origin = new Vector3().applyMatrix4(toMesh);
           m.geometry.computeBoundingBox();
           if (!m.geometry.boundingBox!.clone().expandByScalar(0.004).containsPoint(origin)) return;
-          // Деталь тонкая (толщина рукояти — не больше 9 см), а не корпус предмета.
+          // Деталь тонкая (толщина ручки — не больше 9 см), а не корпус предмета.
           const size = m.geometry.boundingBox!.getSize(new Vector3()).multiply(m.scale);
           if (Math.min(Math.abs(size.x), Math.abs(size.y), Math.abs(size.z)) < 0.09) handle = true;
         });
@@ -153,7 +153,7 @@ describe('3D-персонаж', () => {
   });
 
   it('модель стоит на земле и помещается в кадр', () => {
-    const full = buildCharacter({ ...DEFAULT_APPEARANCE, hair: 'curly' }, '#4da3ff', { head: 'wizard_hat', body: 'champion_armor', weapon: 'oak_staff', offhand: 'iron_shield' });
+    const full = buildCharacter({ ...DEFAULT_APPEARANCE, hair: 'curly' }, '#4da3ff', { head: 'cowboy_hat', body: 'latex_catsuit', back: 'angel_wings', weapon: 'acoustic_guitar', offhand: 'gym_bag' });
     full.root.updateMatrixWorld(true);
     const box = new Box3().setFromObject(full.root);
     expect(box.min.y).toBeGreaterThan(-0.05);
@@ -247,7 +247,7 @@ describe('Ползунки тела и лица', () => {
       const before = Float32Array.from(bodyGeometry(figure).getAttribute('position').array as Float32Array);
       const base = { ...DEFAULT_APPEARANCE, figure, hair: 'long' as const };
       for (const v of [-1, 1]) {
-        const c = buildCharacter({ ...base, body: all(v), face: allFace(v) }, '#4da3ff', { body: 'chainmail', weapon: 'spear', offhand: 'iron_shield' });
+        const c = buildCharacter({ ...base, body: all(v), face: allFace(v) }, '#4da3ff', { body: 'hoodie', weapon: 'tennis_racket', offhand: 'tote_bag' });
         c.root.updateMatrixWorld(true);
         const box = new Box3().setFromObject(c.root);
         expect(box.min.y).toBeGreaterThan(-0.05);

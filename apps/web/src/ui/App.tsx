@@ -4,7 +4,6 @@ import { useGame } from '../game/GameContext';
 import { ITEMS } from '../game/items';
 import { useI18n } from '../i18n';
 import { PoseEngine, PoseEngineError } from '../pose/poseEngine';
-import { getExercise } from '../tracking/exercises';
 import type { ExerciseDef, ExerciseId } from '../tracking/exercise';
 import type { Metrics } from '../tracking/types';
 import { AccuracyPanel } from './AccuracyPanel';
@@ -14,8 +13,7 @@ import { AdminPanel } from './game/AdminPanel';
 import { Onboarding } from './game/Onboarding';
 import { preloadItemImages } from './game/Renders';
 import { ShopTab } from './game/Shop';
-import { StoryTab } from './game/StoryTab';
-import { WorldTab } from './game/World';
+import { LifeTab } from './game/Life';
 import { SessionSummary, type Session } from './game/SessionSummary';
 import { eventText } from './game/text';
 import { TrackingScreen } from './TrackingScreen';
@@ -28,6 +26,7 @@ export function App() {
   const [tab, setTab] = useState<Tab>('home');
   /** Куда вернуться после тренировки (из истории — обратно в историю). */
   const [returnTab, setReturnTab] = useState<Tab>('home');
+  const [pickReturn, setPickReturn] = useState<Tab>('home');
   const [exercise, setExercise] = useState<ExerciseDef<Metrics> | null>(null);
   const [engine, setEngine] = useState<EngineState>({ status: 'idle' });
   const [showAccuracy, setShowAccuracy] = useState(false);
@@ -106,10 +105,7 @@ export function App() {
   const state = game.state;
 
   if (exercise && engine.status === 'ready') {
-    const trial = state.story.status === 'trial' ? state.story.trial : null;
-    const family = (id: string): string => (id === 'pullup_negative' ? 'pullup' : id);
-    const storyTrial = trial && family(trial.exercise) === family(exercise.id) ? { progress: trial.progress, target: trial.target } : null;
-    return <TrackingScreen exercise={exercise} engine={engine.engine} onBack={finishExercise} onRep={onRep} storyTrial={storyTrial} />;
+    return <TrackingScreen exercise={exercise} engine={engine.engine} onBack={finishExercise} onRep={onRep} />;
   }
 
   return (
@@ -122,9 +118,18 @@ export function App() {
       )}
       <div className="shell-body">
         {tab === 'home' && <HomeTab state={state} onTrain={() => setTab('train')} />}
-        {tab === 'train' && <ExercisePicker embedded onPick={(def) => startExercise(def)} />}
-        {tab === 'world' && <WorldTab state={state} onOpenStory={() => setTab('story')} />}
-        {tab === 'story' && <StoryTab state={state} onTrain={(id) => startExercise(getExercise(id), 'story')} />}
+        {tab === 'train' && <ExercisePicker embedded onPick={(def) => startExercise(def, pickReturn)} />}
+        {tab === 'life' && (
+          <LifeTab
+            state={state}
+            onTrain={() => {
+              // Тренировка из жизни: выбрать упражнение, после — назад в жизнь.
+              setPickReturn('life');
+              setTab('train');
+            }}
+            onShop={() => setTab('shop')}
+          />
+        )}
         {tab === 'quests' && <QuestsTab state={state} />}
         {tab === 'shop' && <ShopTab state={state} />}
         {tab === 'hero' && <HeroTab state={state} onAccuracy={() => setShowAccuracy(true)} />}
@@ -132,6 +137,7 @@ export function App() {
       <BottomNav
         tab={tab}
         onTab={(next) => {
+          if (next === 'train') setPickReturn('home');
           setTab(next);
           window.scrollTo(0, 0);
         }}

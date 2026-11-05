@@ -2,8 +2,6 @@ import { useEffect, useState } from 'react';
 import { itemById, type Slot } from '../../game/items';
 import type { Appearance, Figure } from '../../game/state';
 import { Avatar, ItemIcon } from './Avatar';
-import { MONSTERS } from '../../game/combat';
-import type { MonsterId } from '../../game/storyTypes';
 
 /**
  * Картинки из 3D-моделей: иконки предметов и портрет героя.
@@ -120,15 +118,3 @@ export function HeroPortrait({ color, appearance, equipped, size = 56, remember 
   );
 }
 
-/** Монстр в полный рост из 3D-модели (пока рисуется — значок). */
-export function MonsterImage({ id, size = 200, className = '' }: { id: MonsterId; size?: number; className?: string }) {
-  const url = useSnapshot(`monster|${id}`, (m) => m.renderMonster(id, Math.min(384, Math.round(size * 1.6))));
-  if (!url) {
-    return (
-      <span className={`monster-img placeholder ${className}`} style={{ width: size, height: size, fontSize: size * 0.45 }}>
-        {MONSTERS[id].icon}
-      </span>
-    );
-  }
-  return <img className={`monster-img ${className}`} src={url} width={size} height={size} alt="" draggable={false} />;
-}

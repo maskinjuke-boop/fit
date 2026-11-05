@@ -2,7 +2,6 @@ import type { ExerciseId } from '../tracking/exercise';
 import { taskProgress } from './dailies';
 import { applyRep, type GameEvent, type Result } from './engine';
 import { ITEMS } from './items';
-import { MAX_ENERGY } from './story';
 import type { GameState } from './state';
 
 /**
@@ -60,6 +59,7 @@ export function markTouched(state: GameState): GameState {
 }
 
 /** История: полный запас шагов пути и стойкости. */
-export function refillStory(state: GameState): GameState {
-  return touched({ ...state, story: { ...state.story, energy: MAX_ENERGY, resolve: state.story.maxResolve } });
+/** Все потребности — на максимум. */
+export function refillNeeds(state: GameState): GameState {
+  return touched({ ...state, life: { ...state.life, needs: { food: 100, energy: 100, hygiene: 100, fun: 100, social: 100 } } });
 }

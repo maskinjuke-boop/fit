@@ -37,13 +37,11 @@ export interface TrackingScreenProps {
   onBack(): void;
   /** Засчитанный повтор передаётся в игру; она возвращает события (опыт, уровни, квесты). */
   onRep?(exercise: ExerciseId, quality: number): GameEvent[];
-  /** Активное испытание истории для этого упражнения. */
-  storyTrial?: { progress: number; target: number } | null;
 }
 
 const BANNER_MS = 2200;
 
-export function TrackingScreen({ exercise, engine, onBack, onRep, storyTrial }: TrackingScreenProps) {
+export function TrackingScreen({ exercise, engine, onBack, onRep }: TrackingScreenProps) {
   const { t, tf, lang } = useI18n();
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -168,7 +166,7 @@ export function TrackingScreen({ exercise, engine, onBack, onRep, storyTrial }: 
           return;
         }
         const text = eventText(tRef.current, tfRef.current, ev, langRef.current);
-        if (text) fresh.push({ id: now + i, text, big: ev.kind === 'levelUp' || ev.kind === 'questDone' || ev.kind === 'dailyBonus' || ev.kind === 'storyTrialDone' || ev.kind === 'achievement' });
+        if (text) fresh.push({ id: now + i, text, big: ev.kind === 'levelUp' || ev.kind === 'questDone' || ev.kind === 'dailyBonus' || ev.kind === 'achievement' });
       });
       if (xp > 0) setXpGain({ amount: xp, over, id: now });
       if (fresh.length > 0) setBanners((b) => [...b, ...fresh].slice(-3));
@@ -343,11 +341,6 @@ export function TrackingScreen({ exercise, engine, onBack, onRep, storyTrial }: 
           {stats.count}
         </div>
         <div className="count-label">{t('reps')}</div>
-        {storyTrial && (
-          <div className="trial-pill">
-            📜 {t('storyTrialTitle')}: <b>{Math.min(storyTrial.progress, storyTrial.target)}</b>/{storyTrial.target}
-          </div>
-        )}
         {xpGain && (
           <div key={xpGain.id} className={`xp-float ${xpGain.over ? 'over' : ''}`}>
             +{xpGain.amount < 1 ? xpGain.amount.toFixed(1) : Math.round(xpGain.amount)} XP

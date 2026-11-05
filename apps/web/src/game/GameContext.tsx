@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { ExerciseId } from '../tracking/exercise';
-import { completeDailies, markTouched, refillStory, resetReroll, simulateReps, unlockAllItems } from './admin';
+import { completeDailies, markTouched, refillNeeds, resetReroll, simulateReps, unlockAllItems } from './admin';
 import {
   applyRep,
   buyItem,
@@ -11,7 +11,7 @@ import {
   newCharacterState,
   reroll,
   setLevel,
-  settleAfterStory,
+  settleAfterLife,
   unequipSlot,
   type GameEvent,
   type Result,
@@ -20,8 +20,8 @@ import {
 import type { Slot } from './items';
 import { createState, type Appearance, type Character, type GameState } from './state';
 import { clearGame, loadGame, saveGame } from './storage';
-import { abandonTrial, battleAct, camp, choose, finishBattle, hunt, proceed, startJourney, travel, type StoryResult } from './story';
-import type { BattleAction, MonsterId } from './storyTypes';
+import { act, answerEvent, applyJob, buyFurniture, dismissResult, moveHome, payDebt, personAct, quitJob, sellFurniture, type LifeOutcome } from './life';
+import type { HomeId, JobId, LocationId, ObjectId, PersonId } from './lifeTypes';
 
 /** Действия режима администратора. */
 export interface AdminActions {
@@ -32,7 +32,7 @@ export interface AdminActions {
   completeQuests(): GameEvent[];
   unlockAll(): void;
   resetReroll(): void;
-  refillStory(): void;
+  refillNeeds(): void;
   /** Перемотка игрового времени на n суток (может быть отрицательной). */
   shiftDays(n: number): GameEvent[];
   resetClock(): void;
@@ -40,17 +40,18 @@ export interface AdminActions {
   setEnabled(v: boolean): void;
 }
 
-/** Действия режима истории. */
-export interface StoryActions {
-  start(): GameEvent[];
-  travel(): GameEvent[];
-  camp(): GameEvent[];
-  choose(choiceId: string): GameEvent[];
-  abandon(): GameEvent[];
-  proceed(): GameEvent[];
-  hunt(monster?: MonsterId): GameEvent[];
-  battle(action: BattleAction): GameEvent[];
-  finishBattle(): GameEvent[];
+/** Действия симулятора жизни. Действие может попросить открыть тренировку или экран. */
+export interface LifeActions {
+  act(actionId: string): LifeOutcome;
+  person(person: PersonId, actionId: string, at: LocationId): LifeOutcome;
+  answer(choiceId: string): void;
+  applyJob(job: JobId): void;
+  quitJob(): void;
+  buyFurniture(id: ObjectId): void;
+  sellFurniture(id: ObjectId): void;
+  moveHome(home: HomeId): void;
+  payDebt(): void;
+  dismiss(): void;
 }
 
 interface Game {
@@ -67,7 +68,7 @@ interface Game {
   equip(id: string): void;
   unequip(slot: Slot): void;
   reset(): void;
-  story: StoryActions;
+  life: LifeActions;
   /** Выбрать титул под именем (undefined — без титула). */
   setTitle(id: string | undefined): void;
   /** Режим администратора включён (открыть сайт с ?admin). */
@@ -180,8 +181,8 @@ export function GameProvider({ children }: { children: ReactNode }) {
       resetReroll: () => {
         if (ref.current) commit(resetReroll(ref.current));
       },
-      refillStory: () => {
-        if (ref.current) commit(refillStory(ref.current));
+      refillNeeds: () => {
+        if (ref.current) commit(refillNeeds(ref.current));
       },
       shiftDays: (n) => {
         const next = offsetRef.current + n;
@@ -203,28 +204,35 @@ export function GameProvider({ children }: { children: ReactNode }) {
         setAdminEnabled(v);
       },
     };
-    // Действия истории + проверка достижений после них.
-    const storyRun = (fn: (s: GameState) => StoryResult): GameEvent[] =>
-      run((s) => {
-        const r = fn(s);
-        if (r.state === s) return { state: s, events: r.events };
-        return settleAfterStory(r.state, r.events);
-      });
-    const story: StoryActions = {
-      start: () => storyRun(startJourney),
-      travel: () => storyRun(travel),
-      camp: () => storyRun(camp),
-      choose: (id) => storyRun((s) => choose(s, id)),
-      abandon: () => storyRun(abandonTrial),
-      proceed: () => storyRun(proceed),
-      hunt: (m) => storyRun((s) => hunt(s, m)),
-      battle: (a) => storyRun((s) => battleAct(s, a)),
-      finishBattle: () => storyRun(finishBattle),
+    // Действия жизни + квесты и достижения после них.
+    const lifeRun = (fn: (s: GameState) => LifeOutcome): LifeOutcome => {
+      const cur = ref.current;
+      if (!cur) return { state: cur as unknown as GameState };
+      const r = fn(cur);
+      if (r.state === cur) return r;
+      const settled = settleAfterLife(r.state, []);
+      commit(settled.state);
+      return { ...r, state: settled.state };
+    };
+    const plain = (fn: (s: GameState) => GameState): void => {
+      lifeRun((s) => ({ state: fn(s) }));
+    };
+    const life: LifeActions = {
+      act: (id) => lifeRun((s) => act(s, id)),
+      person: (p, id, at) => lifeRun((s) => personAct(s, p, id, at)),
+      answer: (id) => plain((s) => answerEvent(s, id)),
+      applyJob: (j) => plain((s) => applyJob(s, j)),
+      quitJob: () => plain(quitJob),
+      buyFurniture: (id) => plain((s) => buyFurniture(s, id)),
+      sellFurniture: (id) => plain((s) => sellFurniture(s, id)),
+      moveHome: (h) => plain((s) => moveHome(s, h)),
+      payDebt: () => plain(payDebt),
+      dismiss: () => plain(dismissResult),
     };
     return {
       state,
       dayEvents,
-      story,
+      life,
       setTitle: (id) => {
         const cur = ref.current;
         if (!cur) return;

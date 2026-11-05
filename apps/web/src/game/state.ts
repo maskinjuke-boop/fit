@@ -1,8 +1,8 @@
 import type { ExerciseId } from '../tracking/exercise';
 import type { Archetype, FitnessLevel, MuscleGroup, StatId } from './config';
-import { renamedItem, type Slot } from './items';
-import { migrateStory, newStory } from './story';
-import type { StoryState } from './storyTypes';
+import { itemById, renamedItem, type Slot } from './items';
+import { migrateLife, newLife } from './life';
+import type { LifeState } from './lifeTypes';
 
 export type HairStyle = 'short' | 'long' | 'bun' | 'buzz' | 'curly' | 'ponytail' | 'bob';
 export type Figure = 'male' | 'female';
@@ -125,8 +125,8 @@ export interface GameState {
   equipped: Partial<Record<Slot, string>>;
   /** Состояние меняли через режим администратора (для будущих рейтингов). */
   adminTouched?: boolean;
-  /** Режим истории. */
-  story: StoryState;
+  /** Симулятор жизни: время, потребности, работа, дом и отношения. */
+  life: LifeState;
   /** Открытые достижения: id → день открытия. */
   achievements: Record<string, string>;
   /** Выбранный титул под именем героя. */
@@ -151,21 +151,30 @@ export function createState(character: Character): GameState {
     today: '',
     inventory: [],
     equipped: {},
-    story: newStory(),
+    life: newLife(),
     achievements: {},
   };
 }
 
 /** Приводит старое сохранение к текущей схеме (новые поля — значения по умолчанию). */
 export function migrate(raw: GameState): GameState {
-  const s = raw as GameState & Partial<Pick<GameState, 'inventory' | 'equipped' | 'story' | 'achievements'>>;
+  const s = raw as GameState & Partial<Pick<GameState, 'inventory' | 'equipped' | 'life' | 'achievements'>> & { story?: unknown };
+  const known = (id: string): boolean => itemById(id) !== undefined;
+  const { story: _story, ...rest } = s;
+  void _story;
   return {
-    ...s,
+    ...rest,
     character: { ...s.character, appearance: { ...DEFAULT_APPEARANCE, ...(s.character.appearance ?? {}) } },
-    // Современные вещи заменены средневековыми — переводим старые id.
-    inventory: [...new Set((s.inventory ?? []).map(renamedItem))],
-    equipped: Object.fromEntries(Object.entries(s.equipped ?? {}).map(([slot, id]) => [slot, id ? renamedItem(id) : id])) as GameState['equipped'],
-    story: migrateStory(s.story),
+    // Каталог менялся: старые id переводим на новые, исчезнувшие вещи убираем.
+    inventory: [...new Set((s.inventory ?? []).map(renamedItem))].filter(known),
+    equipped: Object.fromEntries(
+      Object.entries(s.equipped ?? {})
+        .map(([, id]) => (id ? renamedItem(id) : ''))
+        .filter(known)
+        // Переименованная вещь могла сменить слот — кладём её в свой.
+        .map((id) => [itemById(id)!.slot, id] as const),
+    ) as GameState['equipped'],
+    life: migrateLife(s.life),
     achievements: s.achievements ?? {},
   };
 }

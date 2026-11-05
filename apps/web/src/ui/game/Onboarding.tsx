@@ -7,10 +7,10 @@ import { AppearanceEditor } from './AppearanceEditor';
 import { Hero3D } from './Hero3D';
 
 /** Стартовый предмет пути — показываем его на портрете сразу при выборе. */
-const STARTER: Record<Archetype, { slot: 'head' | 'offhand'; id: string }> = {
-  guardian: { slot: 'offhand', id: 'wooden_shield' },
-  ranger: { slot: 'head', id: 'leather_cap' },
-  mystic: { slot: 'head', id: 'headband' },
+const STARTER: Record<Archetype, { slot: 'weapon' | 'feet' | 'offhand'; id: string }> = {
+  guardian: { slot: 'weapon', id: 'dumbbell' },
+  ranger: { slot: 'feet', id: 'running_shoes' },
+  mystic: { slot: 'offhand', id: 'yoga_mat' },
 };
 
 type Step = 'welcome' | 'health' | 'hero' | 'setup';
@@ -40,7 +40,7 @@ export function Onboarding() {
       {step === 'welcome' && (
         <section className="ob-step">
           <div className="ob-hero-art pair">
-            <Hero3D color={COLORS[0]} appearance={DEFAULT_APPEARANCE} equipped={{ head: 'headband', body: 'leather_vest', offhand: 'wooden_shield', weapon: 'wooden_club' }} height={230} interactive={false} />
+            <Hero3D color={COLORS[0]} appearance={DEFAULT_APPEARANCE} equipped={{ head: 'sports_cap', body: 'hoodie', legs: 'jeans', feet: 'sneakers', weapon: 'coffee_cup', offhand: 'tote_bag' }} height={230} interactive={false} />
             <Hero3D
               color={COLORS[1]}
               appearance={{ ...DEFAULT_APPEARANCE, figure: 'female', hair: 'ponytail', hairColor: 3, skin: 2 }}

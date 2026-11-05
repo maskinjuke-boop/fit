@@ -4,7 +4,7 @@ import type { Dict } from './ru';
 export const en: Dict = {
   ...gameEn,
   appTitle: 'Exercise tracking',
-  appSubtitle: 'Fitness RPG',
+  appSubtitle: 'Fitness life sim',
   privacy: 'Video is processed on your phone and never leaves it.',
   chooseExercise: 'Choose an exercise',
   lite: 'easier variant',

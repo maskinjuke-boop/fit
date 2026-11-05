@@ -1,3 +1,4 @@
+import { effectiveAppearance } from '../../game/life';
 import { useState, type ChangeEvent, type ReactNode } from 'react';
 import { ACHIEVEMENTS, titleText, unlockedTitles } from '../../game/achievements';
 import { STATS } from '../../game/config';
@@ -14,7 +15,7 @@ import { HeroPortrait } from './Renders';
 import { InventorySection } from './Shop';
 import { exName, objectiveText, questName, taskText } from './text';
 
-export type Tab = 'home' | 'train' | 'world' | 'story' | 'quests' | 'shop' | 'hero';
+export type Tab = 'home' | 'train' | 'life' | 'quests' | 'shop' | 'hero';
 
 function Bar({ value, color }: { value: number; color?: string }) {
   return (
@@ -31,7 +32,7 @@ export function HeroHeader({ state }: { state: GameState }) {
   const c = state.character;
   return (
     <header className="hero-header">
-      <HeroPortrait color={c.color} appearance={c.appearance} equipped={state.equipped} size={56} />
+      <HeroPortrait color={c.color} appearance={effectiveAppearance(c.appearance, state)} equipped={state.equipped} size={56} />
       <div className="hero-header-main">
         <div className="hero-name">
           {c.name} <span className="lvl-chip">{info.level}</span>
@@ -55,8 +56,7 @@ export function BottomNav({ tab, onTab }: { tab: Tab; onTab(t: Tab): void }) {
   const items: Array<[Tab, string, I18nKey]> = [
     ['home', '⌂', 'tab.home'],
     ['train', '▶', 'tab.train'],
-    ['world', '🗺', 'tab.world'],
-    ['story', '📜', 'tab.story'],
+    ['life', '🏙', 'tab.life'],
     ['quests', '✦', 'tab.quests'],
     ['shop', '◈', 'tab.shop'],
     ['hero', '☺', 'tab.hero'],
@@ -239,7 +239,7 @@ export function HeroTab({ state, onAccuracy }: { state: GameState; onAccuracy():
     <div className="tab-body">
       <section className="card hero-card">
         <div className="hero-stage">
-          <Hero3D color={c.color} appearance={c.appearance} equipped={state.equipped} height={340} zoomable />
+          <Hero3D color={c.color} appearance={effectiveAppearance(c.appearance, state)} equipped={state.equipped} height={340} zoomable />
           <span className="hero-stage-level">{info.level}</span>
           <span className="hero-stage-hint muted small">⟲ {t('rotateHint')}</span>
         </div>

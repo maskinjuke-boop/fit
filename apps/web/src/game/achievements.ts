@@ -5,8 +5,8 @@ import { ITEMS } from './items';
 import { levelOf } from './levels';
 import { addXp } from './progress';
 import type { GameState } from './state';
-import { STORY_TITLES } from './storyContent';
-import type { Txt } from './storyTypes';
+import { HOME_IDS } from './lifeContent';
+import type { Txt } from './lifeTypes';
 
 /**
  * Достижения: разовые награды за вехи в тренировках, серии, уровни, коллекцию и историю.
@@ -57,11 +57,13 @@ export const ACHIEVEMENTS: readonly AchievementDef[] = [
   { id: 'items_15', icon: '🧳', name: t('Запасливый', 'Well stocked'), desc: t('15 предметов в сумке', '15 items in your bag'), progress: (s) => [s.inventory.length, 15], reward: { xp: 400, gold: 150 } },
   { id: 'items_all', icon: '👑', name: t('Коллекционер', 'Collector'), desc: t('Все предметы', 'Every item'), progress: (s) => [s.inventory.length, ITEMS.length], reward: { xp: 2000, gold: 0 }, title: 'collector' },
   { id: 'quests_10', icon: '📜', name: t('Искатель заданий', 'Quest seeker'), desc: t('Выполните 10 квестов', 'Complete 10 quests'), progress: (s) => [doneQuests(s), 10], reward: { xp: 300, gold: 120 } },
-  { id: 'story_start', icon: '🗺️', name: t('В путь!', 'On the road!'), desc: t('Начните путешествие', 'Start a journey'), progress: (s) => [s.story.started ? 1 : 0, 1], reward: { xp: 50, gold: 30 } },
-  { id: 'story_region1', icon: '🌲', name: t('Первый рубеж', 'First frontier'), desc: t('Пройдите первый регион', 'Clear your first region'), progress: (s) => [s.story.regionsCleared, 1], reward: { xp: 300, gold: 120 } },
-  { id: 'story_region3', icon: '🌫️', name: t('Странник', 'Wanderer'), desc: t('Пройдите 3 региона', 'Clear 3 regions'), progress: (s) => [s.story.regionsCleared, 3], reward: { xp: 800, gold: 300 } },
-  { id: 'story_victory', icon: '🏰', name: t('Конец пути', 'Journey\'s end'), desc: t('Завершите путешествие победой', 'Finish a journey victorious'), progress: (s) => [s.story.runsCompleted, 1], reward: { xp: 1500, gold: 500 } },
-  { id: 'companions_2', icon: '🐾', name: t('Не один', 'Not alone'), desc: t('Два спутника одновременно', 'Two companions at once'), progress: (s) => [s.story.companions.length, 2], reward: { xp: 300, gold: 100 } },
+  { id: 'life_job', icon: '💼', name: t('Первая работа', 'First job'), desc: t('Устройтесь на работу', 'Get a job'), progress: (s) => [s.life.job || s.life.stats.shifts > 0 ? 1 : 0, 1], reward: { xp: 50, gold: 30 } },
+  { id: 'life_shifts', icon: '⏱️', name: t('Трудоголик', 'Workaholic'), desc: t('Отработайте 20 смен', 'Work 20 shifts'), progress: (s) => [s.life.stats.shifts, 20], reward: { xp: 300, gold: 150 }, title: 'workaholic' },
+  { id: 'life_promo', icon: '📈', name: t('Карьерист', 'Go-getter'), desc: t('Получите 3 повышения', 'Get 3 promotions'), progress: (s) => [s.life.stats.promotions, 3], reward: { xp: 500, gold: 250 }, title: 'career' },
+  { id: 'life_friends', icon: '🤝', name: t('Душа компании', 'Life of the party'), desc: t('Три друга (отношение 3+)', 'Three friends (affinity 3+)'), progress: (s) => [Object.values(s.life.people).filter((r) => r && r.aff >= 3).length, 3], reward: { xp: 300, gold: 120 }, title: 'social' },
+  { id: 'life_partner', icon: '💞', name: t('Вторая половинка', 'Better half'), desc: t('Начните отношения', 'Start a relationship'), progress: (s) => [Object.values(s.life.people).some((r) => r?.partner) ? 1 : 0, 1], reward: { xp: 400, gold: 150 }, title: 'beloved' },
+  { id: 'life_home', icon: '🌆', name: t('Жизнь на высоте', 'Living high'), desc: t('Переезд в пентхаус', 'Move into a penthouse'), progress: (s) => [HOME_IDS.indexOf(s.life.home), HOME_IDS.length - 1], reward: { xp: 800, gold: 0 }, title: 'tycoon' },
+  { id: 'life_chef', icon: '👨‍🍳', name: t('Шеф', 'Chef'), desc: t('Приготовьте 20 блюд', 'Cook 20 meals'), progress: (s) => [s.life.stats.meals, 20], reward: { xp: 200, gold: 80 } },
 ];
 
 const ACHIEVEMENT_TITLES: Record<string, Txt> = {
@@ -76,17 +78,22 @@ const ACHIEVEMENT_TITLES: Record<string, Txt> = {
   veteran: t('Ветеран', 'Veteran'),
   all_rounder: t('Всесторонний', 'All-rounder'),
   collector: t('Коллекционер', 'Collector'),
+  workaholic: t('Трудоголик', 'Workaholic'),
+  career: t('Карьерист', 'Go-getter'),
+  social: t('Душа компании', 'Life of the Party'),
+  beloved: t('Любимчик судьбы', 'Fortune’s Favourite'),
+  tycoon: t('Магнат', 'Tycoon'),
 };
 
-/** Название титула из истории или достижений. */
+/** Название титула из достижений. */
 export function titleText(id: string): Txt | undefined {
-  return STORY_TITLES[id] ?? ACHIEVEMENT_TITLES[id];
+  return ACHIEVEMENT_TITLES[id];
 }
 
 /** Все открытые титулы героя. */
 export function unlockedTitles(s: GameState): string[] {
   const fromAch = ACHIEVEMENTS.filter((a) => a.title && s.achievements[a.id]).map((a) => a.title!);
-  return [...new Set([...s.story.titles, ...fromAch])];
+  return [...new Set(fromAch)];
 }
 
 /** Открывает выполненные достижения и выдаёт награды (s уже скопировано). */

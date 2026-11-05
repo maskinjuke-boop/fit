@@ -3,12 +3,12 @@ import type { Slot } from '../../../game/items';
 import type { Appearance, Figure } from '../../../game/state';
 import { EYE_COLORS, HAIR_COLORS, SKIN_TONES } from '../palette';
 import { band, bodyGeometry, frontZ, garmentGeometry, garmentOffset, landmarks, type GarmentId } from './anatomy';
-import { buildBack, iconFigure, buildHands, buildNeck, buildShoes, composeOutfit, garmentsFor, headCover, headModel, offhandModel, weaponModel } from './wardrobe';
+import { buildBack, buildHands, buildNeck, buildShoes, composeOutfit, garmentsFor, headCover, headModel, iconFigure } from './wardrobe';
 import { HEAD_GROW, NECK_WORLD, NECK_Y, TORSO_Y, bodyShape } from './body';
 import { buildHair, type Cover } from './hair';
 import { buildHead, setFace, type Lid } from './head';
 import { applyMorph, bodyMorph, bodyValues, heightScale } from './morph';
-import { HEAD_GARMENTS, defaultPlan, headGarmentMat, holdPose, holdQuaternion, weaponDown, type ItemCtx, type Outfit } from './items3d';
+import { ICON_TILT, defaultPlan, heldModel, holdPose, holdQuaternion, type ItemCtx, type Outfit } from './items3d';
 import { M, mesh, retile, shade, texKind, v, type Anim, type Mat } from './kit';
 
 export { disposeObject } from './kit';
@@ -51,8 +51,8 @@ function holdInFist(o: THREE.Object3D, id: string, hand: Grip): void {
 
 // ─── Одежда ────────────────────────────────────────────────────────────
 
-/** Во сколько раз реже повторять узор на одежде (кольца кольчуги ~2 см, чешуя ~3 см). */
-const GARMENT_TILE: Record<string, number> = { mail: 0.12, scales: 0.25, leather: 0.5 };
+/** Во сколько раз реже повторять узор на одежде (фактура кожи — крупнее). */
+const GARMENT_TILE: Record<string, number> = { leather: 0.5 };
 
 /**
  * Сетки одежды по плану: верх, низ и слои поверх. defaults — базовая одежда героя
@@ -66,7 +66,7 @@ function garmentMeshes(figure: Figure, outfit: Outfit, defaults: { top: Mat; bot
     // У сеток одежды есть затенение складок в цвете вершин — нужен свой экземпляр материала.
     const gm = m.clone();
     gm.vertexColors = true;
-    // Развёртка одежды — в масштабе тела: крупные узоры (кольца, чешуя) делаем реального размера.
+    // Развёртка одежды — в масштабе тела: крупные узоры делаем реального размера.
     for (const slot of ['map', 'bumpMap', 'roughnessMap'] as const) {
       const t = gm[slot];
       const k = GARMENT_TILE[texKind(t) ?? ''];
@@ -81,16 +81,6 @@ function garmentMeshes(figure: Figure, outfit: Outfit, defaults: { top: Mat; bot
   else if (defaults) add(def.bottom, defaults.bottom);
   (plan.layers ?? []).forEach((id, i) => add(id, outfit.layers[i] ?? outfit.layers[0] ?? fallback()));
   return out;
-}
-
-/** Накидка головного убора на плечах (в координатах тела). */
-function headGarmentMeshes(figure: Figure, headItem: string): THREE.Mesh[] {
-  return (HEAD_GARMENTS[headItem] ?? []).map((id) => {
-    const m = headGarmentMat(headItem);
-    m.vertexColors = true;
-    m.side = THREE.DoubleSide;
-    return new THREE.Mesh(garmentGeometry(figure, id), m);
-  });
 }
 
 // ─── Сборка ────────────────────────────────────────────────────────────
@@ -126,13 +116,12 @@ export function buildCharacter(appearance: Appearance, color: string, equipped: 
   const shirt = M.cloth(shade(color, 0.62), 8);
   const pants = M.cloth(female ? '#2f3646' : '#2d3440', 8);
   for (const g of garmentMeshes(figure, outfit, { top: shirt, bottom: pants })) torso.add(g);
-  // Ремень на брюках, если предмет не добавляет свой пояс.
-  if (!female && (!equipped.body || equipped.body === 'traveler_cloak') && !equipped.legs) {
+  // Ремень на брюках по умолчанию.
+  if (!female && !equipped.body && !equipped.legs) {
     torso.add(band(shape, TORSO_Y + 0.02, 0.026, M.leather('#3b2a1e', 4), 0.03));
     torso.add(mesh(new THREE.BoxGeometry(0.075, 0.06, 0.02), M.gold(), [0, TORSO_Y + 0.02, frontZ(figure, 0, TORSO_Y + 0.02, 0.05) + 0.004]));
   }
   torso.add(outfit.group);
-  if (equipped.head) for (const g of headGarmentMeshes(figure, equipped.head)) torso.add(g);
   root.add(torso);
 
   // Кисти, обувь и предметы в руках — вместе с телом.
@@ -144,22 +133,17 @@ export function buildCharacter(appearance: Appearance, color: string, equipped: 
     return new THREE.Mesh(garmentGeometry(figure, id), gm);
   }))
     torso.add(o);
-  // Перчатки и браслеты, украшения на шее, плащ или крылья — вместе с телом.
+  // Перчатки и браслеты, украшения на шее, рюкзак или крылья — вместе с телом.
   if (equipped.hands) torso.add(buildHands(equipped.hands, ctx, [Boolean(equipped.weapon), Boolean(equipped.offhand)]));
   if (equipped.neck) torso.add(buildNeck(equipped.neck, ctx));
   if (equipped.back) torso.add(buildBack(equipped.back, ctx));
-  if (equipped.weapon) {
-    const w = weaponModel(equipped.weapon, ctx);
-    holdInFist(w, equipped.weapon, right);
-    torso.add(w);
-    rigid.push({ obj: w, anchor: right.at.clone() });
-  }
-  if (equipped.offhand) {
-    // Щиты — снаружи кулака лицом наружу (рукоять поперёк), остальное — за рукоять, гриф или горлышко.
-    const o = offhandModel(equipped.offhand, ctx);
-    holdInFist(o, equipped.offhand, left);
+  // Вещь «в руке» — в правой руке, сумка — в левой: за ручку, гриф, ножку или корпус.
+  for (const [id, hand] of [[equipped.weapon, right], [equipped.offhand, left]] as const) {
+    if (!id) continue;
+    const o = heldModel(id, ctx);
+    holdInFist(o, id, hand);
     torso.add(o);
-    rigid.push({ obj: o, anchor: left.at.clone() });
+    rigid.push({ obj: o, anchor: hand.at.clone() });
   }
 
   // Ползунки тела: деформация тела вместе с одеждой; рост — масштаб от земли.
@@ -175,7 +159,7 @@ export function buildCharacter(appearance: Appearance, color: string, equipped: 
   // Длинные пряди ложатся поверх одежды: зазор — по самому толстому надетому слою.
   const bv = bodyValues(appearance);
   const grow = Math.round(Math.max(0, bv.chest, bv.shoulders, bv.neck) * 6) / 6;
-  const clearance = Math.max(0.016, ...garmentsFor(figure, equipped).filter((g) => g !== 'bracers' && g !== 'greaves').map((g) => garmentOffset(figure, g))) + 0.03 * grow;
+  const clearance = Math.max(0.016, ...garmentsFor(figure, equipped).map((g) => garmentOffset(figure, g))) + 0.03 * grow;
   head.add(buildHair(appearance.hair, M.hair(hairColor), cover, figure, clearance));
   if (equipped.head) head.add(headModel(equipped.head, ctx));
   head.position.y = -NECK_Y;
@@ -203,19 +187,9 @@ export function buildItemModel(id: string, slot: Slot, color: string, forFigure:
     return new THREE.Mesh(garmentGeometry(figure, gid), gm);
   };
   switch (slot) {
-    case 'head': {
+    case 'head':
       object.add(headModel(id, ctx));
-      // Накидка строится по телу — переводим её в координаты головы.
-      const capes = headGarmentMeshes(figure, id);
-      if (capes.length) {
-        const wrap = new THREE.Group();
-        wrap.scale.setScalar(1 / HEAD_GROW);
-        wrap.position.y = NECK_Y - NECK_WORLD / HEAD_GROW;
-        wrap.add(...capes);
-        object.add(wrap);
-      }
       break;
-    }
     case 'body':
     case 'legs': {
       // Одежда предмета на «невидимом манекене»: те же оболочки, что и на герое.
@@ -236,23 +210,17 @@ export function buildItemModel(id: string, slot: Slot, color: string, forFigure:
     case 'back':
       object.add(buildBack(id, ctx));
       break;
-    case 'weapon': {
-      const w = weaponModel(id, ctx);
-      // Длинное оружие — по диагонали, как на классических иконках; кнут — как висит в руке.
-      if (id === 'leather_whip') {
-        const d = weaponDown(id);
-        w.rotation.z = -Math.PI / 2 - Math.atan2(d.y, d.x);
-      } else w.rotation.z = id === 'hunter_bow' ? -0.35 : -Math.PI / 4;
+    case 'weapon':
+    case 'offhand': {
+      // Длинные вещи (ракетка, зонт, гитара) — по диагонали, стаканы и сумки — стоя.
+      const w = heldModel(id, ctx);
+      w.rotation.z = ICON_TILT[id] ?? 0;
       object.add(w);
       break;
     }
-    case 'offhand':
-      object.add(offhandModel(id, ctx));
-      break;
   }
   return { object, anim };
 }
 
 /** Какие сетки тела и одежды нужны герою (чтобы подготовить их заранее). */
 export { garmentsFor, iconFigure, itemGarments } from './wardrobe';
-export { outfitPlan } from './items3d';

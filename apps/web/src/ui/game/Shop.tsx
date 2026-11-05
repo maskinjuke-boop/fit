@@ -1,3 +1,4 @@
+import { effectiveAppearance } from '../../game/life';
 import { useState, type MouseEvent } from 'react';
 import { canBuy, equipmentBonus } from '../../game/engine';
 import { useGame } from '../../game/GameContext';
@@ -29,7 +30,7 @@ function ItemSheet({ state, item, onClose }: { state: GameState; item: ItemDef; 
       <div className="sheet item-sheet" onClick={(e: MouseEvent<HTMLDivElement>) => e.stopPropagation()}>
         <div className="item-sheet-art" style={{ borderColor: RARITY_COLOR[item.rarity] + '66' }}>
           {tryOn ? (
-            <Hero3D color={state.character.color} appearance={state.character.appearance} equipped={preview} height={280} />
+            <Hero3D color={state.character.color} appearance={effectiveAppearance(state.character.appearance, state)} equipped={preview} height={280} />
           ) : (
             <ItemImage itemId={item.id} color={state.character.color} figure={state.character.appearance.figure} size={180} />
           )}

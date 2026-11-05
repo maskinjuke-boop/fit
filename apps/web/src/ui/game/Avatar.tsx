@@ -5,8 +5,8 @@ import { EYE_COLORS, HAIR_COLORS, SKIN_TONES } from './palette';
 
 /**
  * Портрет персонажа: человек по пояс в круглой рамке. Внешность (кожа, волосы, борода)
- * и надетые предметы рисуются слоями: то, что за спиной, — тело — лицо — волосы —
- * головной убор — то, что в руках спереди. Весь арт оригинальный, векторный.
+ * и головной убор рисуются слоями: тело — лицо — волосы — головной убор. Это запасная
+ * картинка на случай, когда 3D недоступен; весь арт оригинальный, векторный.
  */
 
 export { HAIR_COLORS, HAIR_STYLES, SKIN_TONES } from './palette';
@@ -39,12 +39,9 @@ export function Avatar({ color, appearance = DEFAULT_APPEARANCE, equipped = {}, 
   const hair = HAIR_COLORS[appearance.hairColor] ?? HAIR_COLORS[1];
   const shirt = tone(color, 0.62);
   const head = equipped.head;
-  const body = equipped.body;
-  const weapon = equipped.weapon;
-  const offhand = equipped.offhand;
   const female = appearance.figure === 'female';
-  // Под шлемом волосы почти не видны.
-  const hairHidden = head === 'iron_helm' || head === 'horned_helm';
+  // Цвет верха — по надетой вещи (если для неё задан), иначе — тон цвета героя.
+  const shirtFill = equipped.body ? BODY_TINT[equipped.body] : undefined;
 
   return (
     <svg width={size} height={size} viewBox="0 0 200 200" role="img" className="avatar">
@@ -82,16 +79,13 @@ export function Avatar({ color, appearance = DEFAULT_APPEARANCE, equipped = {}, 
         <rect width="200" height="200" fill={url('bg')} />
 
         {/* ── За спиной ─────────────────────────────── */}
-        {bodyBack(body)}
-        {headBack(head)}
-        {weaponBack(weapon, url)}
-        {appearance.hair === 'ponytail' && !hairHidden && (
+        {appearance.hair === 'ponytail' && (
           <path d="M118 52 C146 48 156 76 150 108 C147 128 152 146 158 158 C146 160 136 150 134 134 C131 112 136 84 116 66 Z" fill={tone(hair, 0.85)} />
         )}
-        {appearance.hair === 'bob' && !hairHidden && (
+        {appearance.hair === 'bob' && (
           <path d="M64 92 C60 54 80 34 100 34 C120 34 140 54 136 92 C137 106 138 118 134 128 L66 128 C62 118 63 106 64 92 Z" fill={tone(hair, 0.85)} />
         )}
-        {appearance.hair === 'long' && !hairHidden && (
+        {appearance.hair === 'long' && (
           <path
             d="M65 86 C61 50 82 34 100 34 C118 34 139 50 135 86 C136 112 141 138 148 158 C134 165 121 160 117 150 L83 150 C79 160 66 165 52 158 C59 138 64 112 65 86 Z"
             fill={tone(hair, 0.85)}
@@ -99,10 +93,9 @@ export function Avatar({ color, appearance = DEFAULT_APPEARANCE, equipped = {}, 
         )}
 
         {/* ── Тело ──────────────────────────────────── */}
-        <path d={female ? BUST.female : BUST.male} fill={url('shirt')} />
+        <path d={female ? BUST.female : BUST.male} fill={shirtFill ?? url('shirt')} />
         <path d="M84 147 L100 168 L116 147 Q100 155 84 147 Z" fill={skin.shade} />
-        <path d="M84 147 L100 168 L116 147" fill="none" stroke={tone(shirt, 0.7)} strokeWidth="2.5" strokeLinejoin="round" />
-        {bodyItem(body, url, color, skin.base, female)}
+        <path d="M84 147 L100 168 L116 147" fill="none" stroke={tone(shirtFill ?? shirt, 0.7)} strokeWidth="2.5" strokeLinejoin="round" />
 
         {/* ── Шея и голова ──────────────────────────── */}
         <path d="M88 110 L88 146 Q100 154 112 146 L112 110 Z" fill={url('neck')} />
@@ -122,13 +115,8 @@ export function Avatar({ color, appearance = DEFAULT_APPEARANCE, equipped = {}, 
         {appearance.beard && !female && <Beard hair={hair} />}
 
         {/* ── Волосы и головной убор ────────────────── */}
-        {!hairHidden && <HairFront style={appearance.hair} fill={url('hair')} color={hair} covered={head !== undefined && HATS.includes(head)} />}
+        <HairFront style={appearance.hair} fill={url('hair')} color={hair} covered={head !== undefined && HATS.includes(head)} />
         {headItem(head, url, color)}
-
-        {/* ── Спереди ───────────────────────────────── */}
-        {weaponFront(weapon)}
-        {/* Предмет во второй руке сдвинут к центру, чтобы его не обрезала круглая рамка */}
-        <g transform="translate(18 -12)">{offhandItem(offhand, url, color)}</g>
       </g>
 
       <circle cx="100" cy="100" r="95" fill="none" stroke={color} strokeWidth="5" />
@@ -144,151 +132,147 @@ export function Avatar({ color, appearance = DEFAULT_APPEARANCE, equipped = {}, 
   );
 }
 
-/** Градиенты и узоры предметов (металл, золото, дерево, бронза, кольчуга). */
+/** Градиенты металла для украшений на голове. */
 function ItemDefs({ id }: { id: (name: string) => string }) {
   return (
     <>
-          <linearGradient id={id('steel')} x1="0" y1="0" x2="1" y2="1">
-            <stop offset="0%" stopColor="#e9eef3" />
-            <stop offset="45%" stopColor="#a7b0ba" />
-            <stop offset="100%" stopColor="#6b747e" />
-          </linearGradient>
-          <linearGradient id={id('gold')} x1="0" y1="0" x2="1" y2="1">
-            <stop offset="0%" stopColor="#fff1b8" />
-            <stop offset="45%" stopColor="#e7b442" />
-            <stop offset="100%" stopColor="#a8741c" />
-          </linearGradient>
-          <linearGradient id={id('wood')} x1="0" y1="0" x2="1" y2="0">
-            <stop offset="0%" stopColor="#9a6a3c" />
-            <stop offset="100%" stopColor="#6a4424" />
-          </linearGradient>
-          <linearGradient id={id('bronze')} x1="0" y1="0" x2="1" y2="1">
-            <stop offset="0%" stopColor="#f2c48a" />
-            <stop offset="100%" stopColor="#a8682e" />
-          </linearGradient>
-          <pattern id={id('scales')} width="10" height="8" patternUnits="userSpaceOnUse">
-            <rect width="10" height="8" fill="#000000" opacity="0.25" />
-            <path d="M0 0 Q5 9 10 0 M-5 4 Q0 13 5 4 M5 4 Q10 13 15 4" fill="none" stroke="#ffffff" strokeWidth="1" opacity="0.35" />
-          </pattern>
-          <linearGradient id={id('silver')} x1="0" y1="0" x2="1" y2="1">
-            <stop offset="0%" stopColor="#ffffff" />
-            <stop offset="50%" stopColor="#cfd6de" />
-            <stop offset="100%" stopColor="#8e98a3" />
-          </linearGradient>
-          <pattern id={id('mail')} width="8" height="7" patternUnits="userSpaceOnUse">
-            <rect width="8" height="7" fill="#7d858e" />
-            <circle cx="4" cy="3.5" r="3" fill="none" stroke="#b9c0c8" strokeWidth="1.2" />
-          </pattern>
+      <linearGradient id={id('gold')} x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0%" stopColor="#fff1b8" />
+        <stop offset="45%" stopColor="#e7b442" />
+        <stop offset="100%" stopColor="#a8741c" />
+      </linearGradient>
+      <linearGradient id={id('silver')} x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0%" stopColor="#ffffff" />
+        <stop offset="50%" stopColor="#cfd6de" />
+        <stop offset="100%" stopColor="#8e98a3" />
+      </linearGradient>
     </>
   );
 }
 
-function bodyBack(id: string | undefined): ReactNode {
-  if (id === 'traveler_cloak') return <path d="M14 210 C16 158 50 136 100 136 C150 136 184 158 186 210 Z" fill="#2c4634" />;
-  if (id === 'champion_armor') return <path d="M14 210 C18 160 50 138 100 138 C150 138 182 160 186 210 Z" fill="#8f1f2b" />;
-  if (id === 'dragon_armor') return <path d="M14 210 C18 160 50 138 100 138 C150 138 182 160 186 210 Z" fill="#2a0f12" />;
-  return null;
-}
-
-function headBack(id: string | undefined): ReactNode {
-  if (id !== 'ranger_hood') return null;
-  return <path d="M58 98 C54 54 76 28 100 28 C124 28 146 54 142 98 C144 122 150 140 160 152 L40 152 C50 140 56 122 58 98 Z" fill="#35553a" />;
-}
-
-/** Область рисунка каждого предмета для отдельной иконки (x y ширина высота в координатах портрета). */
-const SLOT_GLYPH: Record<Slot, string> = { head: '🎩', neck: '📿', body: '👙', back: '🦋', hands: '🧤', legs: '🩳', feet: '👢', weapon: '🗡️', offhand: '🛡️' };
-
-const ICON_VIEW: Record<string, string> = {
-  headband: '66 60 80 30',
-  leather_cap: '60 28 80 58',
-  ranger_hood: '36 24 128 132',
-  wizard_hat: '50 2 100 72',
-  iron_helm: '58 26 84 78',
-  champion_crown: '64 36 72 36',
-  leather_vest: '14 140 172 74',
-  traveler_cloak: '10 132 180 82',
-  chainmail: '14 140 172 74',
-  mystic_robe: '14 140 172 74',
-  plate_armor: '14 140 172 74',
-  champion_armor: '14 136 172 78',
-  wooden_club: '124 34 64 180',
-  mace: '120 112 76 60',
-  bronze_sword: '108 36 74 176',
-  steel_sword: '108 36 74 176',
-  hunter_bow: '4 26 60 184',
-  oak_staff: '130 10 60 204',
-  wooden_shield: '4 142 72 72',
-  war_horn: '16 140 54 68',
-  spell_tome: '10 150 66 58',
-  iron_shield: '10 136 60 80',
-  feathered_cap: '58 30 92 52',
-  flower_wreath: '62 50 76 30',
-  horned_helm: '40 6 120 98',
-  silver_tiara: '66 36 68 36',
-  gambeson: '14 140 172 74',
-  monk_habit: '14 140 172 74',
-  huntress_leathers: '40 140 120 74',
-  ranger_garb: '14 140 172 74',
-  gladiator_armor: '30 140 150 74',
-  scale_mail: '14 140 172 74',
-  dragon_armor: '10 132 180 82',
-  flail: '120 96 70 116',
-  spear: '120 4 60 210',
-  battle_axe: '112 30 80 182',
-  magic_wand: '128 50 60 120',
-  healing_flask: '16 138 50 74',
-  torch: '14 108 54 106',
-  tower_shield: '6 120 70 94',
-  crystal_orb: '12 138 60 70',
+/** Цвет верха на портрете для вещей с собственным цветом. */
+const BODY_TINT: Record<string, string> = {
+  tank_top: '#f2f3f5',
+  button_shirt: '#f4f6fa',
+  denim_crop: '#3b5a85',
+  tracksuit: '#1d2a5a',
+  kimono: '#f6f4ef',
+  latex_catsuit: '#111114',
+  latex_corset: '#111114',
+  velvet_bodysuit: '#5b0f2e',
+  sports_bra: '#22252b',
+  mesh_top: '#111114',
+  leather_harness: '#1d1a1a',
+  bandeau_top: '#16161a',
+  gold_bikini: '#e8b84a',
+  diamond_bikini: '#dfe6ee',
 };
 
-/** Иконка предмета без персонажа — для магазина и инвентаря. */
+/** Значок слота для вещей без своего значка. */
+const SLOT_GLYPH: Record<Slot, string> = { head: '🧢', neck: '📿', body: '👕', back: '🎒', hands: '⌚', legs: '👖', feet: '👟', weapon: '📱', offhand: '👜' };
+
+/** Значки отдельных вещей (запасная картинка, пока не готова 3D-иконка). */
+const ITEM_GLYPH: Record<string, string> = {
+  sunglasses: '🕶️',
+  headphones: '🎧',
+  neck_headphones: '🎧',
+  cowboy_hat: '🤠',
+  beanie: '🧶',
+  devil_horns: '😈',
+  angel_halo: '😇',
+  masquerade_mask: '🎭',
+  lace_veil: '👰',
+  silver_tiara: '👑',
+  cat_ears: '🐱',
+  bunny_ears: '🐰',
+  pearl_necklace: '📿',
+  marathon_medal: '🏅',
+  diamond_necklace: '💎',
+  lanyard_badge: '🪪',
+  silk_scarf: '🧣',
+  feather_boa: '🪶',
+  string_bikini_top: '👙',
+  chain_bikini: '👙',
+  gold_bikini: '👙',
+  diamond_bikini: '👙',
+  swimsuit: '🩱',
+  kimono: '🥋',
+  hoodie: '🧥',
+  button_shirt: '👔',
+  bikini_bottom: '👙',
+  gym_shorts: '🩳',
+  denim_micro_shorts: '🩳',
+  hot_pants: '🩳',
+  mini_skirt: '👗',
+  pleated_skirt: '👗',
+  pencil_skirt: '👗',
+  sequin_skirt: '👗',
+  silk_sarong: '👗',
+  fishnet_stockings: '🧦',
+  lace_garters: '🧦',
+  house_slippers: '🩴',
+  flip_flops: '🩴',
+  sandals: '👡',
+  gold_sandals: '👡',
+  high_heels: '👠',
+  designer_heels: '👠',
+  knee_boots: '👢',
+  suede_thigh_boots: '👢',
+  latex_thigh_boots: '👢',
+  chelsea_boots: '🥾',
+  combat_boots: '🥾',
+  running_shoes: '👟',
+  fingerless_gloves: '🧤',
+  boxing_wraps: '🥊',
+  lace_gloves: '🧤',
+  silk_opera_gloves: '🧤',
+  latex_opera_gloves: '🧤',
+  wrist_watch: '⌚',
+  diamond_bracelet: '💎',
+  gold_bracelets: '💍',
+  fairy_wings: '🧚',
+  bat_wings: '🦇',
+  feather_wings: '🪽',
+  angel_wings: '🪽',
+  guitar_case: '🎸',
+  denim_jacket: '🧥',
+  leather_jacket: '🧥',
+  rolled_mat: '🧘',
+  coffee_cup: '☕',
+  water_bottle: '💧',
+  dumbbell: '🏋️',
+  shaker: '🥤',
+  umbrella: '☂️',
+  tennis_racket: '🎾',
+  kettlebell: '🏋️',
+  flower_bouquet: '💐',
+  skateboard: '🛹',
+  acoustic_guitar: '🎸',
+  microphone: '🎤',
+  champagne_glass: '🥂',
+  gold_trophy: '🏆',
+  grocery_bag: '🛍️',
+  tote_bag: '👜',
+  yoga_mat: '🧘',
+  gym_bag: '💼',
+  handbag: '👜',
+  briefcase: '💼',
+  clutch: '👛',
+  picnic_basket: '🧺',
+  boutique_bags: '🛍️',
+  designer_bag: '👜',
+};
+
+/** Иконка предмета без персонажа (запасная картинка для магазина и сумки): значок вещи или слота. */
 export function ItemIcon({ itemId, color, size = 72 }: { itemId: string; color: string; size?: number }) {
-  const uid = useId().replace(/[^a-zA-Z0-9]/g, '');
-  const id = (name: string): string => `${name}-${uid}`;
-  const url = (name: string): string => `url(#${id(name)})`;
   const item = itemById(itemId);
   if (!item) return null;
-  // Векторного рисунка нет (новые предметы) — значок слота, пока не готова 3D-картинка.
-  if (!(itemId in ICON_VIEW)) {
-    return (
-      <svg width={size} height={size} viewBox="0 0 100 100" role="img" className="item-icon">
-        <circle cx="50" cy="50" r="40" fill={color} opacity="0.18" />
-        <text x="50" y="64" fontSize="42" textAnchor="middle">
-          {SLOT_GLYPH[item.slot]}
-        </text>
-      </svg>
-    );
-  }
-  const view = (ICON_VIEW[itemId] ?? '0 0 200 200').split(' ').map(Number);
-  const [x = 0, y = 0, w = 200, h = 200] = view;
-  // Квадратная иконка: дополняем меньшую сторону полями.
-  const side = Math.max(w, h) * 1.12;
-  const vb = `${x + w / 2 - side / 2} ${y + h / 2 - side / 2} ${side} ${side}`;
   return (
-    <svg width={size} height={size} viewBox={vb} role="img" className="item-icon">
-      <defs>
-        <ItemDefs id={id} />
-      </defs>
-      {item.slot === 'head' && (
-        <>
-          {headBack(itemId)}
-          {headItem(itemId, url, color)}
-        </>
-      )}
-      {item.slot === 'body' && (
-        <>
-          {bodyBack(itemId)}
-          {bodyItem(itemId, url, color)}
-        </>
-      )}
-      {item.slot === 'weapon' && (
-        <>
-          {weaponBack(itemId, url)}
-          {weaponFront(itemId)}
-        </>
-      )}
-      {item.slot === 'offhand' && offhandItem(itemId, url, color)}
+    <svg width={size} height={size} viewBox="0 0 100 100" role="img" className="item-icon">
+      <circle cx="50" cy="50" r="40" fill={color} opacity="0.18" />
+      <text x="50" y="64" fontSize="42" textAnchor="middle">
+        {ITEM_GLYPH[itemId] ?? SLOT_GLYPH[item.slot]}
+      </text>
     </svg>
   );
 }
@@ -361,7 +345,7 @@ function Beard({ hair }: { hair: string }) {
 }
 
 /** Головные уборы, под которыми не виден пучок на макушке. */
-const HATS: readonly string[] = ['leather_cap', 'ranger_hood', 'wizard_hat', 'iron_helm', 'feathered_cap', 'horned_helm'];
+const HATS: readonly string[] = ['sports_cap', 'beanie', 'bandana', 'beret', 'cowboy_hat'];
 
 function HairFront({ style, fill, color, covered }: { style: HairStyle; fill: string; color: string; covered: boolean }) {
   const shine = <path d="M84 46 Q100 39 116 46" fill="none" stroke={tone(color, 1.6)} strokeWidth="3" strokeLinecap="round" opacity="0.35" />;
@@ -429,102 +413,9 @@ function HairFront({ style, fill, color, covered }: { style: HairStyle; fill: st
   }
 }
 
-// ─── Предметы ──────────────────────────────────────────────────────────
+// ─── Головные уборы ────────────────────────────────────────────────────
 
 type Url = (name: string) => string;
-
-function weaponBack(id: string | undefined, url: Url): ReactNode {
-  switch (id) {
-    case 'wooden_club':
-      return (
-        <g>
-          <path d="M150 210 L160 78" stroke={url('wood')} strokeWidth="11" strokeLinecap="round" />
-          <ellipse cx="163" cy="62" rx="15" ry="22" transform="rotate(8 163 62)" fill="#8a5a30" />
-          <circle cx="158" cy="56" r="2.5" fill="#5b3a1d" />
-          <circle cx="168" cy="70" r="2.5" fill="#5b3a1d" />
-        </g>
-      );
-    case 'bronze_sword':
-    case 'steel_sword': {
-      const steel = id === 'steel_sword';
-      return (
-        <g>
-          <path d="M152 70 L160 74 L126 206 L116 204 Z" fill={url(steel ? 'steel' : 'bronze')} />
-          <path d="M156 72 L121 205" stroke="#ffffff" strokeWidth="1" opacity="0.4" />
-          <path d="M140 64 L174 80" stroke={steel ? url('steel') : '#6b4a2b'} strokeWidth="7" strokeLinecap="round" />
-          <path d="M158 70 L166 50" stroke="#4a2f1f" strokeWidth="7" strokeLinecap="round" />
-          <circle cx="167.5" cy="46" r={steel ? 6 : 5} fill={steel ? '#4da3ff' : url('bronze')} stroke={steel ? url('gold') : 'none'} strokeWidth="2" />
-        </g>
-      );
-    }
-    case 'hunter_bow':
-      return (
-        <g>
-          <path d="M40 30 Q0 118 50 206" fill="none" stroke={url('wood')} strokeWidth="7" strokeLinecap="round" />
-          <path d="M40 30 L50 206" stroke="#e8e2d0" strokeWidth="1.3" />
-          <path d="M150 160 L166 40" stroke="#6a4424" strokeWidth="4" />
-          <path d="M160 52 L166 36 L172 54" fill="#d9dee4" />
-          <path d="M154 150 L158 166 M146 154 L158 162" stroke="#e45f4f" strokeWidth="3" />
-        </g>
-      );
-    case 'spear':
-      return (
-        <g>
-          <path d="M150 214 L164 30" stroke={url('wood')} strokeWidth="6" strokeLinecap="round" />
-          <path d="M164 30 C170 22 168 12 166 4 C160 12 158 22 164 30 Z" fill={url('steel')} />
-          <path d="M163 38 L160 52 M165 38 L168 52 M164 38 L164 54" stroke="#c8322e" strokeWidth="3" strokeLinecap="round" />
-        </g>
-      );
-    case 'battle_axe':
-      return (
-        <g>
-          <path d="M140 212 L158 50" stroke={url('wood')} strokeWidth="8" strokeLinecap="round" />
-          <path d="M156 62 C170 52 186 46 190 36 C194 60 192 86 186 104 C180 94 168 88 152 86 Z" fill={url('steel')} stroke="#5c656f" strokeWidth="2" />
-          <path d="M152 66 L146 64 L146 84 L152 84 Z" fill="#40464e" />
-        </g>
-      );
-    case 'magic_wand':
-      return (
-        <g>
-          <path d="M144 166 L166 82" stroke="#3b2416" strokeWidth="6" strokeLinecap="round" />
-          <path d="M150 140 L154 126" stroke={url('gold')} strokeWidth="7" />
-          <circle cx="168" cy="72" r="16" fill="#fff0a0" opacity="0.25" />
-          <path d="M168 58 L172 68 L183 69 L174 76 L177 87 L168 81 L159 87 L162 76 L153 69 L164 68 Z" fill={url('gold')} stroke="#a8741c" strokeWidth="1" />
-        </g>
-      );
-    case 'flail':
-      return (
-        <g>
-          <path d="M150 196 L156 110" stroke="#5a3a22" strokeWidth="8" strokeLinecap="round" />
-          <path d="M156 108 Q166 90 178 96" fill="none" stroke="#4b535c" strokeWidth="3" strokeDasharray="4 2" />
-          <circle cx="182" cy="104" r="11" fill={url('steel')} stroke="#4b535c" strokeWidth="2" />
-          <path d="M182 88 L182 92 M196 104 L193 104 M182 120 L182 116 M168 104 L171 104" stroke="#4b535c" strokeWidth="3" />
-        </g>
-      );
-    case 'oak_staff':
-      return (
-        <g>
-          <path d="M162 212 L160 44" stroke={url('wood')} strokeWidth="8" strokeLinecap="round" />
-          <path d="M160 46 C150 38 150 24 160 18 C170 24 170 38 160 46 Z" fill="#6a4424" />
-          <circle cx="160" cy="30" r="13" fill="#8fd3ff" opacity="0.25" />
-          <circle cx="160" cy="30" r="7" fill="#8fd3ff" />
-          <circle cx="157.5" cy="27.5" r="2" fill="#ffffff" />
-        </g>
-      );
-    default:
-      return null;
-  }
-}
-
-function weaponFront(id: string | undefined): ReactNode {
-  if (id !== 'mace') return null;
-  return (
-    <g>
-      <path d="M150 196 L158 112" stroke="#4a2f1f" strokeWidth="7" strokeLinecap="round" />
-      <path d="M150 112 L158 92 L166 112 L158 128 Z" fill="#9aa3ad" stroke="#4b535c" strokeWidth="2" />
-    </g>
-  );
-}
 
 /** Силуэт плеч и груди на портрете. */
 const BUST = {
@@ -532,311 +423,94 @@ const BUST = {
   male: 'M16 212 C18 172 44 152 80 146 Q100 156 120 146 C156 152 182 172 184 212 Z',
 };
 
-/** Одежда на портрете. skin — цвет кожи, если часть тела открыта (на иконке без героя не нужен). */
-function bodyItem(id: string | undefined, url: Url, color: string, skin?: string, female = false): ReactNode {
-  const bare = skin ? <path d={female ? BUST.female : BUST.male} fill={skin} /> : null;
-  switch (id) {
-    case 'huntress_leathers':
-      return (
-        <g>
-          {bare}
-          {female ? (
-            <path d="M64 212 C62 194 66 180 74 172 L86 150 L94 151 L92 168 Q100 176 108 168 L106 151 L114 150 L126 172 C134 180 138 194 136 212 Z" fill="#6b4428" />
-          ) : (
-            <path d="M50 212 C50 186 58 170 70 162 L80 147 L90 149 Q100 166 110 149 L120 147 L130 162 C142 170 150 186 150 212 Z" fill="#6b4428" />
-          )}
-          <path d="M68 204 Q100 211 132 204" fill="none" stroke="#2a1d14" strokeWidth="4" />
-        </g>
-      );
-    case 'ranger_garb':
-      return (
-        <g>
-          <path d={female ? BUST.female : BUST.male} fill={tone(color, 1.25)} />
-          {skin && <path d="M80 147 Q100 178 120 147 Q100 156 80 147 Z" fill={skin} />}
-          <path d="M80 147 Q100 178 120 147" fill="none" stroke={tone(color, 0.8)} strokeWidth="2.5" />
-          <path d="M60 150 L140 206" stroke="#3d2a1c" strokeWidth="5" />
-        </g>
-      );
-    case 'gladiator_armor':
-      return (
-        <g>
-          {bare}
-          {female ? (
-            <>
-              <path d="M88 172 L93 150 M112 172 L107 150" stroke="#4a2f1f" strokeWidth="4" strokeLinecap="round" />
-              <path d="M64 212 C62 192 70 176 84 171 Q100 182 116 171 C130 176 138 192 136 212 Z" fill={url('bronze')} stroke="#7a5228" strokeWidth="2" />
-              <circle cx="100" cy="184" r="4" fill={url('gold')} />
-            </>
-          ) : (
-            <>
-              <path d="M58 150 L142 214" stroke="#4a2f1f" strokeWidth="10" strokeLinecap="round" />
-              <circle cx="98" cy="182" r="8" fill={url('bronze')} stroke="#7a5228" strokeWidth="2" />
-            </>
-          )}
-          <ellipse cx="154" cy="166" rx="26" ry="15" transform="rotate(18 154 166)" fill={url('bronze')} stroke="#7a5228" strokeWidth="2" />
-        </g>
-      );
-    case 'leather_vest':
-      return (
-        <g fill="#7a4e2d" stroke="#5a3820" strokeWidth="1.5">
-          <path d="M22 212 C24 176 48 156 80 148 L94 212 Z" />
-          <path d="M178 212 C176 176 152 156 120 148 L106 212 Z" />
-          <path d="M80 152 L90 210 M120 152 L110 210" stroke="#d8b48a" strokeDasharray="3 3" fill="none" />
-        </g>
-      );
-    case 'traveler_cloak':
-      return (
-        <g>
-          <path d="M20 204 C26 168 54 148 84 146 Q100 153 116 146 C146 148 174 168 180 204 C162 184 140 174 118 172 L100 180 L82 172 C60 174 38 184 20 204 Z" fill="#3f6b48" />
-          <path d="M84 146 Q100 153 116 146" fill="none" stroke="#2c4634" strokeWidth="3" />
-          <circle cx="100" cy="166" r="7" fill={url('gold')} />
-          <circle cx="100" cy="166" r="3" fill={color} />
-        </g>
-      );
-    case 'chainmail':
-      return (
-        <g>
-          <path d="M20 212 C22 174 46 154 80 148 L100 166 L120 148 C154 154 178 174 180 212 Z" fill={url('mail')} />
-          <path d="M80 148 L100 166 L120 148" fill="none" stroke="#5c636b" strokeWidth="3" />
-        </g>
-      );
-    case 'mystic_robe':
-      return (
-        <g>
-          <path d="M18 212 C20 172 46 152 80 146 L100 170 L120 146 C154 152 180 172 182 212 Z" fill="#43337d" />
-          <path d="M80 146 L100 170 L120 146" fill="none" stroke={url('gold')} strokeWidth="5" strokeLinejoin="round" />
-          <path d="M100 170 L100 212" stroke={url('gold')} strokeWidth="4" />
-          <circle cx="62" cy="186" r="4" fill={url('gold')} />
-          <circle cx="138" cy="186" r="4" fill={url('gold')} />
-        </g>
-      );
-    case 'gambeson':
-      return (
-        <g>
-          <path d="M18 212 C20 172 46 152 80 146 L100 152 L120 146 C154 152 180 172 182 212 Z" fill={color} />
-          {[168, 182, 196].map((y) => (
-            <path key={y} d={`M40 ${y} Q100 ${y + 6} 160 ${y}`} fill="none" stroke={tone(color, 0.7)} strokeWidth="2" />
-          ))}
-          <path d="M100 152 L100 212" stroke="#3d2a1c" strokeWidth="3" />
-        </g>
-      );
-    case 'monk_habit':
-      return (
-        <g>
-          <path d="M18 212 C20 172 46 152 80 146 Q100 156 120 146 C154 152 180 172 182 212 Z" fill="#5d4632" />
-          <path d="M60 200 Q100 208 140 200" fill="none" stroke="#c9b38a" strokeWidth="4" />
-        </g>
-      );
-    case 'scale_mail':
-    case 'dragon_armor': {
-      const dragon = id === 'dragon_armor';
-      const base = dragon ? '#8a2324' : '#7f9aa3';
-      return (
-        <g>
-          <path d="M20 212 C22 174 46 154 80 148 L100 160 L120 148 C154 154 178 174 180 212 Z" fill={base} />
-          <path d="M20 212 C22 174 46 154 80 148 L100 160 L120 148 C154 154 178 174 180 212 Z" fill={url('scales')} />
-          {dragon && (
-            <>
-              <path d="M80 148 L100 160 L120 148" fill="none" stroke={url('gold')} strokeWidth="4" />
-              <path d="M100 172 L106 184 L100 196 L94 184 Z" fill="#ff7a1a" stroke="#fff1b8" strokeWidth="1.5" />
-              {[40, 160].map((x) => (
-                <g key={x}>
-                  <ellipse cx={x} cy="168" rx="26" ry="16" transform={`rotate(${x < 100 ? -18 : 18} ${x} 168)`} fill="#5e1517" stroke={url('gold')} strokeWidth="2" />
-                  <path d={`M${x - 10} 156 L${x - 6} 138 L${x - 2} 156 M${x + 2} 154 L${x + 6} 136 L${x + 10} 154`} fill={url('gold')} />
-                </g>
-              ))}
-            </>
-          )}
-        </g>
-      );
-    }
-    case 'plate_armor':
-    case 'champion_armor': {
-      const metal = url(id === 'champion_armor' ? 'gold' : 'steel');
-      const trim = id === 'champion_armor' ? '#8f1f2b' : '#5c656f';
-      return (
-        <g>
-          <path d="M54 212 C56 176 72 160 100 157 C128 160 144 176 146 212 Z" fill={metal} stroke={trim} strokeWidth="2" />
-          <path d="M100 160 L100 212" stroke={trim} strokeWidth="2" opacity="0.6" />
-          <path d="M70 186 Q100 176 130 186" fill="none" stroke={trim} strokeWidth="2" opacity="0.6" />
-          <ellipse cx="50" cy="170" rx="32" ry="19" transform="rotate(-18 50 170)" fill={metal} stroke={trim} strokeWidth="2" />
-          <ellipse cx="150" cy="170" rx="32" ry="19" transform="rotate(18 150 170)" fill={metal} stroke={trim} strokeWidth="2" />
-          <path d="M80 143 Q100 157 120 143 L123 152 Q100 168 77 152 Z" fill={metal} stroke={trim} strokeWidth="1.5" />
-          {id === 'champion_armor' && <circle cx="100" cy="186" r="7" fill="#d23a4a" stroke="#fff1b8" strokeWidth="2" />}
-        </g>
-      );
-    }
-    default:
-      return null;
-  }
-}
-
 function headItem(id: string | undefined, url: Url, color: string): ReactNode {
   switch (id) {
     case 'headband':
       return (
         <g>
-          <path d="M69 72 Q100 62 131 72 L131 80 Q100 70 69 80 Z" fill={color} />
-          <path d="M129 74 L144 84 L139 88 L128 79 Z" fill={tone(color, 0.75)} />
+          <path d="M69 70 Q100 60 131 70 L131 80 Q100 70 69 80 Z" fill={color} />
+          <path d="M69 71 Q100 61 131 71 M69 79 Q100 69 131 79" fill="none" stroke="#f2f3f5" strokeWidth="1.5" />
         </g>
       );
-    case 'leather_cap':
+    case 'sports_cap':
       return (
         <g>
-          <path d="M67 74 C67 48 82 33 100 33 C118 33 133 48 133 74 Q100 64 67 74 Z" fill="#7a4e2d" />
-          <path d="M100 34 L100 66" stroke="#5a3820" strokeWidth="2" />
-          <path d="M64 75 Q100 63 136 75 L136 81 Q100 70 64 81 Z" fill="#5a3820" />
+          <path d="M68 72 C68 46 83 33 100 33 C117 33 132 46 132 72 Q100 64 68 72 Z" fill={color} />
+          <path d="M100 34 L100 66" stroke={tone(color, 0.7)} strokeWidth="1.5" />
+          <circle cx="100" cy="34" r="3" fill={tone(color, 0.8)} />
+          <path d="M66 73 Q100 62 134 73 Q120 84 100 84 Q80 84 66 73 Z" fill={tone(color, 0.75)} />
         </g>
       );
-    case 'ranger_hood':
-      return <path d="M62 96 C60 58 78 34 100 34 C122 34 140 58 138 96 C136 66 122 48 100 48 C78 48 64 66 62 96 Z" fill="#44704a" />;
-    case 'wizard_hat':
+    case 'beanie':
       return (
         <g>
-          <path d="M72 60 C84 42 92 20 120 6 C113 22 116 42 128 60 Z" fill="#4b3a8a" />
-          <path d="M86 46 Q100 42 116 46 L118 54 Q100 50 84 54 Z" fill={url('gold')} />
-          <ellipse cx="100" cy="61" rx="47" ry="9" fill="#3b2d70" />
-          <path d="M104 28 L106 33 L111 33 L107 36 L109 41 L104 38 L99 41 L101 36 L97 33 L102 33 Z" fill="#ffe27a" />
+          <path d="M68 74 C67 46 82 34 100 34 C118 34 133 46 132 74 Z" fill={color} />
+          <path d="M66 66 Q100 58 134 66 L134 80 Q100 72 66 80 Z" fill={tone(color, 0.8)} />
+          <circle cx="100" cy="30" r="9" fill="#f2f3f5" />
         </g>
       );
-    case 'iron_helm':
+    case 'bandana':
       return (
         <g>
-          <path d="M63 98 C60 52 79 29 100 29 C121 29 140 52 137 98 L128 100 C128 74 124 62 100 60 C76 62 72 74 72 100 Z" fill={url('steel')} />
-          <path d="M66 62 Q100 50 134 62 L134 70 Q100 58 66 70 Z" fill="#7b848e" />
-          <path d="M97 60 L103 60 L102.5 96 L97.5 96 Z" fill={url('steel')} stroke="#5c656f" strokeWidth="1" />
-          {[74, 87, 113, 126].map((x) => (
-            <circle key={x} cx={x} cy="64" r="1.8" fill="#4b535c" />
-          ))}
+          <path d="M68 74 C68 48 82 38 100 38 C118 38 132 48 132 74 Q100 66 68 74 Z" fill={color} />
+          <circle cx="86" cy="56" r="2" fill="#ffffff" opacity="0.7" />
+          <circle cx="112" cy="50" r="2" fill="#ffffff" opacity="0.7" />
         </g>
       );
-    case 'feathered_cap':
+    case 'beret':
+      return <ellipse cx="104" cy="50" rx="38" ry="14" transform="rotate(-8 104 50)" fill={color} />;
+    case 'cowboy_hat':
       return (
         <g>
-          <path d="M70 72 C70 46 84 36 100 36 C116 36 130 46 130 72 Q100 64 70 72 Z" fill={color} />
-          <path d="M66 74 Q100 62 134 74 L134 82 Q100 70 66 82 Z" fill={tone(color, 0.6)} />
-          <path d="M126 66 C140 50 146 30 140 14 C132 30 128 48 126 66 Z" fill="#c62828" />
+          <path d="M78 58 C78 30 88 24 100 30 C112 24 122 30 122 58 Z" fill="#8a5a3a" />
+          <path d="M44 56 Q60 70 100 66 Q140 70 156 56 Q150 74 100 76 Q50 74 44 56 Z" fill="#6b4428" />
+          <path d="M78 56 Q100 60 122 56" stroke="#2a1f1a" strokeWidth="4" fill="none" />
         </g>
       );
-    case 'flower_wreath':
+    case 'sunglasses':
       return (
         <g>
-          <path d="M68 70 Q100 54 132 70" fill="none" stroke="#3d7f3a" strokeWidth="6" strokeLinecap="round" />
-          {[
-            [70, 69, '#ff8fb1'],
-            [82, 62, '#fff4f4'],
-            [94, 58, '#c9a2ff'],
-            [106, 58, '#ffd36e'],
-            [118, 62, '#ff8fb1'],
-            [130, 69, '#fff4f4'],
-          ].map(([x, y, c]) => (
-            <g key={`${x}`}>
-              <circle cx={x as number} cy={y as number} r="5.5" fill={c as string} />
-              <circle cx={x as number} cy={y as number} r="2" fill="#ffcf3a" />
-            </g>
-          ))}
+          <path d="M76 84 L96 84 Q97 98 86 98 Q76 98 76 84 Z M104 84 L124 84 Q124 98 114 98 Q103 98 104 84 Z" fill="#141a24" />
+          <path d="M76 84 L124 84 M71 85 L76 84 M124 84 L129 85" stroke={url('gold')} strokeWidth="2" />
         </g>
       );
-    case 'horned_helm':
+    case 'headphones':
       return (
         <g>
-          <path d="M70 40 C52 34 44 18 48 6 C56 22 66 28 78 30 Z" fill="#efe3c4" />
-          <path d="M130 40 C148 34 156 18 152 6 C144 22 134 28 122 30 Z" fill="#efe3c4" />
-          <path d="M63 98 C60 52 79 29 100 29 C121 29 140 52 137 98 L128 100 C128 74 124 62 100 60 C76 62 72 74 72 100 Z" fill="#5d6670" />
-          <path d="M66 62 Q100 50 134 62 L134 70 Q100 58 66 70 Z" fill={url('bronze')} />
-          <path d="M97 60 L103 60 L102.5 92 L97.5 92 Z" fill={url('bronze')} />
+          <path d="M66 86 C62 46 80 30 100 30 C120 30 138 46 134 86" fill="none" stroke={color} strokeWidth="6" />
+          <rect x="58" y="78" width="14" height="24" rx="6" fill={color} />
+          <rect x="128" y="78" width="14" height="24" rx="6" fill={color} />
         </g>
       );
+    case 'cat_ears':
+    case 'bunny_ears': {
+      const cat = id === 'cat_ears';
+      return (
+        <g>
+          <path d="M70 60 Q100 40 130 60" fill="none" stroke={cat ? '#16161a' : '#f6f2ee'} strokeWidth="3" />
+          {cat ? (
+            <path d="M74 52 L80 26 L94 44 Z M126 52 L120 26 L106 44 Z" fill="#16161a" />
+          ) : (
+            <path d="M82 46 C74 20 76 4 84 4 C92 4 92 22 90 44 Z M118 46 C126 20 124 4 116 4 C108 4 108 22 110 44 Z" fill="#f6f2ee" />
+          )}
+          {cat ? <path d="M79 46 L82 34 L89 43 Z M121 46 L118 34 L111 43 Z" fill="#ff8ad8" /> : <path d="M84 40 C80 22 81 10 84 10 C87 10 88 24 87 40 Z M116 40 C120 22 119 10 116 10 C113 10 112 24 113 40 Z" fill="#ffb3cf" />}
+        </g>
+      );
+    }
+    case 'devil_horns':
+      return <path d="M78 50 C72 38 74 26 80 20 C80 32 86 40 90 46 Z M122 50 C128 38 126 26 120 20 C120 32 114 40 110 46 Z" fill="#c8102e" />;
+    case 'angel_halo':
+      return <ellipse cx="100" cy="22" rx="26" ry="7" fill="none" stroke="#ffe27a" strokeWidth="4" />;
+    case 'masquerade_mask':
+      return <path d="M72 80 Q86 74 98 84 Q100 86 102 84 Q114 74 128 80 Q128 96 112 96 Q102 94 100 90 Q98 94 88 96 Q72 96 72 80 Z" fill={color} />;
+    case 'lace_veil':
+      return <path d="M66 64 Q100 46 134 64 L150 170 L50 170 Z" fill="#f6f2ee" opacity="0.45" />;
     case 'silver_tiara':
       return (
         <g>
           <path d="M70 66 Q100 56 130 66" fill="none" stroke={url('silver')} strokeWidth="4" strokeLinecap="round" />
           <path d="M94 60 L100 40 L106 60 Z M82 63 L85 52 L89 62 Z M111 62 L115 52 L118 63 Z" fill={url('silver')} />
-          <path d="M100 50 L104 56 L100 62 L96 56 Z" fill="#8f6bff" />
-        </g>
-      );
-    case 'champion_crown':
-      return (
-        <g>
-          <path d="M70 68 L73 46 L85 59 L92 40 L100 56 L108 40 L115 59 L127 46 L130 68 Q100 60 70 68 Z" fill={url('gold')} stroke="#a8741c" strokeWidth="1.5" />
-          <circle cx="100" cy="62" r="4" fill="#d23a4a" />
-          <circle cx="84" cy="64" r="3" fill="#4da3ff" />
-          <circle cx="116" cy="64" r="3" fill="#4da3ff" />
-        </g>
-      );
-    default:
-      return null;
-  }
-}
-
-function offhandItem(id: string | undefined, url: Url, color: string): ReactNode {
-  switch (id) {
-    case 'wooden_shield':
-      return (
-        <g>
-          <circle cx="40" cy="178" r="32" fill="#8a5a30" stroke="#5c656f" strokeWidth="5" />
-          <path d="M18 168 L62 168 M16 186 L64 186" stroke="#6a4424" strokeWidth="2" />
-          <circle cx="40" cy="178" r="8" fill={url('steel')} />
-        </g>
-      );
-    case 'iron_shield':
-      return (
-        <g>
-          <path d="M14 140 L66 140 L66 172 C66 196 40 212 40 212 C40 212 14 196 14 172 Z" fill={url('steel')} stroke="#5c656f" strokeWidth="3" />
-          <path d="M40 150 L40 198 M24 166 L56 166" stroke={color} strokeWidth="6" strokeLinecap="round" />
-        </g>
-      );
-    case 'spell_tome':
-      return (
-        <g transform="rotate(-14 42 178)">
-          <rect x="18" y="160" width="48" height="38" rx="4" fill="#5a2f6e" stroke="#2f1838" strokeWidth="2" />
-          <rect x="62" y="162" width="5" height="34" fill="#efe4c8" />
-          <circle cx="42" cy="179" r="8" fill="none" stroke={url('gold')} strokeWidth="3" />
-          <path d="M18 164 L24 160 M18 194 L24 198" stroke={url('gold')} strokeWidth="3" />
-        </g>
-      );
-    case 'healing_flask':
-      return (
-        <g>
-          <circle cx="42" cy="186" r="20" fill="#e9f4f0" opacity="0.5" />
-          <path d="M23 190 A20 20 0 0 0 61 190 Z" fill={color} />
-          <rect x="37" y="150" width="10" height="18" fill="#e9f4f0" opacity="0.6" />
-          <rect x="36" y="144" width="12" height="9" rx="2" fill="#a07040" />
-        </g>
-      );
-    case 'torch':
-      return (
-        <g>
-          <path d="M40 212 L42 150" stroke="#6a4424" strokeWidth="8" strokeLinecap="round" />
-          <rect x="34" y="140" width="16" height="16" rx="3" fill="#5a3820" />
-          <path d="M42 112 C54 124 54 136 42 142 C30 136 30 124 42 112 Z" fill="#ff7a12" />
-          <path d="M42 124 C48 130 48 136 42 140 C36 136 36 130 42 124 Z" fill="#ffe066" />
-        </g>
-      );
-    case 'tower_shield':
-      return (
-        <g>
-          <path d="M10 124 Q40 116 70 124 L70 200 Q40 212 10 200 Z" fill={url('steel')} stroke="#5c656f" strokeWidth="3" />
-          <path d="M16 130 Q40 124 64 130 L64 196 Q40 206 16 196 Z" fill={tone(color, 0.7)} />
-          <circle cx="40" cy="160" r="12" fill="none" stroke={url('gold')} strokeWidth="4" />
-        </g>
-      );
-    case 'crystal_orb':
-      return (
-        <g>
-          <path d="M28 202 L56 202 L50 190 L34 190 Z" fill={url('gold')} />
-          <circle cx="42" cy="168" r="28" fill="#6fe8ff" opacity="0.15" />
-          <circle cx="42" cy="168" r="20" fill="#9ad9ff" opacity="0.6" stroke="#d6f3ff" strokeWidth="1.5" />
-          <path d="M42 158 L49 168 L42 178 L35 168 Z" fill="#6fe8ff" />
-          <circle cx="35" cy="160" r="3" fill="#ffffff" opacity="0.8" />
-        </g>
-      );
-    case 'war_horn':
-      return (
-        <g>
-          <path d="M30 206 C50 196 58 170 46 140" fill="none" stroke="#d9c7a3" strokeWidth="6" strokeLinecap="round" />
-          <path d="M40 140 Q46 126 56 136 L50 150 Z" fill="#d9c7a3" />
-          <path d="M44 170 L56 170" stroke={url('gold')} strokeWidth="3" />
+          <path d="M100 50 L104 56 L100 62 L96 56 Z" fill="#ff8ad8" />
         </g>
       );
     default:
