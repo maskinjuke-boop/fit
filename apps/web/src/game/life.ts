@@ -745,6 +745,19 @@ export function autoAction(state: GameState, recent: readonly string[] = []): Ac
 
 /** С какой пользы дело срочное (голод, ночь и усталость, пустая миска) — его сим делает и между делами. */
 export const AUTO_URGENT = 25;
+/** Потребность ниже этого — срочно. */
+const CRITICAL = 35;
+
+/** Срочное ли дело: поднимает почти пустую потребность, ночной сон уставшего, пустые миски. */
+function pressing(life: LifeState, a: ActionDef): boolean {
+  if (a.id === 'fill_bowl') return true;
+  if (a.id === 'groceries') return life.needs.food < CRITICAL;
+  if (a.id === 'sleep') {
+    const h = hourOf(life.minute);
+    return (h >= 22 || h < 5) && life.needs.energy < 75;
+  }
+  return NEEDS.some((n) => life.needs[n] < CRITICAL && (a.effect.needs?.[n] ?? 0) > 0);
+}
 
 /**
  * То же, что autoAction, но с пометкой, досуг ли это (leisure — не срочная нужда, а занятие).
@@ -764,6 +777,7 @@ export function autoChoice(state: GameState, recent: readonly string[] = [], urg
   const jitter = rng(`${life.day}:${life.minute}:${mem.length}`);
   for (const a of ACTIONS) {
     if (a.train || a.open || a.go || !hasObject(state, a.at) || blocker(state, a) || !affordable(state, a)) continue;
+    if (urgentOnly && !pressing(life, a)) continue;
     let v: number;
     if (a.id === 'groceries') v = life.groceries === 0 && life.needs.food < 70 ? urgency(life.needs.food) * 25 : -Infinity;
     else if (a.id === 'fill_bowl') v = life.bowl === 0 || life.water < 10 ? 30 : life.bowl === 1 || life.water < 30 ? 12 : -Infinity;
