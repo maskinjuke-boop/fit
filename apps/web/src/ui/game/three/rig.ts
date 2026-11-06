@@ -873,7 +873,8 @@ function applyClip(rig: Rig, pose: ClipPose): void {
   rig.bones.root.position.set(rig.rest.root.x + p[0]! * r, rig.rest.root.y + p[1]! * r, rig.rest.root.z + p[2]! * r);
   // Голеностопы: по ширине — как у актёра (в масштабе ноги), по высоте и вперёд — от покоя.
   let drop = 0;
-  for (const [side, o] of [['l', 3], ['r', 6]] as const) {
+  for (const side of SIDES) {
+    const o = side === 'l' ? 3 : 6;
     const ankle = restAnkle(rig, side);
     const t = side === 'l' ? tgtL : tgtR;
     t.set(p[o]! * r, ankle.y + (p[o + 1]! - CLIP_ANKLE[1]) * r, ankle.z + (p[o + 2]! - CLIP_ANKLE[2]) * r);
@@ -889,6 +890,7 @@ function applyClip(rig: Rig, pose: ClipPose): void {
   reachLeg(rig, 'r', tgtR);
 }
 
+const SIDES = ['l', 'r'] as const;
 /** Насколько можно выпрямить ногу (доля длины): у прямой ноги колено «щёлкает». */
 const REACH = 0.985;
 const tgtL = new THREE.Vector3();
@@ -1249,7 +1251,7 @@ export function animate(rig: Rig, motion: Motion, t: number, phase = 0, blend = 
     rig.bones.root.position.lerpVectors(prevRoot, rig.bones.root.position, k);
     if (planted)
       // Цель — та же доля пути между прежним и новым положением голеностопа.
-      for (const side of ['l', 'r'] as const) reachLeg(rig, side, nextAnkle[side].lerpVectors(prevAnkle[side], nextAnkle[side], k));
+      for (const side of SIDES) reachLeg(rig, side, nextAnkle[side].lerpVectors(prevAnkle[side], nextAnkle[side], k));
   }
   const roll = opts?.lean ?? 0;
   rig.root.rotation.x = k >= 1 ? pitch : rig.root.rotation.x + (pitch - rig.root.rotation.x) * k;
