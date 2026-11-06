@@ -2,18 +2,22 @@ import * as THREE from 'three';
 import type { Figure } from '../../../game/state';
 import type { ExerciseId } from '../../../tracking/exercise';
 import { bodyPositions, landmarks, vertexParts } from './bodyMesh';
+import { decodeClip, gaitKeys, makePose, mixPose, sampleClip, warpPhase, type Clip, type ClipPose } from './mocap';
+import { CLIPS, CLIP_ANKLE, CLIP_LEG } from './mocapClips';
 import type { Morph } from './morph';
 
 /**
- * Скелет персонажа для анимации: 17 костей (таз, поясница, грудь, шея, руки и ноги).
- * Веса вершин тела считаются по частям модели MakeHuman (корпус, рука, нога) и положению
- * вдоль костей; одежда, обувь и украшения берут веса ближайшей вершины тела. Голова и
- * предметы в руках крепятся к костям жёстко. Позы — процедурные: ходьба, ожидание и
- * упражнения (присед, отжимание, скручивание, выпад, «джампинг джек», бег с высоким
- * подниманием колен, подтягивание).
+ * Скелет персонажа для анимации: 20 костей (таз, поясница, грудь, шея, ключицы, руки,
+ * ноги и пальцы стоп). Веса вершин тела считаются по частям модели MakeHuman (корпус,
+ * рука, нога) и положению вдоль костей; одежда, обувь и украшения берут веса ближайшей
+ * вершины тела. Голова и предметы в руках крепятся к костям жёстко. Ходьба, бег и стойка
+ * на месте — записи захвата движения (mocap.ts), упражнения и действия — процедурные позы
+ * (присед, отжимание, скручивание, выпад, «джампинг джек», бег с высоким подниманием
+ * колен, подтягивание).
  */
 
-export const BONES = ['root', 'spine', 'chest', 'neck', 'l_upper', 'l_fore', 'l_hand', 'r_upper', 'r_fore', 'r_hand', 'l_thigh', 'l_shin', 'l_foot', 'r_thigh', 'r_shin', 'r_foot'] as const;
+// Новые кости — в конце списка: номера старых в весах вершин не меняются.
+export const BONES = ['root', 'spine', 'chest', 'neck', 'l_upper', 'l_fore', 'l_hand', 'r_upper', 'r_fore', 'r_hand', 'l_thigh', 'l_shin', 'l_foot', 'r_thigh', 'r_shin', 'r_foot', 'l_clav', 'r_clav', 'l_toe', 'r_toe'] as const;
 export type BoneName = (typeof BONES)[number];
 const B: Record<BoneName, number> = Object.fromEntries(BONES.map((b, i) => [b, i])) as Record<BoneName, number>;
 
@@ -22,10 +26,12 @@ const PARENT: Record<BoneName, BoneName | null> = {
   spine: 'root',
   chest: 'spine',
   neck: 'chest',
-  l_upper: 'chest',
+  l_clav: 'chest',
+  l_upper: 'l_clav',
   l_fore: 'l_upper',
   l_hand: 'l_fore',
-  r_upper: 'chest',
+  r_clav: 'chest',
+  r_upper: 'r_clav',
   r_fore: 'r_upper',
   r_hand: 'r_fore',
   l_thigh: 'root',
@@ -34,15 +40,41 @@ const PARENT: Record<BoneName, BoneName | null> = {
   r_thigh: 'root',
   r_shin: 'r_thigh',
   r_foot: 'r_shin',
+  l_toe: 'l_foot',
+  r_toe: 'r_foot',
 };
 
 const v3 = (a: readonly number[]): THREE.Vector3 => new THREE.Vector3(a[0], a[1], a[2]);
+
+const ballCache = new Map<Figure, [number, number, number]>();
+/**
+ * Плюснефаланговый сустав (подушечка стопы, где сгибаются пальцы) левой ноги: по сетке —
+ * 70 % длины стопы от пятки, на 3 см над полом.
+ */
+function footBall(figure: Figure): [number, number, number] {
+  let b = ballCache.get(figure);
+  if (b) return b;
+  const pos = bodyPositions(figure);
+  const parts = vertexParts();
+  let heel = Infinity;
+  let tip = -Infinity;
+  for (let i = 0; i < pos.length / 3; i += 1) {
+    if (parts[i] !== 2 || pos[i * 3]! < 0.05 || pos[i * 3 + 1]! > 0.12) continue;
+    heel = Math.min(heel, pos[i * 3 + 2]!);
+    tip = Math.max(tip, pos[i * 3 + 2]!);
+  }
+  const L = landmarks(figure);
+  b = [L.ankle[0] + 0.006, 0.03, heel + (tip - heel) * 0.7];
+  ballCache.set(figure, b);
+  return b;
+}
 
 /** Суставы в координатах тела (левая сторона — +X). */
 export function joints(figure: Figure): Record<BoneName, THREE.Vector3> {
   const L = landmarks(figure);
   const side = (p: readonly number[], sx: number): THREE.Vector3 => new THREE.Vector3(p[0]! * sx, p[1], p[2]);
   const pelvis = v3(L.pelvis);
+  const ball = footBall(figure);
   return {
     root: new THREE.Vector3(0, pelvis.y, pelvis.z),
     spine: new THREE.Vector3(0, L.waist, pelvis.z),
@@ -60,6 +92,10 @@ export function joints(figure: Figure): Record<BoneName, THREE.Vector3> {
     r_thigh: side(L.hip, -1),
     r_shin: side(L.knee, -1),
     r_foot: side(L.ankle, -1),
+    l_clav: side(L.clavicle, 1),
+    r_clav: side(L.clavicle, -1),
+    l_toe: side(ball, 1),
+    r_toe: side(ball, -1),
   };
 }
 
@@ -105,21 +141,25 @@ function baseWeights(figure: Figure): BaseWeights {
     const left = p.x >= 0;
     const part = parts[i] ?? 0;
     if (part === 2) {
-      const [th, sh, ft] = left ? (['l_thigh', 'l_shin', 'l_foot'] as const) : (['r_thigh', 'r_shin', 'r_foot'] as const);
+      const [th, sh, ft, to] = left ? (['l_thigh', 'l_shin', 'l_foot', 'l_toe'] as const) : (['r_thigh', 'r_shin', 'r_foot', 'r_toe'] as const);
       const k = smooth(J[th].y - 0.14, J[th].y + 0.02, p.y);
       const f = smooth(J[sh].y - 0.05, J[sh].y + 0.05, p.y);
       const g = smooth(J[ft].y - 0.02, J[ft].y + 0.05, p.y);
+      // Пальцы: всё впереди подушечки стопы (сгиб — плавный, на 4 см).
+      const e = smooth(J[to].z - 0.025, J[to].z + 0.015, p.z) * (1 - smooth(J[ft].y - 0.03, J[ft].y, p.y));
       add(th, f * (1 - 0.45 * k));
       add('root', f * 0.45 * k);
       add(sh, (1 - f) * g);
-      add(ft, (1 - f) * (1 - g));
+      add(ft, (1 - f) * (1 - g) * (1 - e));
+      add(to, (1 - f) * (1 - g) * e);
     } else if (part === 1) {
-      const [up, fo, hd] = left ? (['l_upper', 'l_fore', 'l_hand'] as const) : (['r_upper', 'r_fore', 'r_hand'] as const);
+      const [up, fo, hd, cl] = left ? (['l_upper', 'l_fore', 'l_hand', 'l_clav'] as const) : (['r_upper', 'r_fore', 'r_hand', 'r_clav'] as const);
       const k = smooth(J[up].y - 0.12, J[up].y + 0.03, p.y);
       const f = smooth(J[fo].y - 0.05, J[fo].y + 0.05, p.y);
       const g = smooth(J[hd].y - 0.03, J[hd].y + 0.03, p.y);
       add(up, f * (1 - 0.5 * k));
-      add('chest', f * 0.5 * k);
+      // Верх руки у плеча — наполовину на ключице (плечо поднимается и уходит вперёд-назад).
+      add(cl, f * 0.5 * k);
       add(fo, (1 - f) * g);
       add(hd, (1 - f) * (1 - g));
     } else {
@@ -134,6 +174,14 @@ function baseWeights(figure: Figure): BaseWeights {
         const a = 0.45 * (1 - ds / 0.11);
         add(up, a);
         rest -= a;
+      }
+      // Плечевой пояс (верх плеча, лопатка, край груди у подмышки) — на ключице.
+      const cl = left ? 'l_clav' : 'r_clav';
+      const ax = Math.abs(p.x);
+      const a = 0.85 * smooth(Math.abs(J[cl].x) + 0.03, Math.abs(J[up].x) - 0.04, ax) * smooth(L.armpit - 0.1, L.armpit - 0.01, p.y);
+      if (a > 0) {
+        add(cl, rest * a);
+        rest *= 1 - a;
       }
       // Ягодицы и пах: часть веса — бедро.
       const th = left ? 'l_thigh' : 'r_thigh';
@@ -400,10 +448,6 @@ interface Pose {
   lift?: number;
   /** Ноги ставятся по обратной кинематике (стопы на месте). */
   ik?: boolean;
-  /** Ходьба: цели голеностопов (смещение от покоя по y и z, в координатах тела) и наклон стоп. */
-  feet?: { l: [number, number, number]; r: [number, number, number]; yaw: number };
-  /** Наклон всего тела вбок (повороты на ходу). */
-  roll?: number;
 }
 
 /** Параметры движения: скорость (м/с) и наклон в повороте. */
@@ -742,99 +786,180 @@ function composedPose(stance: Stance, act: Act, t: number): Pose {
   return { ...base, rot: { ...base.rot, ...arms } };
 }
 
-// ─── Ходьба ────────────────────────────────────────────────────────────
+// ─── Ходьба, бег и стойка: клипы захвата движения ─────────────────────
 
-/** Длина ноги модели в покое (бедро + голень), по ней масштабируется шаг. */
-const LEG = 1.12;
 const clamp01 = (x: number): number => Math.max(0, Math.min(1, x));
 const ss = (x: number): number => {
   const k = clamp01(x);
   return k * k * (3 - 2 * k);
 };
 
-/** Скорость в «ногах в секунду» (одинаковая походка у высоких и низких). */
-const legSpeed = (rig: Rig, speed: number): number => speed / Math.max(0.3, rig.root.scale.x * (rig.thigh + rig.shin));
+/** Клипы распаковываются при первом использовании (вместе с 3D-сценой). */
+let clips: Record<keyof typeof CLIPS, Clip> | null = null;
+const clipSet = (): Record<keyof typeof CLIPS, Clip> => (clips ??= Object.fromEntries(Object.entries(CLIPS).map(([k, c]) => [k, decodeClip(c, BONES.length)])) as Record<keyof typeof CLIPS, Clip>);
+
+/** Походки по возрастанию скорости: медленная, обычная, быстрая ходьба и бег трусцой. */
+const GAITS = ['walk_slow', 'walk', 'walk_fast', 'jog'] as const;
+
+/** Во сколько раз нога персонажа (с ростом) длиннее, чем у эталона клипов. */
+const legScale = (rig: Rig): number => (rig.thigh + rig.shin) / CLIP_LEG;
+
+/** Опорные точки выравнивания пар походок (по событиям шага). */
+const keyCache = new Map<Clip, Map<Clip, [number[], number[]]>>();
+function keysOf(a: Clip, b: Clip): [number[], number[]] {
+  let m = keyCache.get(a);
+  if (!m) keyCache.set(a, (m = new Map()));
+  let k = m.get(b);
+  if (!k) m.set(b, (k = a.events && b.events ? gaitKeys(a.events, b.events) : [[0, 1], [0, 1]]));
+  return k;
+}
+
+const warp = new Float32Array(4);
+/** Смесь походок в момент: две записи, вес b, скорость в масштабе эталона, их фазы и ход. */
+const mix = { a: null as Clip | null, b: null as Clip | null, w: 0, u: 0, pa: 0, pb: 0, ra: 1, rb: 1 };
 
 /**
- * Частота шага (полных циклов в секунду) для скорости speed (м/с): с ростом скорости
- * шаг и длиннее, и чаще. Сцена копит фазу cycle += dt · gaitFreq, и стопы не скользят.
+ * Какие две походки смешать при скорости speed (м/с сцены) и с каким весом, и где каждая
+ * из них в общей фазе phase. Скорость переводится в масштаб эталона (высокие шагают
+ * шире). Чаще всего играет одна походка (чуть быстрее или медленнее записи), смесь — в
+ * полосе посередине; в смеси записи выравниваются по событиям шага (постановки и отрывы
+ * стоп совпадают), иначе опорная стопа одной записи смешивалась бы с летящей стопой другой.
  */
-export function gaitFreq(rig: Rig, speed: number): number {
-  const v = legSpeed(rig, speed) * LEG;
-  return 0.6 + 0.4 * Math.min(3.2, v);
+function gaitMix(rig: Rig, speed: number, phase: number): typeof mix {
+  const set = clipSet();
+  const u = speed / Math.max(0.3, rig.root.scale.x * legScale(rig));
+  const v = (c: Clip): number => c.stride / c.duration;
+  let i = 0;
+  while (i < GAITS.length - 2 && u > v(set[GAITS[i + 1]!])) i += 1;
+  const a = set[GAITS[i]!];
+  const b = set[GAITS[i + 1]!];
+  const w = ss(((u - v(a)) / (v(b) - v(a)) - 0.4) / 0.2);
+  const [ka, kb] = keysOf(a, b);
+  warpPhase(ka, kb, w, phase, warp);
+  mix.a = a;
+  mix.b = b;
+  mix.w = w;
+  mix.u = u;
+  mix.pa = warp[0]!;
+  mix.pb = warp[1]!;
+  mix.ra = warp[2]!;
+  mix.rb = warp[3]!;
+  return mix;
 }
 
 /**
- * Шаг: фаза цикла u (0 — удар пяткой левой ноги), скорость v (м/с, для ноги LEG).
- * Опорная стопа едет назад ровно со скоростью тела (по обратной кинематике), пятка
- * встаёт первой, в конце опоры стопа перекатывается на носок; переносимая нога сгибается
- * в колене. Таз поворачивается навстречу плечам, руки идут в противофазе к ногам со
- * сгибом в локте, корпус покачивается, голова держится ровно. На бегу — короче опора,
- * сильнее наклон и сгиб рук.
+ * Частота шага (циклов в секунду) для скорости speed в фазе phase: путь опорной стопы в
+ * смеси походок за единицу фазы равен пройденному телом пути — стопа не скользит. Сцена
+ * копит фазу cycle += dt · gaitFreq(rig, speed, cycle).
  */
-function walkPose(u: number, v: number, t: number): Pose {
-  const run = ss((v - 2.1) / 0.9);
-  const amp = ss(v / 1.1);
-  const f = 0.6 + 0.4 * Math.min(3.2, v);
-  const D = 0.62 - 0.17 * run;
-  const travel = (v * D) / f;
-  const F = travel * 0.42;
-  const Bk = travel - F;
-  const Lf = 0.17;
-  const toe = 0.62 * amp;
-  const lift = (0.085 + 0.08 * run) * amp;
-  const foot = (p: number): [number, number, number] => {
-    if (p < D) {
-      const s = p / D;
-      let z = F - (F + Bk) * s;
-      let y = 0;
-      let pitch = s < 0.14 ? -0.24 * amp * (1 - s / 0.14) : 0;
-      if (s > 0.6) {
-        const phi = toe * ((s - 0.6) / 0.4) ** 1.6;
-        y += Lf * Math.sin(phi);
-        z += Lf * (1 - Math.cos(phi));
-        pitch = phi;
-      }
-      return [y, z, pitch];
-    }
-    const s = (p - D) / (1 - D);
-    const y0 = Lf * Math.sin(toe);
-    const z0 = -Bk + Lf * (1 - Math.cos(toe));
-    const z = z0 + (F - z0) * (0.5 - 0.5 * Math.cos(Math.PI * s));
-    const y = y0 * (1 - ss(s / 0.45)) + lift * Math.sin(Math.PI * Math.min(1, s * 1.1)) ** 0.8;
-    const pitch = toe + (-0.24 * amp - toe) * ss(s);
-    return [y, z, pitch];
-  };
-  const tau = Math.PI * 2;
-  const c = Math.cos(tau * u);
-  const ca = Math.cos(tau * (u - 0.06));
-  // Таз: ниже всего при двойной опоре, выше — над опорной ногой; на бегу наоборот.
-  const bob = 0.5 + 0.5 * Math.cos(2 * tau * u);
-  const vk = Math.min(1, v / 2.6);
-  const drop = (0.008 + 0.02 * vk + 0.03 * run) * amp + (0.03 + 0.02 * vk) * (run > 0.5 ? 1 - bob : bob) * amp;
-  const pelvis = -0.11 * amp * c * (1 - 0.4 * run);
-  const shoulders = 0.1 * amp * c;
-  const lean = 0.04 * amp + 0.13 * run;
-  const swing = (0.36 + 0.12 * run) * amp;
-  const elbow = (k: number): number => -(0.22 + 0.32 * Math.max(0, k) * amp) - 1.05 * run;
-  return {
-    rot: {
-      root: [0, pelvis, 0.035 * amp * Math.sin(tau * u)],
-      spine: [lean * 0.6, (shoulders - pelvis) * 0.45, -0.02 * amp * Math.sin(tau * u)],
-      chest: [lean * 0.4 + 0.01 * Math.sin(t * 1.6), (shoulders - pelvis) * 0.55, 0],
-      // Голова смотрит вперёд: шея гасит повороты плеч и наклон корпуса.
-      neck: [-lean * 0.7 + 0.015 * bob, -shoulders, 0],
-      // Рука впереди чуть отводится наружу, чтобы кисть не заходила на таз.
-      l_upper: [-0.04 + swing * ca, 0, 0.11 + 0.14 * Math.max(0, -ca) * amp + 0.04 * run],
-      r_upper: [-0.04 - swing * ca, 0, -0.11 - 0.14 * Math.max(0, ca) * amp - 0.04 * run],
-      l_fore: [elbow(-ca), 0, 0.08],
-      r_fore: [elbow(ca), 0, -0.08],
-      l_hand: [-0.12, 0, 0],
-      r_hand: [-0.12, 0, 0],
-    },
-    hip: [0.022 * amp * Math.cos(tau * (u - D / 2)), -drop, 0],
-    feet: { l: foot(u % 1), r: foot((u + 0.5) % 1), yaw: pelvis },
-  };
+export function gaitFreq(rig: Rig, speed: number, phase = 0): number {
+  const m = gaitMix(rig, speed, phase);
+  return m.u / (m.a!.stride * m.ra * (1 - m.w) + m.b!.stride * m.rb * m.w);
+}
+
+const poseA = makePose(BONES.length);
+const poseB = makePose(BONES.length);
+const tq = new THREE.Quaternion();
+
+/** Ставит позу клипа: повороты костей, таз (смещение от покоя) и ноги — по целям голеностопов. */
+function applyClip(rig: Rig, pose: ClipPose): void {
+  const r = legScale(rig);
+  BONES.forEach((b, i) => {
+    const bone = rig.bones[b];
+    bone.quaternion.fromArray(pose.q, i * 4);
+    if (b !== 'root') bone.position.copy(rig.rest[b]);
+  });
+  const p = pose.pos;
+  rig.bones.root.position.set(rig.rest.root.x + p[0]! * r, rig.rest.root.y + p[1]! * r, rig.rest.root.z + p[2]! * r);
+  // Голеностопы: по ширине — как у актёра (в масштабе ноги), по высоте и вперёд — от покоя.
+  let drop = 0;
+  for (const [side, o] of [['l', 3], ['r', 6]] as const) {
+    const ankle = restAnkle(rig, side);
+    const t = side === 'l' ? tgtL : tgtR;
+    t.set(p[o]! * r, ankle.y + (p[o + 1]! - CLIP_ANKLE[1]) * r, ankle.z + (p[o + 2]! - CLIP_ANKLE[2]) * r);
+    // Нога не дотягивается (пропорции не как у актёра) — таз опускается, а не стопа повисает.
+    tv.copy(rig.bones[`${side}_thigh`].position).applyQuaternion(rig.bones.root.quaternion).add(rig.bones.root.position);
+    const reach = REACH * (rig.thigh + rig.shin);
+    const h2 = (tv.x - t.x) ** 2 + (tv.z - t.z) ** 2;
+    const dy = tv.y - t.y;
+    if (dy * dy + h2 > reach * reach && h2 < reach * reach) drop = Math.max(drop, dy - Math.sqrt(reach * reach - h2));
+  }
+  rig.bones.root.position.y -= drop;
+  reachLeg(rig, 'l', tgtL);
+  reachLeg(rig, 'r', tgtR);
+}
+
+/** Насколько можно выпрямить ногу (доля длины): у прямой ноги колено «щёлкает». */
+const REACH = 0.985;
+const tgtL = new THREE.Vector3();
+const tgtR = new THREE.Vector3();
+const tv = new THREE.Vector3();
+
+const ankleRest = { l: new THREE.Vector3(), r: new THREE.Vector3() };
+/** Голеностоп в покое (координаты тела). */
+function restAnkle(rig: Rig, side: 'l' | 'r'): THREE.Vector3 {
+  return ankleRest[side].copy(rig.rest.root).add(rig.rest[`${side}_thigh`]).add(rig.rest[`${side}_shin`]).add(rig.rest[`${side}_foot`]);
+}
+
+const qT = new THREE.Quaternion();
+const qS = new THREE.Quaternion();
+const qF = new THREE.Quaternion();
+const qR = new THREE.Quaternion();
+const pH = new THREE.Vector3();
+const pK = new THREE.Vector3();
+const pA = new THREE.Vector3();
+const pK2 = new THREE.Vector3();
+const vU = new THREE.Vector3();
+const vN = new THREE.Vector3();
+const vX = new THREE.Vector3();
+const vY = new THREE.Vector3();
+
+/**
+ * Дотягивает ногу до цели голеностопа target (координаты тела): колено остаётся в той же
+ * плоскости, что и в позе клипа, бедро и голень поворачиваются кратчайшим путём, стопа
+ * сохраняет мировой поворот (лежит на полу так же, как у актёра).
+ */
+function reachLeg(rig: Rig, side: 'l' | 'r', target: THREE.Vector3): void {
+  const root = rig.bones.root;
+  const th = rig.bones[`${side}_thigh`];
+  const sh = rig.bones[`${side}_shin`];
+  const ft = rig.bones[`${side}_foot`];
+  // Текущая цепочка: тазобедренный сустав, колено, голеностоп и повороты в осях тела.
+  qR.copy(root.quaternion);
+  pH.copy(th.position).applyQuaternion(qR).add(root.position);
+  qT.copy(qR).multiply(th.quaternion);
+  pK.copy(sh.position).applyQuaternion(qT).add(pH);
+  qS.copy(qT).multiply(sh.quaternion);
+  pA.copy(ft.position).applyQuaternion(qS).add(pK);
+  qF.copy(qS).multiply(ft.quaternion);
+  const a = sh.position.length();
+  const b = ft.position.length();
+  vU.subVectors(target, pH);
+  const d = vU.length();
+  if (d < 1e-6) return;
+  vU.divideScalar(d);
+  const L = Math.min(a + b - 1e-4, Math.max(Math.abs(a - b) + 1e-4, d));
+  // Направление сгиба: колено от линии «таз — цель» (как в клипе; если нога прямая — вперёд).
+  vN.subVectors(pK, pH).addScaledVector(vU, -vU.dot(vX.subVectors(pK, pH)));
+  if (vN.lengthSq() < 1e-8) vN.set(0, 0, 1).applyQuaternion(qT).addScaledVector(vU, -vU.z);
+  vN.normalize();
+  const cb = (a * a + L * L - b * b) / (2 * a * L);
+  const sb = Math.sqrt(Math.max(0, 1 - cb * cb));
+  pK2.copy(pH).addScaledVector(vU, a * cb).addScaledVector(vN, a * sb);
+  // Бедро: кратчайший поворот старого направления на новое.
+  vX.subVectors(pK, pH).normalize();
+  vY.subVectors(pK2, pH).normalize();
+  tq.setFromUnitVectors(vX, vY);
+  qT.premultiply(tq);
+  // Голень: после поворота бедра — к цели.
+  vX.subVectors(pA, pK).applyQuaternion(tq).normalize();
+  vY.copy(pH).addScaledVector(vU, L).sub(pK2).normalize();
+  qS.premultiply(tq);
+  tq.setFromUnitVectors(vX, vY);
+  qS.premultiply(tq);
+  th.quaternion.copy(qR).invert().multiply(qT);
+  sh.quaternion.copy(qT).invert().multiply(qS);
+  ft.quaternion.copy(qS).invert().multiply(qF);
 }
 
 /** Поза для движения в момент t (с) с фазой повтора phase (0…1). */
@@ -843,8 +968,6 @@ function poseFor(motion: Motion, t: number, phase: number): Pose {
   const colon = motion.indexOf(':');
   if (colon > 0) return composedPose(motion.slice(0, colon) as Stance, motion.slice(colon + 1) as Act, t);
   switch (motion) {
-    case 'walk':
-      return walkPose(phase, 1.2, t);
     case 'squat':
       return {
         rot: { spine: [0.35 * k, 0, 0], chest: [0.15 * k, 0, 0], l_upper: [-1.35 * k, 0, 0.05], r_upper: [-1.35 * k, 0, -0.05], l_fore: [-0.15 * k, 0, 0], r_fore: [-0.15 * k, 0, 0] },
@@ -992,7 +1115,7 @@ export function handPose(rig: Rig, motion: Motion, t: number): Record<'l' | 'r',
     const q = new THREE.Quaternion();
     const pos = rig.rest.root.clone();
     if (p.hip) pos.add(new THREE.Vector3(...p.hip));
-    const chain: BoneName[] = ['root', 'spine', 'chest', `${sd}_upper`, `${sd}_fore`, `${sd}_hand`];
+    const chain: BoneName[] = ['root', 'spine', 'chest', `${sd}_clav`, `${sd}_upper`, `${sd}_fore`, `${sd}_hand`];
     chain.forEach((b, i) => {
       if (i > 0) pos.add(rig.rest[b].clone().applyQuaternion(q));
       const r = p.rot[b];
@@ -1008,8 +1131,6 @@ export function handPose(rig: Rig, motion: Motion, t: number): Record<'l' | 'r',
 /** Угол «вниз → направление» вокруг оси X: 0 — вниз, + — назад. */
 const sagittal = (d: THREE.Vector3): number => Math.atan2(-d.z, -d.y);
 
-const LEG_BONES: readonly BoneName[] = ['l_thigh', 'l_shin', 'l_foot', 'r_thigh', 'r_shin', 'r_foot'];
-const legPrev = new Float32Array(6);
 const tmpA = new THREE.Vector3();
 const tmpD = new THREE.Vector3();
 const tmpH = new THREE.Vector3();
@@ -1049,54 +1170,88 @@ function solveLeg(rig: Rig, side: 'l' | 'r', hip: THREE.Vector3, dy = 0, dz = 0,
   rig.bones[`${side}_foot`].rotation.x = -(th.rotation.x + sh.rotation.x) + pitch;
 }
 
-/** Применяет движение к скелету: motion в момент t, фаза повтора phase. */
+const prevQ = new Float32Array(BONES.length * 4);
+const prevRoot = new THREE.Vector3();
+const prevAnkle = { l: new THREE.Vector3(), r: new THREE.Vector3() };
+const nextAnkle = { l: new THREE.Vector3(), r: new THREE.Vector3() };
+
+/** Голеностоп в текущей позе (координаты тела). */
+function ankleAt(rig: Rig, side: 'l' | 'r', out: THREE.Vector3): THREE.Vector3 {
+  const root = rig.bones.root;
+  qT.copy(root.quaternion).multiply(rig.bones[`${side}_thigh`].quaternion);
+  qS.copy(qT).multiply(rig.bones[`${side}_shin`].quaternion);
+  return out
+    .copy(rig.bones[`${side}_foot`].position)
+    .applyQuaternion(qS)
+    .add(pK.copy(rig.bones[`${side}_shin`].position).applyQuaternion(qT))
+    .add(pH.copy(rig.bones[`${side}_thigh`].position).applyQuaternion(root.quaternion))
+    .add(root.position);
+}
+
 /**
  * Применяет движение к скелету: motion в момент t, фаза повтора phase. blend < 1 —
- * плавный переход от текущей позы (доля пути за кадр), 1 — сразу в позу.
+ * плавный переход от текущей позы (доля пути за кадр, сферическая интерполяция поворотов),
+ * 1 — сразу в позу. Ходьба (opts.speed — скорость, м/с сцены) и стойка — клипы захвата
+ * движения, остальное — процедурные позы.
  */
 export function animate(rig: Rig, motion: Motion, t: number, phase = 0, blend = 1, opts?: AnimOpts): void {
-  const p = motion === 'walk' ? walkPose(phase, legSpeed(rig, opts?.speed ?? 1.2) * LEG, t) : poseFor(motion, t, phase);
-  if (opts?.lean !== undefined) p.roll = opts.lean;
   const k = Math.min(1, Math.max(0, blend));
-  // Ноги по обратной кинематике при плавном переходе тоже смешиваются (без рывка).
-  const legIk = Boolean(p.feet || p.ik) && k < 1;
-  if (legIk) for (let i = 0; i < LEG_BONES.length; i += 1) legPrev[i] = rig.bones[LEG_BONES[i]!].rotation.x;
-  for (const b of BONES) {
-    const r = p.rot[b];
-    const bone = rig.bones[b];
-    const x = r ? r[0] : 0;
-    const y = r ? r[1] : 0;
-    const z = r ? r[2] : 0;
-    if (k >= 1) bone.rotation.set(x, y, z);
-    else bone.rotation.set(bone.rotation.x + (x - bone.rotation.x) * k, bone.rotation.y + (y - bone.rotation.y) * k, bone.rotation.z + (z - bone.rotation.z) * k);
-    if (b !== 'root') bone.position.copy(rig.rest[b]);
+  if (k < 1) {
+    BONES.forEach((b, i) => rig.bones[b].quaternion.toArray(prevQ, i * 4));
+    prevRoot.copy(rig.bones.root.position);
+    ankleAt(rig, 'l', prevAnkle.l);
+    ankleAt(rig, 'r', prevAnkle.r);
   }
-  const hip = tmpH.copy(rig.rest.root);
-  if (p.hip) {
-    hip.x += p.hip[0];
-    hip.y += p.hip[1];
-    hip.z += p.hip[2];
-  }
-  if (k < 1) hip.lerpVectors(rig.bones.root.position, hip, k);
-  rig.bones.root.position.copy(hip);
-  if (p.feet) {
-    // Шаг: в масштабе персонажа (высокие шагают шире) — стопы точно по своим целям.
-    const sc = (rig.thigh + rig.shin) / LEG;
-    const yaw = rig.bones.root.rotation.y;
-    solveLeg(rig, 'l', hip, p.feet.l[0] * sc, p.feet.l[1] * sc, p.feet.l[2], yaw);
-    solveLeg(rig, 'r', hip, p.feet.r[0] * sc, p.feet.r[1] * sc, p.feet.r[2], yaw);
-  } else if (p.ik) {
-    solveLeg(rig, 'l', hip);
-    solveLeg(rig, 'r', hip);
-  }
-  if (legIk)
-    for (let i = 0; i < LEG_BONES.length; i += 1) {
-      const b = rig.bones[LEG_BONES[i]!];
-      b.rotation.x = legPrev[i]! + (b.rotation.x - legPrev[i]!) * k;
+  let pitch = 0;
+  let lift = 0;
+  // Стопы стоят на полу: при переходе голеностопы идут по прямой, а не как придётся.
+  let planted = true;
+  if (motion === 'walk') {
+    const m = gaitMix(rig, opts?.speed ?? 1.2, phase);
+    applyClip(rig, mixPose(sampleClip(m.a!, m.pa, poseA), sampleClip(m.b!, m.pb, poseB), m.w, poseA));
+  } else if (motion === 'idle') {
+    const c = clipSet().idle;
+    applyClip(rig, sampleClip(c, t / c.duration, poseA));
+  } else {
+    const p = poseFor(motion, t, phase);
+    for (const b of BONES) {
+      const r = p.rot[b];
+      const bone = rig.bones[b];
+      if (r) bone.rotation.set(r[0], r[1], r[2]);
+      else bone.rotation.set(0, 0, 0);
+      if (b !== 'root') bone.position.copy(rig.rest[b]);
     }
-  const pitch = p.pitch ?? 0;
-  const lift = p.lift ?? 0;
-  const roll = p.roll ?? 0;
+    const hip = tmpH.copy(rig.rest.root);
+    if (p.hip) {
+      hip.x += p.hip[0];
+      hip.y += p.hip[1];
+      hip.z += p.hip[2];
+    }
+    rig.bones.root.position.copy(hip);
+    if (p.ik) {
+      solveLeg(rig, 'l', hip);
+      solveLeg(rig, 'r', hip);
+    }
+    planted = Boolean(p.ik);
+    pitch = p.pitch ?? 0;
+    lift = p.lift ?? 0;
+  }
+  if (k < 1) {
+    if (planted) {
+      ankleAt(rig, 'l', nextAnkle.l);
+      ankleAt(rig, 'r', nextAnkle.r);
+    }
+    BONES.forEach((b, i) => {
+      const q = rig.bones[b].quaternion;
+      tq.copy(q);
+      q.fromArray(prevQ, i * 4).slerp(tq, k);
+    });
+    rig.bones.root.position.lerpVectors(prevRoot, rig.bones.root.position, k);
+    if (planted)
+      // Цель — та же доля пути между прежним и новым положением голеностопа.
+      for (const side of ['l', 'r'] as const) reachLeg(rig, side, nextAnkle[side].lerpVectors(prevAnkle[side], nextAnkle[side], k));
+  }
+  const roll = opts?.lean ?? 0;
   rig.root.rotation.x = k >= 1 ? pitch : rig.root.rotation.x + (pitch - rig.root.rotation.x) * k;
   rig.root.rotation.z = k >= 1 ? roll : rig.root.rotation.z + (roll - rig.root.rotation.z) * k;
   rig.root.position.y = k >= 1 ? lift : rig.root.position.y + (lift - rig.root.position.y) * k;

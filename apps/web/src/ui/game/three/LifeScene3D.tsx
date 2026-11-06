@@ -866,7 +866,9 @@ export default function LifeScene3D(props: LifeScene3DProps) {
     let via: P2 | null = null;
     const detourFor: P2 = { x: Infinity, z: Infinity };
     let detours = 0;
-    const TOP = 2.6;
+    // Скорости (м сцены/с): бег трусцой со стиком и обычный шаг (как в записи ходьбы).
+    const TOP = 3.3;
+    const WALK = 1.8;
     const tick = (now: number): void => {
       raf = requestAnimationFrame(tick);
       const dt = Math.min(0.1, (now - prev) / 1000);
@@ -899,6 +901,8 @@ export default function LifeScene3D(props: LifeScene3DProps) {
         if (keys.has('d') || keys.has('arrowright') || keys.has('в')) dx += 1;
       }
       let mag = Math.min(1, Math.hypot(dx, dz));
+      // Стиком можно бежать трусцой, сам (к цели касания, к предмету) сим идёт шагом.
+      let top = TOP;
       if (mag > 0.05) {
         // Игрок держит управление — сим не перехватывает.
         p.goto.current = null;
@@ -926,9 +930,10 @@ export default function LifeScene3D(props: LifeScene3DProps) {
           dx = gx / d;
           dz = gz / d;
           mag = Math.min(1, d / 1.2 + 0.15);
+          top = WALK;
         }
       }
-      speed += ((mag > 0.05 ? TOP * mag : 0) - speed) * Math.min(1, dt * (mag > 0.05 ? 6 : 9));
+      speed += ((mag > 0.05 ? top * mag : 0) - speed) * Math.min(1, dt * (mag > 0.05 ? 6 : 9));
       const before = facing;
       if (mag > 0.05) facing += angleTo(facing, Math.atan2(dx, dz)) * Math.min(1, dt * 9);
       if (act && !act.approach) {
@@ -983,7 +988,7 @@ export default function LifeScene3D(props: LifeScene3DProps) {
         if (posed) animate(hero.rig, act!.motion, t, 0, 1 - Math.exp(-dt * 6));
         else if (speed > 0.06 && !exiting) {
           // Шаг: фаза копится по частоте шагов для этой скорости — стопы не скользят.
-          cycle = (cycle + dt * gaitFreq(hero.rig, speed)) % 1;
+          cycle = (cycle + dt * gaitFreq(hero.rig, speed, cycle)) % 1;
           animate(hero.rig, 'walk', t, cycle, walkBlend < 1 ? 1 - Math.exp(-dt * 12) : 1, { speed, lean });
           walkBlend = Math.min(1, walkBlend + dt * 4);
         } else {
