@@ -1,4 +1,5 @@
 import type { ExerciseId } from '../tracking/exercise';
+import type { GymExtraId } from './lifeContent';
 import type { StatId } from './config';
 import type { Figure, HairStyle } from './state';
 
@@ -202,6 +203,10 @@ export interface LifeState {
   fat: number;
   /** Уровень зала 0…4. */
   gym: number;
+  /** Купленные удобства зала. */
+  gymExtras: GymExtraId[];
+  /** Ступень жилья 0…3. */
+  house: number;
   clients: Client[];
   /** Счётчик для id новых учеников. */
   nextClient: number;

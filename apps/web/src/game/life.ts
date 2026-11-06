@@ -4,7 +4,7 @@ import { addDays, daysBetween } from './dates';
 import type { GameEvent } from './engine';
 import type { Slot } from './items';
 import { levelOf } from './levels';
-import { ACTIONS, BOWL_MAX, CAT_BREEDS, CAT_RATES, LITTER_DIRTY, WATER_RATE, CAT_NAMES, CLIENT_NAMES, FURNITURE, GYMS, GYM_HOURS, HOME_OBJECTS, LIFE_EVENTS, MAX_CATS, OBJECTS, SESSION_EXERCISES, actionById, catBreedById, lifeEventById, mountOf, slotsFor } from './lifeContent';
+import { ACTIONS, GYM_EXTRAS, HOUSES, gymExtraById, type GymExtraId, BOWL_MAX, CAT_BREEDS, CAT_RATES, LITTER_DIRTY, WATER_RATE, CAT_NAMES, CLIENT_NAMES, FURNITURE, GYMS, GYM_HOURS, HOME_OBJECTS, LIFE_EVENTS, MAX_CATS, OBJECTS, SESSION_EXERCISES, actionById, catBreedById, lifeEventById, mountOf, slotsFor } from './lifeContent';
 import { rng } from './random';
 import type { Appearance, BodyPart, GameState, HairStyle } from './state';
 import { NEEDS, SKILLS, type ActionDef, type Cat, type CatBreed, type Client, type LifeEffect, type LifeResult, type LifeState, type NeedId, type ObjectId, type SkillId, type Txt } from './lifeTypes';
@@ -40,6 +40,8 @@ export function newLife(): LifeState {
     litter: 0,
     fat: 0,
     gym: 0,
+    gymExtras: [],
+    house: 0,
     clients: [firstClient()],
     nextClient: 2,
     session: null,
@@ -78,6 +80,8 @@ export function migrateLife(raw: Partial<LifeState> | undefined): LifeState {
     litter: typeof r.litter === 'number' ? r.litter : 0,
     fat: typeof r.fat === 'number' ? r.fat : 0,
     gym: typeof r.gym === 'number' ? r.gym : 0,
+    gymExtras: Array.isArray(r.gymExtras) ? r.gymExtras.filter((x) => GYM_EXTRAS.some((g) => g.id === x)) : [],
+    house: typeof r.house === 'number' ? Math.max(0, Math.min(HOUSES.length - 1, r.house)) : 0,
     clients: Array.isArray(r.clients) && r.clients.length ? r.clients : base.clients,
     nextClient: typeof r.nextClient === 'number' ? r.nextClient : base.nextClient,
     session: r.session ?? null,
@@ -130,7 +134,9 @@ const HAIR: Record<'male' | 'female', HairStyle[]> = { male: ['short', 'buzz', '
 export function makeClient(id: number, level: number, day: number): Client {
   const r = rng(`client:${id}`);
   const figure = r() < 0.5 ? 'female' : 'male';
+  // Первый ученик — максимально полный; с уровнем тренера новички приходят всё спортивнее.
   const fit = clamp((level - 1) / 12, 0, 1);
+  const spread = level <= 1 ? 0 : (r() - 0.5) * 0.12;
   return {
     id: `c${id}`,
     seed: id,
@@ -139,8 +145,8 @@ export function makeClient(id: number, level: number, day: number): Client {
     skin: Math.floor(r() * 6),
     hairColor: Math.floor(r() * 4),
     name: Math.floor(r() * CLIENT_NAMES[figure].length),
-    fat: clamp(1 - fit * 1.25 + (r() - 0.5) * 0.15, -0.35, 1),
-    muscle: clamp(-0.6 + fit * 1.1 + (r() - 0.5) * 0.15, -0.6, 0.8),
+    fat: clamp(1 - fit * 1.25 + spread, -0.35, 1),
+    muscle: clamp(-0.6 + fit * 1.1 + spread * 0.8, -0.6, 0.8),
     sessions: 0,
     loyalty: 60,
     joined: day,
@@ -185,9 +191,38 @@ function recruit(s: GameState, notes: Txt[], force = false): void {
   notes.push(t(`Новый ученик: ${clientName(c).ru}`, `New client: ${clientName(c).en}`));
 }
 
-/** Цена занятия с одного ученика. */
+/** Комфорт зала: базовый у ступени плюс купленные удобства. */
+export function gymComfort(life: LifeState): number {
+  return (GYMS[life.gym]?.comfort ?? 0) + life.gymExtras.reduce((a, id) => a + (gymExtraById(id)?.comfort ?? 0), 0);
+}
+
+/** Множители оплаты: размер зала, комфорт (+5% за единицу), обаяние тренера. */
+export function payFactors(s: GameState): { base: number; size: number; comfort: number; charisma: number } {
+  return {
+    base: 10 + 4 * trainerLevel(s),
+    size: GYMS[s.life.gym]!.mult,
+    comfort: 1 + 0.05 * gymComfort(s.life),
+    charisma: 1 + 0.03 * skillLevel(s.life.skills.charisma),
+  };
+}
+
+/** Базовая ставка с ученика (без учёта его формы). */
 export function fee(s: GameState): number {
-  return Math.round((10 + 4 * trainerLevel(s)) * GYMS[s.life.gym]!.mult * (1 + 0.03 * skillLevel(s.life.skills.charisma)));
+  const f = payFactors(s);
+  return Math.round(f.base * f.size * f.comfort * f.charisma);
+}
+
+/** Насколько атлетичный ученик платит больше: ×0,6 (очень полный) … ×1,5 (в отличной форме). */
+export const athleteFactor = (c: Client): number => 0.6 + 0.9 * clientForm(c);
+
+/** Сколько платит ученик за занятие. */
+export function clientFee(s: GameState, c: Client): number {
+  return Math.round(fee(s) * athleteFactor(c));
+}
+
+/** Оплата занятия: сумма по ученикам (по умолчанию — все текущие). */
+export function sessionPay(s: GameState, clients: readonly Client[] = s.life.clients): number {
+  return clients.reduce((a, c) => a + clientFee(s, c), 0);
 }
 
 const FIT_FACTOR = { beginner: 0.7, intermediate: 1, advanced: 1.3 } as const;
@@ -233,7 +268,8 @@ export const litterDirty = (life: LifeState): boolean => life.cats.length > 0 &&
 /** Уют дома: декор, мебель и кошки (до 15); грязный лоток его портит. */
 export function comfort(life: LifeState): number {
   const items = life.furniture.reduce((a, id) => a + (OBJECTS[id].comfort ?? 0), 0);
-  return Math.max(0, Math.min(15, items + life.cats.length * 2) - (litterDirty(life) ? 4 : 0));
+  const space = HOUSES[life.house]?.comfort ?? 0;
+  return Math.max(0, Math.min(22, items + life.cats.length * 2 + space) - (litterDirty(life) ? 4 : 0));
 }
 
 /** Настроение кошки 0…100: сытость, игра, туалет; грязный лоток, пустые миски с кормом и водой — хуже. */
@@ -477,7 +513,7 @@ function completeSession(s: GameState, completion: number): void {
   life.session = null;
   const tally = startTally();
   const attending = life.clients.filter((c) => sess.clients.includes(c.id));
-  const pay = Math.round(fee(s) * attending.length * completion);
+  const pay = Math.round(sessionPay(s, attending) * completion);
   s.gold += pay;
   tally.money += pay;
   life.stats.earned += pay;
@@ -493,7 +529,7 @@ function completeSession(s: GameState, completion: number): void {
   if (completion < 1) tally.notes.push(t('Занятие прервано — оплата за выполненную часть.', 'The class was cut short — paid for the part done.'));
   recruit(s, tally.notes);
   const minutes = 60 + collapse(s, tally);
-  finish(s, '📣', t(`Занятие: ${attending.length} уч. × ${fee(s)}`, `Class: ${attending.length} clients × ${fee(s)}`), completion >= 1, minutes, tally);
+  finish(s, '📣', t(`Занятие: ${attending.length} уч., +${pay} ◈`, `Class: ${attending.length} clients, +${pay} ◈`), completion >= 1, minutes, tally);
 }
 
 /** Закончить занятие досрочно (выход из тренировки). */
@@ -581,7 +617,7 @@ export function furnitureBlocker(s: GameState, id: ObjectId): FurnitureBlocker {
   const o = OBJECTS[id];
   if (o.price === undefined || s.life.furniture.includes(id)) return 'owned';
   const mount = mountOf(id);
-  if (s.life.furniture.filter((x) => mountOf(x) === mount).length >= slotsFor(mount)) return 'space';
+  if (s.life.furniture.filter((x) => mountOf(x) === mount).length >= slotsFor(mount, s.life.house)) return 'space';
   if (s.gold < o.price) return 'money';
   return null;
 }
@@ -597,8 +633,8 @@ export function buyFurniture(state: GameState, id: ObjectId): GameState {
 export function sellFurniture(state: GameState, id: ObjectId): GameState {
   if (!state.life.furniture.includes(id)) return state;
   const s = structuredClone(state);
+  // Деньги приносят только занятия: убранная вещь ничего не возвращает.
   s.life.furniture = s.life.furniture.filter((x) => x !== id);
-  s.gold += Math.round((OBJECTS[id].price ?? 0) * 0.4);
   return s;
 }
 
@@ -607,7 +643,7 @@ export function sellFurniture(state: GameState, id: ObjectId): GameState {
 export type CatBlocker = 'max' | 'money' | null;
 
 export function catBlocker(s: GameState, breed: CatBreed): CatBlocker {
-  if (s.life.cats.length >= MAX_CATS) return 'max';
+  if (s.life.cats.length >= maxCats(s.life)) return 'max';
   if (s.gold < catBreedById(breed).price) return 'money';
   return null;
 }
@@ -662,6 +698,54 @@ export function upgradeGym(state: GameState): GameState {
   const tally = startTally();
   recruit(s, tally.notes);
   finish(s, GYMS[s.life.gym]!.icon, GYMS[s.life.gym]!.name, true, 0, tally);
+  return s;
+}
+
+// ─── Удобства зала ──────────────────────────────────────────────────────
+
+export type ExtraBlocker = 'owned' | 'gym' | 'money' | null;
+
+export function extraBlocker(s: GameState, id: GymExtraId): ExtraBlocker {
+  const def = gymExtraById(id);
+  if (!def || s.life.gymExtras.includes(id)) return 'owned';
+  if (s.life.gym < def.gym) return 'gym';
+  if (s.gold < def.price) return 'money';
+  return null;
+}
+
+/** Купить удобство в зал: растёт комфорт, а с ним — оплата каждого занятия. */
+export function buyExtra(state: GameState, id: GymExtraId): GameState {
+  if (extraBlocker(state, id)) return state;
+  const s = structuredClone(state);
+  s.gold -= gymExtraById(id)!.price;
+  s.life.gymExtras.push(id);
+  return s;
+}
+
+// ─── Жильё ─────────────────────────────────────────────────────────────
+
+/** Сколько кошек помещается в жильё. */
+export const maxCats = (life: LifeState): number => HOUSES[life.house]?.cats ?? MAX_CATS;
+
+export type HouseBlocker = 'max' | 'level' | 'money' | null;
+
+export function houseBlocker(s: GameState): HouseBlocker {
+  const next = HOUSES[s.life.house + 1];
+  if (!next) return 'max';
+  if (trainerLevel(s) < next.level) return 'level';
+  if (s.gold < next.cost) return 'money';
+  return null;
+}
+
+/** Расширить жильё: комната больше, мест для мебели и декора больше; вещи переезжают с вами. */
+export function upgradeHouse(state: GameState): GameState {
+  if (houseBlocker(state)) return state;
+  const s = structuredClone(state);
+  s.life.house += 1;
+  const h = HOUSES[s.life.house]!;
+  s.gold -= h.cost;
+  const tally = startTally();
+  finish(s, h.icon, h.name, true, 0, tally);
   return s;
 }
 

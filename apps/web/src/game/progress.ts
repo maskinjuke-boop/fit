@@ -1,4 +1,4 @@
-import { streakGoldBonus, type StatId } from './config';
+import type { StatId } from './config';
 import type { GameEvent } from './engine';
 import { levelOf } from './levels';
 import type { GameState } from './state';
@@ -17,10 +17,11 @@ export function addXp(s: GameState, amount: number, stat: StatId | null, events:
   }
 }
 
-/** Золото с бонусом стрика (+5% за каждые 7 дней, до +25%). */
+/**
+ * Награда за квест или задание: только опыт. Деньги в игре приносят только
+ * проведённые занятия с учениками, поэтому золото из наград не начисляется.
+ */
 export function grantReward(s: GameState, reward: { xp: number; gold: number }, events: GameEvent[]): { xp: number; gold: number } {
-  const gold = Math.round(reward.gold * (1 + streakGoldBonus(s.streak.count)));
-  s.gold += gold;
   addXp(s, reward.xp, null, events);
-  return { xp: reward.xp, gold };
+  return { xp: reward.xp, gold: 0 };
 }

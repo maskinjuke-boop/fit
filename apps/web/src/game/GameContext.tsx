@@ -20,7 +20,8 @@ import {
 import type { Slot } from './items';
 import { createState, type Appearance, type Character, type GameState } from './state';
 import { clearGame, loadGame, saveGame } from './storage';
-import { act, adoptCat, answerEvent, buyFurniture, rehomeCat, dismissResult, endSession, sellFurniture, startSession, upgradeGym, type LifeOutcome } from './life';
+import { act, adoptCat, answerEvent, buyExtra, buyFurniture, rehomeCat, dismissResult, endSession, sellFurniture, startSession, upgradeGym, upgradeHouse, type LifeOutcome } from './life';
+import type { GymExtraId } from './lifeContent';
 import type { CatBreed, ObjectId } from './lifeTypes';
 
 /** Действия режима администратора. */
@@ -47,6 +48,8 @@ export interface LifeActions {
   startSession(exercise: ExerciseId): void;
   endSession(): void;
   upgradeGym(): void;
+  upgradeHouse(): void;
+  buyExtra(id: GymExtraId): void;
   buyFurniture(id: ObjectId): void;
   sellFurniture(id: ObjectId): void;
   adoptCat(breed: CatBreed): void;
@@ -223,6 +226,8 @@ export function GameProvider({ children }: { children: ReactNode }) {
       startSession: (e) => plain((s) => startSession(s, e)),
       endSession: () => plain(endSession),
       upgradeGym: () => plain(upgradeGym),
+      upgradeHouse: () => plain(upgradeHouse),
+      buyExtra: (id) => plain((s) => buyExtra(s, id)),
       buyFurniture: (id) => plain((s) => buyFurniture(s, id)),
       sellFurniture: (id) => plain((s) => sellFurniture(s, id)),
       adoptCat: (b) => plain((s) => adoptCat(s, b)),

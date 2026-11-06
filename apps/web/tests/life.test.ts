@@ -4,6 +4,15 @@ import { xpForLevel } from '../src/game/levels';
 import {
   act,
   adoptCat,
+  buyExtra,
+  clientFee,
+  extraBlocker,
+  gymComfort,
+  houseBlocker,
+  maxCats,
+  sellFurniture,
+  sessionPay,
+  upgradeHouse,
   answerEvent,
   AUTO_RESERVE,
   autoAction,
@@ -35,7 +44,7 @@ import {
   trainerLevel,
   upgradeGym,
 } from '../src/game/life';
-import { ACTIONS, BOWL_MAX, CAT_BREEDS, LITTER_DIRTY, FURNITURE, GYMS, HOUSE_SLOTS, LIFE_EVENTS, MAX_CATS, OBJECTS, SESSION_EXERCISES, actionById, lifeEventById, mountOf, slotsFor } from '../src/game/lifeContent';
+import { ACTIONS, GYM_EXTRAS, HOUSES, BOWL_MAX, CAT_BREEDS, LITTER_DIRTY, FURNITURE, GYMS, HOUSE_SLOTS, LIFE_EVENTS, MAX_CATS, OBJECTS, SESSION_EXERCISES, actionById, lifeEventById, mountOf, slotsFor } from '../src/game/lifeContent';
 import { RUN_SPEED, STICK_WALK, WALK_SPEED, blocked, bounds, clientSpot, detourPoint, freeSpot, gymGear, gymLayout, homeLayout, homeObstacles, resolve, spawn, stickSpeed, type Box, type P2 } from '../src/game/lifeMap';
 import type { Txt } from '../src/game/lifeTypes';
 import { itemById } from '../src/game/items';
@@ -119,9 +128,18 @@ describe('содержимое тренера', () => {
       inside('gym', p.use);
     }
     for (let i = 0; i < 10; i += 1) inside('gym', clientSpot(i));
-    for (const g of gymGear(4)) inside('gym', g.pos);
+    // Оборудование каждой ступени — внутри зала своего размера.
+    for (let tier = 0; tier < GYMS.length; tier += 1) {
+      const b = bounds('gym', tier);
+      for (const g of gymGear(tier, GYM_EXTRAS.filter((x) => x.gym <= tier).map((x) => x.id))) {
+        expect(g.pos.x).toBeGreaterThanOrEqual(b.x0 - 0.5);
+        expect(g.pos.x).toBeLessThanOrEqual(b.x1 + 0.5);
+        expect(g.pos.z).toBeGreaterThanOrEqual(b.z0 - 0.5);
+        expect(g.pos.z).toBeLessThanOrEqual(b.z1 + 0.5);
+      }
+    }
     // До каждого места использования можно дойти: точка не внутри препятствия.
-    const boxes = [...gymLayout(true, true), ...gymGear(4)].map((x) => x.box).filter((b) => b !== null);
+    const boxes = [...gymLayout(true, true), ...gymGear(2)].map((x) => x.box).filter((b) => b !== null);
     for (const p of gymLayout(true, true)) {
       const r = resolve(p.use, bounds('gym'), boxes);
       expect(Math.hypot(r.x - p.use.x, r.z - p.use.z)).toBeLessThan(0.3);
@@ -171,7 +189,9 @@ describe('быт', () => {
     s.life.event = { id: 'blogger' };
     const next = answerEvent(s, 'yes');
     expect(next.life.event).toBe(null);
-    expect(next.gold).toBe(s.gold + 40);
+    // Деньги — только за занятия: событие даёт доверие и обаяние, но не деньги.
+    expect(next.gold).toBe(s.gold);
+    expect(next.life.skills.charisma).toBeGreaterThan(s.life.skills.charisma);
   });
 
   it('навык растёт с опытом', () => {
@@ -423,12 +443,14 @@ describe('самостоятельность сима', () => {
     s.gold = 2000;
     s = adoptCat(s, 'ginger');
     for (const id of ['bookshelf', 'smart_speaker', 'computer', 'easel'] as const) s = buyFurniture(s, id);
-    s.gold = 150;
+    // Деньги приносят только занятия (их сим сам не проводит) — запас на продукты и корм.
+    s.gold = 1500;
     const start = s.gold;
     const recent: string[] = [];
     const count = new Map<string, number>();
     let minGold = s.gold;
     let low = 0;
+    const cheapSpend = new Set<string>();
     for (let i = 0; i < 600 && recent.length < 400; i += 1) {
       if (s.life.event) {
         s = answerEvent(s, lifeEventById(s.life.event.id)!.choices.find((c) => !c.cost)!.id);
@@ -436,7 +458,9 @@ describe('самостоятельность сима', () => {
       }
       const a = autoAction(s, recent);
       if (!a) break;
+      const before = s.gold;
       s = act(s, a.id).state;
+      if (before < AUTO_RESERVE && s.gold < before) cheapSpend.add(a.id);
       recent.push(a.id);
       count.set(a.id, (count.get(a.id) ?? 0) + 1);
       minGold = Math.min(minGold, s.gold);
@@ -446,8 +470,11 @@ describe('самостоятельность сима', () => {
     // Ни одно дело не занимает больше четверти времени.
     for (const [, n] of count) expect(n).toBeLessThan(100);
     expect(count.size).toBeGreaterThanOrEqual(8);
-    // Деньги: тратит только на нужное, запас остаётся.
-    expect(minGold).toBeGreaterThanOrEqual(Math.min(start, AUTO_RESERVE) - 35);
+    // Деньги приносят только занятия, которые сим сам не проводит: ниже запаса он тратит
+    // только на самое нужное (продукты, еду, корм) и не уходит в минус.
+    expect(minGold).toBeGreaterThanOrEqual(0);
+    expect(start).toBeGreaterThan(0);
+    for (const id of cheapSpend) expect(['groceries', 'order', 'fill_bowl']).toContain(id);
     // Кошка сыта, лоток не зарос: сим сам насыпает корм и убирает.
     expect(count.get('fill_bowl') ?? 0).toBeGreaterThan(0);
     expect(count.get('clean_litter') ?? 0).toBeGreaterThan(0);
@@ -785,5 +812,109 @@ describe('фигура и сохранения', () => {
     expect(m.life.day).toBe(1);
     expect(m.inventory).toEqual([]);
     expect(m.equipped).toEqual({});
+  });
+});
+
+describe('деньги только с занятий, жильё и удобства зала', () => {
+  it('ничто, кроме занятий, не приносит денег: события, действия, достижения, задания, продажа вещей', () => {
+    for (const a of ACTIONS) expect(a.effect.money ?? 0).toBeLessThanOrEqual(0);
+    for (const e of LIFE_EVENTS) for (const c of e.choices) expect(c.effect.money ?? 0).toBeLessThanOrEqual(0);
+    // Продажа мебели ничего не возвращает.
+    let s = hero();
+    s.gold = 1000;
+    s = buyFurniture(s, 'bookshelf');
+    const g = s.gold;
+    expect(sellFurniture(s, 'bookshelf').gold).toBe(g);
+    // Повторы перед камерой (квесты, задания, достижения) дают опыт, но не деньги.
+    let r = ensureDay(hero(), now).state;
+    const g0 = r.gold;
+    for (let i = 0; i < 300; i += 1) r = applyRep(r, { exercise: i % 2 ? 'squat' : 'pushup', quality: 95 }, now).state;
+    expect(r.gold).toBe(g0);
+    expect(r.totalXp).toBeGreaterThan(0);
+  });
+
+  it('оплата занятия растёт с числом учеников, их атлетичностью, размером и комфортом зала', () => {
+    const s = inGym(10);
+    const heavy = { ...s.life.clients[0]!, fat: 1, muscle: -0.6 };
+    const fit = { ...heavy, id: 'cX', fat: -0.3, muscle: 0.7 };
+    expect(clientFee(s, fit)).toBeGreaterThan(clientFee(s, heavy) * 2);
+    expect(sessionPay(s, [heavy, heavy])).toBe(2 * clientFee(s, heavy));
+    const big = structuredClone(s);
+    big.life.gym = 3;
+    expect(fee(big)).toBeGreaterThan(fee(s));
+    const cosy = structuredClone(s);
+    cosy.gold = 1e5;
+    const before = fee(cosy);
+    const c2 = buyExtra(buyExtra(cosy, 'gym_cooler'), 'gym_music');
+    expect(gymComfort(c2.life)).toBe(gymComfort(cosy.life) + 3);
+    expect(fee(c2)).toBeGreaterThan(before);
+    // Удобства по ступени зала.
+    expect(extraBlocker(cosy, 'gym_sauna')).toBe('gym');
+    expect(extraBlocker(c2, 'gym_cooler')).toBe('owned');
+    // Оплата приходит после занятия.
+    let run = startSession(s, 'squat');
+    const target = run.life.session!.target;
+    const expected = sessionPay(run);
+    const g = run.gold;
+    for (let i = 0; i < target; i += 1) run = applyRep(run, { exercise: 'squat', quality: 90 }, now).state;
+    // За занятие тренер может подрасти в уровне — тогда ставка уже новая.
+    expect(run.gold - g).toBeGreaterThanOrEqual(expected);
+  });
+
+  it('на первом уровне один максимально полный ученик; с уровнем новички спортивнее', () => {
+    expect(makeClient(1, 1, 1).fat).toBe(1);
+    let prev = 2;
+    for (const level of [1, 3, 5, 7, 9, 11, 13]) {
+      let sum = 0;
+      for (let i = 1; i <= 20; i += 1) sum += makeClient(i, level, 1).fat;
+      expect(sum / 20).toBeLessThan(prev);
+      prev = sum / 20;
+    }
+  });
+
+  it('жильё расширяется: нужен уровень и деньги, больше мест, уюта и кошек; вещи на месте', () => {
+    let s = hero();
+    s.gold = 1e5;
+    expect(houseBlocker(s)).toBe('level');
+    s = withLevel(s, 4);
+    expect(houseBlocker(s)).toBe(null);
+    for (const id of FURNITURE.filter((x) => mountOf(x) === 'slot').slice(0, slotsFor('slot', 0))) s = buyFurniture(s, id);
+    const extra = FURNITURE.find((x) => mountOf(x) === 'slot' && !s.life.furniture.includes(x))!;
+    expect(furnitureBlocker(s, extra)).toBe('space');
+    const comfortBefore = comfort(s.life);
+    const up = upgradeHouse(s);
+    expect(up.life.house).toBe(1);
+    expect(up.gold).toBe(s.gold - HOUSES[1]!.cost);
+    expect(furnitureBlocker(up, extra)).toBe(null);
+    expect(comfort(up.life)).toBeGreaterThan(comfortBefore);
+    expect(maxCats(up.life)).toBeGreaterThan(maxCats(s.life));
+    // Вся мебель и предметы помещаются в каждом доме и лежат в его границах.
+    for (let tier = 0; tier < HOUSES.length; tier += 1) {
+      const b = bounds('home', tier);
+      const placed = homeLayout(FURNITURE, true, tier);
+      for (const p of placed) {
+        expect(p.pos.x).toBeGreaterThanOrEqual(b.x0 - 0.5);
+        expect(p.pos.x).toBeLessThanOrEqual(b.x1 + 0.5);
+        expect(p.pos.z).toBeGreaterThanOrEqual(b.z0 - 0.5);
+        expect(p.pos.z).toBeLessThanOrEqual(b.z1 + 0.5);
+      }
+      const used = placed.filter((p) => FURNITURE.includes(p.id) && mountOf(p.id) === 'slot').length;
+      expect(used).toBe(Math.min(slotsFor('slot', tier), FURNITURE.filter((x) => mountOf(x) === 'slot').length));
+      // Места не налезают друг на друга.
+      const boxes = placed.map((p) => p.box).filter((x): x is NonNullable<typeof x> => x !== null);
+      for (let i = 0; i < boxes.length; i += 1)
+        for (let j = i + 1; j < boxes.length; j += 1) {
+          const a = boxes[i]!;
+          const c = boxes[j]!;
+          const overlap = a.x0 < c.x1 - 0.01 && c.x0 < a.x1 - 0.01 && a.z0 < c.z1 - 0.01 && c.z0 < a.z1 - 0.01;
+          expect(overlap).toBe(false);
+        }
+      const sp = spawn('home', tier);
+      expect(sp.x).toBeGreaterThanOrEqual(b.x0);
+    }
+    // Старое сохранение — начальная квартира, без удобств зала.
+    const m = migrateLife({ day: 3 } as never);
+    expect(m.house).toBe(0);
+    expect(m.gymExtras).toEqual([]);
   });
 });

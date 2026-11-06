@@ -88,10 +88,9 @@ export function App() {
     s.reps += 1;
     for (const e of events) {
       if (e.kind === 'xp') s.xp += e.amount;
-      if (e.kind === 'questDone' || e.kind === 'dailyDone' || e.kind === 'dailyBonus') {
-        s.xp += e.xp;
-        s.gold += e.gold;
-      }
+      if (e.kind === 'questDone' || e.kind === 'dailyDone' || e.kind === 'dailyBonus') s.xp += e.xp;
+      // Деньги — только за проведённое занятие.
+      if (e.kind === 'sessionDone') s.gold += e.pay;
       if (e.kind !== 'xp') s.events.push(e);
     }
     return events;

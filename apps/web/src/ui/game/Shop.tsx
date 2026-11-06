@@ -1,5 +1,5 @@
-import { actionsAt, catBlocker, catName, comfort, effectiveAppearance, furnitureBlocker } from '../../game/life';
-import { CAT_BREEDS, FURNITURE, MAX_CATS, OBJECTS, catBreedById, mountOf, slotsFor, type HomeKind } from '../../game/lifeContent';
+import { actionsAt, catBlocker, catName, comfort, effectiveAppearance, furnitureBlocker, maxCats } from '../../game/life';
+import { CAT_BREEDS, FURNITURE, OBJECTS, catBreedById, mountOf, slotsFor, type HomeKind } from '../../game/lifeContent';
 import type { ObjectId } from '../../game/lifeTypes';
 import { useState, type MouseEvent } from 'react';
 import { canBuy, equipmentBonus } from '../../game/engine';
@@ -154,7 +154,7 @@ function HomeSheet({ state, id, onClose }: { state: GameState; id: ObjectId; onC
                 onClose();
               }}
             >
-              {tf('life.sell', { n: Math.round((o.price ?? 0) * 0.4) })}
+              {t('life.remove')}
             </button>
           ) : (
             <button
@@ -183,7 +183,7 @@ function HomeShop({ state }: { state: GameState }) {
   return (
     <>
       <p className="muted small">
-        {tf('home.places', { a: used('slot'), am: slotsFor('slot'), b: used('wall'), bm: slotsFor('wall'), c: used('floor'), cm: slotsFor('floor') })} · {tf('home.comfortNow', { n: comfort(state.life) })}
+        {tf('home.places', { a: used('slot'), am: slotsFor('slot', state.life.house), b: used('wall'), bm: slotsFor('wall', state.life.house), c: used('floor'), cm: slotsFor('floor', state.life.house) })} · {tf('home.comfortNow', { n: comfort(state.life) })}
       </p>
       <div className="chips">
         {(['all', 'furniture', 'tech', 'decor'] as const).map((k) => (
@@ -222,7 +222,7 @@ function CatShop({ state }: { state: GameState }) {
   const cats = state.life.cats;
   return (
     <>
-      <p className="muted small">{tf('cats.hint', { n: cats.length, m: MAX_CATS })}</p>
+      <p className="muted small">{tf('cats.hint', { n: cats.length, m: maxCats(state.life) })}</p>
       {cats.length > 0 && (
         <ul className="life-list cats-own">
           {cats.map((c) => (

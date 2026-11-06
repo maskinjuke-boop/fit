@@ -13,7 +13,12 @@ import {
   clock,
   dailyQuota,
   effectiveAppearance,
-  fee,
+  clientFee,
+  extraBlocker,
+  gymComfort,
+  houseBlocker,
+  payFactors,
+  sessionPay,
   fitness,
   catMood,
   catName,
@@ -31,7 +36,7 @@ import {
   SKILL_NAME,
   type Blocker,
 } from '../../game/life';
-import { BOWL_MAX, GYMS, GYM_HOURS, OBJECTS, SESSION_EXERCISES, actionById, catBreedById, lifeEventById } from '../../game/lifeContent';
+import { BOWL_MAX, GYMS, GYM_EXTRAS, GYM_HOURS, HOUSES, OBJECTS, SESSION_EXERCISES, actionById, catBreedById, lifeEventById } from '../../game/lifeContent';
 import { gymLayout, homeLayout, type P2 } from '../../game/lifeMap';
 import { NEEDS, SKILLS, type ActionDef, type Client, type NeedId, type ObjectId } from '../../game/lifeTypes';
 import { useI18n, type I18nKey } from '../../i18n';
@@ -43,7 +48,7 @@ import { HeroPortrait } from './Renders';
 const LifeScene3D = lazy(() => import('./three/LifeScene3D'));
 
 /** Предметы текущей локации (для похода сима к ним). */
-const layoutOf = (st: GameState) => (st.life.scene === 'home' ? homeLayout(st.life.furniture, st.life.cats.length > 0) : gymLayout(GYMS[st.life.gym]!.shower, GYMS[st.life.gym]!.bar));
+const layoutOf = (st: GameState) => (st.life.scene === 'home' ? homeLayout(st.life.furniture, st.life.cats.length > 0, st.life.house) : gymLayout(GYMS[st.life.gym]!.shower, GYMS[st.life.gym]!.bar, st.life.gym));
 
 /** Нужные поля события указателя (общие для React и DOM). */
 interface PointerLike {
@@ -271,7 +276,7 @@ function SessionSheet({ state, onPick }: { state: GameState; onPick(ex: Exercise
   return (
     <div>
       <p className="muted small">{t('life.sessionPick')}</p>
-      <p className="small">{tf('life.fee', { n: fee(state) })}</p>
+      <p className="small">{tf('life.payNow', { n, pay: sessionPay(state) })}</p>
       <ul className="life-list">
         {SESSION_EXERCISES.map(([ex]) => {
           const reps = sessionTarget(state, ex);
@@ -279,7 +284,7 @@ function SessionSheet({ state, onPick }: { state: GameState; onPick(ex: Exercise
             <li key={ex}>
               <div>
                 <b>{t(`exercise.${ex}` as I18nKey)}</b>
-                <div className="muted small">{tf('life.sessionLine', { n: reps, pay: fee(state) * n })}</div>
+                <div className="muted small">{tf('life.sessionLine', { n: reps, pay: sessionPay(state) })}</div>
               </div>
               <button className="btn small primary" onClick={() => onPick(ex)}>
                 {t('life.sessionGo')}
@@ -308,6 +313,7 @@ function ClientsList({ state }: { state: GameState }) {
               <div>
                 <b>{clientName(c)[lang]}</b>
                 <div className="small">{tf('life.clientLine', { form: Math.round(clientForm(c) * 100), n: c.sessions, loyalty: Math.round(c.loyalty) })}</div>
+                <div className="small good">{tf('life.clientPays', { n: clientFee(state, c) })}</div>
                 <span className="need-bar">
                   <span style={{ width: `${clientForm(c) * 100}%` }} />
                 </span>
@@ -336,7 +342,7 @@ function GymCard({ state }: { state: GameState }) {
         </b>
         <div className="small">{g.desc[lang]}</div>
         <div className="small">{tf('life.gymCap', { cap: g.cap, mult: g.mult })}</div>
-        <div className="small">{tf('life.fee', { n: fee(state) })}</div>
+        <PayBreakdown state={state} />
       </div>
       {next ? (
         <div className="card inner">
@@ -352,6 +358,84 @@ function GymCard({ state }: { state: GameState }) {
       ) : (
         <p className="good small">{t('life.gymMax')}</p>
       )}
+      <h3>{tf('life.extras', { n: gymComfort(state.life) })}</h3>
+      <p className="muted small">{t('life.extrasHint')}</p>
+      <ul className="life-list">
+        {GYM_EXTRAS.map((x) => {
+          const xb = extraBlocker(state, x.id);
+          return (
+            <li key={x.id}>
+              <div>
+                <b>
+                  {x.icon} {x.name[lang]}
+                </b>
+                <div className="muted small">
+                  {x.desc[lang]} · {tf('life.extraComfort', { n: x.comfort })}
+                </div>
+              </div>
+              {xb === 'owned' ? (
+                <span className="good small">✓</span>
+              ) : (
+                <button className="btn small" disabled={xb !== null} onClick={() => life.buyExtra(x.id)}>
+                  {xb === 'gym' ? tf('life.extraNeedGym', { name: GYMS[x.gym]!.name[lang] }) : `◈ ${x.price}`}
+                </button>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}
+
+/** Из чего складывается оплата занятия. */
+function PayBreakdown({ state }: { state: GameState }) {
+  const { tf } = useI18n();
+  const f = payFactors(state);
+  const pct = (k: number): string => `×${k.toFixed(2)}`;
+  return (
+    <div className="pay-breakdown small">
+      <div>{tf('life.payBase', { n: f.base })}</div>
+      <div>{tf('life.paySize', { k: pct(f.size) })}</div>
+      <div>{tf('life.payComfort', { k: pct(f.comfort), n: gymComfort(state.life) })}</div>
+      {f.charisma > 1 && <div>{tf('life.payCharisma', { k: pct(f.charisma) })}</div>}
+      <div>{tf('life.payAthlete', {})}</div>
+      <b>{tf('life.payNow', { n: state.life.clients.length, pay: sessionPay(state) })}</b>
+    </div>
+  );
+}
+
+/** Жильё: текущая ступень и расширение. */
+function HouseCard({ state }: { state: GameState }) {
+  const { t, tf, lang } = useI18n();
+  const { life } = useGame();
+  const h = HOUSES[state.life.house]!;
+  const next = HOUSES[state.life.house + 1];
+  const b = houseBlocker(state);
+  return (
+    <div className="gym-card">
+      <div className="card inner">
+        <div className="muted small">{t('life.houseCurrent')}</div>
+        <b>
+          {h.icon} {h.name[lang]}
+        </b>
+        <div className="small">{h.desc[lang]}</div>
+        <div className="small">{tf('life.houseInfo', { w: h.w, d: h.d, slots: h.slots, cats: h.cats, comfort: h.comfort })}</div>
+      </div>
+      {next ? (
+        <div className="card inner">
+          <b>
+            {next.icon} {tf('life.houseNext', { name: next.name[lang] })}
+          </b>
+          <div className="small">{next.desc[lang]}</div>
+          <div className="small">{tf('life.houseInfo', { w: next.w, d: next.d, slots: next.slots, cats: next.cats, comfort: next.comfort })}</div>
+          <button className="btn primary small" disabled={b !== null} onClick={() => life.upgradeHouse()}>
+            {b === 'level' ? tf('life.gymNeedLevel', { n: next.level }) : tf('life.houseUpgrade', { n: next.cost })}
+          </button>
+        </div>
+      ) : (
+        <p className="good small">{t('life.houseMax')}</p>
+      )}
     </div>
   );
 }
@@ -362,6 +446,7 @@ function FurnitureList({ state }: { state: GameState }) {
   const owned = state.life.furniture;
   return (
     <>
+      <HouseCard state={state} />
       <p className="small">
         {t('life.comfort')}: <b>{comfort(state.life)}</b>
       </p>
@@ -405,7 +490,7 @@ function FurnitureList({ state }: { state: GameState }) {
                 <div className="muted small">{o.desc?.[lang]}</div>
               </div>
               <button className="btn ghost small" onClick={() => life.sellFurniture(id)}>
-                {tf('life.sell', { n: Math.round((o.price ?? 0) * 0.4) })}
+                {t('life.remove')}
               </button>
             </li>
           );
@@ -746,7 +831,7 @@ export function LifeTab({ state, onTrain, onSession }: { state: GameState; onTra
           </b>
           {near === 'coach' && (
             <span className="muted small">
-              👥 {L.clients.length} · ◈ {fee(state) * L.clients.length}
+              👥 {L.clients.length} · ◈ {sessionPay(state)}
             </span>
           )}
         </div>
@@ -784,6 +869,8 @@ export function LifeTab({ state, onTrain, onSession }: { state: GameState; onTra
               scene={L.scene}
               furniture={L.furniture}
               gym={L.gym}
+              gymExtras={L.gymExtras}
+              house={L.house}
               minute={L.minute}
               hero={heroLook}
               clients={clients}

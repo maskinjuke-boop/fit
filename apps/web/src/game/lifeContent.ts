@@ -88,13 +88,42 @@ export const FURNITURE: readonly ObjectId[] = [
   // Декор.
   'flower_vase', 'house_plant', 'wall_clock', 'photo_wall', 'floor_lamp', 'painting', 'palm', 'neon_sign', 'aquarium',
 ];
-/** Места в доме: у стен для мебели и техники, на стенах, на полу для декора. */
-export const HOUSE_SLOTS = 12;
-export const WALL_SLOTS = 5;
-export const FLOOR_SLOTS = 5;
+// ─── Жильё ─────────────────────────────────────────────────────────────
+
+/** Ступени жилья: размеры комнаты (м), места у стен, на стенах и на полу, цена и уровень. */
+export interface HouseDef {
+  icon: string;
+  name: Txt;
+  desc: Txt;
+  w: number;
+  d: number;
+  slots: number;
+  wall: number;
+  floor: number;
+  /** Уют от простора и сколько кошек можно держать. */
+  comfort: number;
+  cats: number;
+  cost: number;
+  level: number;
+}
+
+export const HOUSES: readonly HouseDef[] = [
+  { icon: '🏠', name: t('Квартира', 'Apartment'), desc: t('Одна большая комната с кухней.', 'One big room with a kitchen.'), w: 15, d: 11, slots: 12, wall: 5, floor: 5, comfort: 0, cats: 3, cost: 0, level: 1 },
+  { icon: '🏘️', name: t('Большая квартира', 'Large apartment'), desc: t('Шире и глубже: больше мест для мебели, уютнее, места для ещё одной кошки.', 'Wider and deeper: more room for furniture, cosier, space for one more cat.'), w: 18, d: 12, slots: 15, wall: 5, floor: 5, comfort: 2, cats: 4, cost: 1500, level: 4 },
+  { icon: '🏡', name: t('Дом', 'House'), desc: t('Просторный дом: поместится вся мебель и техника.', 'A spacious house: room for every piece of furniture and tech.'), w: 21, d: 13, slots: 19, wall: 5, floor: 5, comfort: 4, cats: 5, cost: 4500, level: 8 },
+  { icon: '🏰', name: t('Коттедж', 'Villa'), desc: t('Огромная гостиная: максимум уюта и до шести кошек.', 'A huge living room: maximum comfort and up to six cats.'), w: 24, d: 14, slots: 19, wall: 5, floor: 5, comfort: 7, cats: 6, cost: 10000, level: 12 },
+];
+/** Места в начальной квартире (для совместимости). */
+export const HOUSE_SLOTS = HOUSES[0]!.slots;
+export const WALL_SLOTS = HOUSES[0]!.wall;
+export const FLOOR_SLOTS = HOUSES[0]!.floor;
 /** Где стоит предмет (у стены — по умолчанию). */
 export const mountOf = (id: ObjectId): 'slot' | 'wall' | 'floor' | 'free' => OBJECTS[id].mount ?? 'slot';
-export const slotsFor = (mount: 'slot' | 'wall' | 'floor' | 'free'): number => (mount === 'wall' ? WALL_SLOTS : mount === 'floor' ? FLOOR_SLOTS : mount === 'free' ? 1 : HOUSE_SLOTS);
+/** Сколько мест этого вида в жилье ступени house. */
+export const slotsFor = (mount: 'slot' | 'wall' | 'floor' | 'free', house = 0): number => {
+  const h = HOUSES[Math.max(0, Math.min(HOUSES.length - 1, house))]!;
+  return mount === 'wall' ? h.wall : mount === 'floor' ? h.floor : mount === 'free' ? 1 : h.slots;
+};
 
 // ─── Кошки ─────────────────────────────────────────────────────────────
 
@@ -144,15 +173,45 @@ export interface GymDef {
   /** Есть душевая / фитнес-бар. */
   shower: boolean;
   bar: boolean;
+  /** Размеры зала (м) и базовый комфорт ступени. */
+  w: number;
+  d: number;
+  comfort: number;
 }
 
 export const GYMS: readonly GymDef[] = [
-  { icon: '🏚️', name: t('Гаражный зал', 'Garage gym'), desc: t('Коврики и пара гантелей.', 'A few mats and dumbbells.'), cap: 2, mult: 1, cost: 0, level: 1, shower: false, bar: false },
-  { icon: '🏠', name: t('Зал у дома', 'Neighbourhood gym'), desc: t('Стойка, скамьи и душевая.', 'A rack, benches and showers.'), cap: 4, mult: 1.3, cost: 600, level: 3, shower: true, bar: false },
-  { icon: '🏢', name: t('Фитнес-студия', 'Fitness studio'), desc: t('Беговые дорожки и фитнес-бар.', 'Treadmills and a fitness bar.'), cap: 6, mult: 1.7, cost: 1800, level: 6, shower: true, bar: true },
-  { icon: '🏟️', name: t('Фитнес-клуб', 'Fitness club'), desc: t('Тренажёры и ринг.', 'Machines and a ring.'), cap: 8, mult: 2.2, cost: 4500, level: 9, shower: true, bar: true },
-  { icon: '🌟', name: t('Премиум-центр', 'Premium centre'), desc: t('Лучший зал города.', 'The best gym in town.'), cap: 10, mult: 3, cost: 10000, level: 12, shower: true, bar: true },
+  { icon: '🏚️', name: t('Гаражный зал', 'Garage gym'), desc: t('Тесно: коврики и пара гантелей.', 'Cramped: a few mats and dumbbells.'), cap: 2, mult: 1, cost: 0, level: 1, shower: false, bar: false, w: 13, d: 10, comfort: 0 },
+  { icon: '🏠', name: t('Зал у дома', 'Neighbourhood gym'), desc: t('Просторнее: стойка, скамьи и душевая.', 'Roomier: a rack, benches and showers.'), cap: 4, mult: 1.3, cost: 600, level: 3, shower: true, bar: false, w: 14.5, d: 11, comfort: 1 },
+  { icon: '🏢', name: t('Фитнес-студия', 'Fitness studio'), desc: t('Большой светлый зал, дорожки и фитнес-бар.', 'A big bright hall, treadmills and a fitness bar.'), cap: 6, mult: 1.7, cost: 1800, level: 6, shower: true, bar: true, w: 16, d: 12, comfort: 2 },
+  { icon: '🏟️', name: t('Фитнес-клуб', 'Fitness club'), desc: t('Огромный зал, тренажёры и груши.', 'A huge hall, machines and punching bags.'), cap: 8, mult: 2.2, cost: 4500, level: 9, shower: true, bar: true, w: 18, d: 13, comfort: 3 },
+  { icon: '🌟', name: t('Премиум-центр', 'Premium centre'), desc: t('Лучший зал города.', 'The best gym in town.'), cap: 10, mult: 3, cost: 10000, level: 12, shower: true, bar: true, w: 20, d: 14, comfort: 4 },
 ];
+
+/** Удобства зала: каждое добавляет комфорт, а комфорт — к оплате занятия (+5% за единицу). */
+export type GymExtraId = 'gym_ac' | 'gym_music' | 'gym_lights' | 'gym_green' | 'gym_cooler' | 'gym_mats' | 'gym_lockers' | 'gym_sauna';
+
+export interface GymExtraDef {
+  id: GymExtraId;
+  icon: string;
+  name: Txt;
+  desc: Txt;
+  price: number;
+  /** Нужная ступень зала. */
+  gym: number;
+  comfort: number;
+}
+
+export const GYM_EXTRAS: readonly GymExtraDef[] = [
+  { id: 'gym_cooler', icon: '🚰', name: t('Кулер с водой', 'Water cooler'), desc: t('Вода для учеников всегда под рукой.', 'Water always at hand for clients.'), price: 150, gym: 0, comfort: 1 },
+  { id: 'gym_mats', icon: '🟦', name: t('Мягкие коврики', 'Premium mats'), desc: t('Толстые коврики — заниматься удобнее.', 'Thick mats make training comfier.'), price: 300, gym: 0, comfort: 1 },
+  { id: 'gym_music', icon: '🔊', name: t('Музыкальная система', 'Sound system'), desc: t('Колонки и бодрые плейлисты.', 'Speakers and upbeat playlists.'), price: 500, gym: 0, comfort: 2 },
+  { id: 'gym_ac', icon: '❄️', name: t('Кондиционеры', 'Air conditioning'), desc: t('Свежий воздух даже на интенсиве.', 'Fresh air even in hard workouts.'), price: 900, gym: 1, comfort: 2 },
+  { id: 'gym_lights', icon: '💡', name: t('Световые панели', 'Light panels'), desc: t('Яркий ровный свет без теней.', 'Bright, even, shadow-free light.'), price: 1100, gym: 1, comfort: 2 },
+  { id: 'gym_green', icon: '🌿', name: t('Зелёная стена', 'Living wall'), desc: t('Живые растения во всю стену.', 'A wall of living plants.'), price: 1600, gym: 2, comfort: 3 },
+  { id: 'gym_lockers', icon: '🔐', name: t('Шкафчики', 'Lockers'), desc: t('Личные шкафчики для вещей.', 'Personal lockers for belongings.'), price: 2200, gym: 2, comfort: 3 },
+  { id: 'gym_sauna', icon: '🧖', name: t('Сауна', 'Sauna'), desc: t('Расслабиться после занятия.', 'Unwind after class.'), price: 5000, gym: 3, comfort: 4 },
+];
+export const gymExtraById = (id: string): GymExtraDef | undefined => GYM_EXTRAS.find((x) => x.id === id);
 
 /** Часы работы зала [с, до). */
 export const GYM_HOURS: [number, number] = [6, 23];
@@ -194,7 +253,7 @@ export const ACTIONS: readonly ActionDef[] = [
   { id: 'call', icon: '📱', label: t('Позвонить друзьям', 'Call friends'), at: 'sofa', minutes: 30, effect: fx({ needs: { social: 25, fun: 5 }, skills: { charisma: 3 } }) },
   { id: 'pose', icon: '🪞', label: t('Отрепетировать речь тренера', 'Rehearse your coach talk'), at: 'mirror', minutes: 30, effect: fx({ needs: { fun: 3 }, skills: { charisma: 10 } }) },
   { id: 'go_gym', icon: '🏋️', label: t('Поехать в зал', 'Go to the gym'), at: 'door', minutes: 30, go: 'gym', effect: fx({}) },
-  { id: 'consult', icon: '💻', label: t('Онлайн-консультация', 'Online consultation'), at: 'computer', minutes: 90, effect: fx({ money: 45, needs: { fun: -6, energy: -8, social: 8 }, skills: { charisma: 6, logic: 4 } }) },
+  { id: 'consult', icon: '💻', label: t('Онлайн-разбор техники ученикам', 'Online form check for clients'), at: 'computer', minutes: 90, effect: fx({ loyalty: 4, needs: { fun: -6, energy: -8, social: 8 }, skills: { charisma: 6, logic: 4 } }) },
   { id: 'study', icon: '🎓', label: t('Курс по спортивной медицине', 'Sports medicine course'), at: 'computer', minutes: 90, effect: fx({ needs: { fun: -6, energy: -8 }, skills: { logic: 18 } }) },
   { id: 'games', icon: '🕹️', label: t('Поиграть', 'Play games'), at: 'computer', minutes: 60, effect: fx({ needs: { fun: 25, energy: -4 } }) },
   { id: 'read', icon: '📖', label: t('Почитать о питании', 'Read about nutrition'), at: 'bookshelf', minutes: 60, effect: fx({ needs: { fun: 8 }, skills: { cooking: 6, logic: 10 } }) },
@@ -285,7 +344,7 @@ export const LIFE_EVENTS: readonly LifeEventDef[] = [
     title: t('Блогер', 'A blogger'),
     text: t('Фитнес-блогер хочет снять ваше занятие для своего канала.', 'A fitness blogger wants to film your class for their channel.'),
     choices: [
-      { id: 'yes', label: t('Согласиться', 'Agree'), text: t('Ролик набрал просмотры — о вас заговорили.', 'The video took off — people are talking about you.'), effect: { loyalty: 8, money: 40, skills: { charisma: 10 } } },
+      { id: 'yes', label: t('Согласиться', 'Agree'), text: t('Ролик набрал просмотры — о вас заговорили.', 'The video took off — people are talking about you.'), effect: { loyalty: 8, skills: { charisma: 10 } } },
       { id: 'no', label: t('Отказаться', 'Decline'), text: t('Спокойный день без камер.', 'A calm day without cameras.'), effect: { needs: { fun: 5 } } },
     ],
   },
@@ -295,7 +354,7 @@ export const LIFE_EVENTS: readonly LifeEventDef[] = [
     title: t('Спонсор', 'A sponsor'),
     text: t('Производитель спортпита предлагает рекламу в зале.', 'A sports nutrition brand offers to advertise in your gym.'),
     choices: [
-      { id: 'take', label: t('Взять деньги', 'Take the money'), text: t('Реклама висит, деньги на счёте.', 'The ad is up, the money is in.'), effect: { money: 80, loyalty: -3 } },
+      { id: 'take', label: t('Повесить рекламу', 'Put up the ad'), text: t('Реклама висит, а ученикам достались фирменные шейкеры.', 'The ad is up and clients got branded shakers.'), effect: { loyalty: 2, needs: { fun: 4 } } },
       { id: 'samples', label: t('Попросить пробники для учеников', 'Ask for samples for clients'), text: t('Ученики в восторге от подарков.', 'Clients love the freebies.'), effect: { loyalty: 6 } },
     ],
   },

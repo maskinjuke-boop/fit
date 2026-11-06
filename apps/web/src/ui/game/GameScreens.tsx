@@ -87,12 +87,9 @@ function Section({ title, aside, children }: { title: string; aside?: ReactNode;
   );
 }
 
-function Reward({ xp, gold }: { xp: number; gold: number }) {
-  return (
-    <span className="reward">
-      +{xp} XP · ◈ {gold}
-    </span>
-  );
+/** Награда за квест/задание: только опыт (деньги — только за занятия). */
+function Reward({ xp }: { xp: number; gold: number }) {
+  return <span className="reward">+{xp} XP</span>;
 }
 
 function DailyList({ state }: { state: GameState }) {

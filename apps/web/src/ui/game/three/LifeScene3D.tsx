@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { actionsAt } from '../../../game/life';
 import { BOWL_MAX, GYMS } from '../../../game/lifeContent';
-import { GYM_ROOM, HOUSE, REACH, STICK_WALK, WALK_SPEED, bounds as sceneBounds, blocked, clientSpot, detourPoint, dist, freeSpot, gymGear, gymLayout, homeLayout, homeObstacles, resolve, spawn, stickSpeed, type Box, type GearKind, type P2, type Placed } from '../../../game/lifeMap';
+import { REACH, gymRect, houseRect, STICK_WALK, WALK_SPEED, bounds as sceneBounds, blocked, clientSpot, detourPoint, dist, freeSpot, gymGear, gymLayout, homeLayout, homeObstacles, resolve, spawn, stickSpeed, type Box, type GearKind, type P2, type Placed } from '../../../game/lifeMap';
 import type { CatBreed, ObjectId, SceneId } from '../../../game/lifeTypes';
 import { animFor } from './actionAnims';
 import { disposeObject, type CharacterParts } from './buildCharacter';
@@ -29,6 +29,10 @@ export interface LifeScene3DProps {
   scene: SceneId;
   furniture: ObjectId[];
   gym: number;
+  /** Купленные удобства зала. */
+  gymExtras: string[];
+  /** Ступень жилья. */
+  house: number;
   minute: number;
   hero: Look;
   /** Ученики в зале (пусто, если зал закрыт или герой дома). */
@@ -70,12 +74,66 @@ function loadZoom(): number {
 
 // ─── Оборудование зала ─────────────────────────────────────────────────
 
-function gearModel(kind: GearKind, tier: number): THREE.Group {
+function gearModel(kind: GearKind, tier: number, premium = false): THREE.Group {
   const g = new THREE.Group();
   switch (kind) {
     case 'mat': {
       const colors = ['#2f6fb5', '#3a9d6a', '#8e44ad', '#d35400', '#c0392b'];
-      g.add(mesh(new THREE.BoxGeometry(0.7, 0.025, 1.7), mat(colors[tier % colors.length]!, 0.95), [0, 0.012, 0]));
+      // Мягкие коврики толще, со скруглённым краем и полосой.
+      const h = premium ? 0.05 : 0.025;
+      g.add(mesh(new THREE.BoxGeometry(0.72, h, 1.75), mat(colors[tier % colors.length]!, premium ? 0.75 : 0.95), [0, h / 2, 0]));
+      if (premium) g.add(mesh(new THREE.BoxGeometry(0.06, 0.004, 1.7), mat('#ffffff', 0.6), [0.27, h + 0.002, 0]));
+      break;
+    }
+    case 'ac': {
+      g.add(mesh(new THREE.BoxGeometry(1.1, 0.32, 0.24), mat('#f4f6f8', 0.4), [0, 2.85, 0.12]));
+      for (let i = 0; i < 5; i += 1) g.add(mesh(new THREE.BoxGeometry(1.0, 0.012, 0.03), mat('#c9cfd5', 0.4), [0, 2.75 + i * 0.012, 0.245]));
+      g.add(mesh(new THREE.CircleGeometry(0.012, 10), M.glow('#5bc8ff', 1.4), [0.45, 2.93, 0.242]));
+      break;
+    }
+    case 'speakers': {
+      g.add(mesh(new THREE.BoxGeometry(0.4, 0.6, 0.32), mat('#15171b', 0.5), [0, 2.55, 0.18]));
+      for (const y of [2.42, 2.68]) g.add(mesh(new THREE.CylinderGeometry(y > 2.5 ? 0.06 : 0.12, y > 2.5 ? 0.06 : 0.12, 0.02, 20), mat('#2d3036', 0.4, 0.4), [0, y, 0.345]).rotateX(Math.PI / 2));
+      g.add(mesh(new THREE.BoxGeometry(0.05, 0.25, 0.3), M.darkSteel(), [0, 2.15, 0.16]));
+      break;
+    }
+    case 'lightpanels': {
+      for (const x of [-4.5, -1.5, 1.5, 4.5]) for (const z of [-2.5, 1]) g.add(mesh(new THREE.BoxGeometry(1.6, 0.04, 0.5), M.glow('#ffffff', 1.6), [x, 3.32, z]));
+      break;
+    }
+    case 'greenwall': {
+      g.add(mesh(new THREE.BoxGeometry(3.2, 1.7, 0.08), mat('#4a3a2a', 0.9), [0, 2.05, 0.04]));
+      const leaf = mat('#3f8f3a', 0.7);
+      const leaf2 = mat('#5aa84a', 0.7);
+      for (let i = 0; i < 70; i += 1) {
+        const x = -1.5 + ((i * 37) % 100) / 100 * 3.0;
+        const y = 1.3 + ((i * 53) % 100) / 100 * 1.5;
+        g.add(mesh(new THREE.SphereGeometry(0.09 + (i % 3) * 0.025, 8, 6), i % 2 ? leaf : leaf2, [x, y, 0.1], [1.2, 0.9, 0.6]));
+      }
+      break;
+    }
+    case 'cooler': {
+      g.add(mesh(new THREE.BoxGeometry(0.34, 1.0, 0.34), mat('#f4f6f8', 0.4), [0, 0.5, 0]));
+      g.add(mesh(new THREE.CylinderGeometry(0.15, 0.15, 0.42, 18), mat('#9fd0ee', 0.05, 0, { transparent: true, opacity: 0.6 }), [0, 1.22, 0]));
+      g.add(mesh(new THREE.BoxGeometry(0.06, 0.04, 0.05), mat('#3a7bd5', 0.4), [-0.07, 0.75, 0.18]), mesh(new THREE.BoxGeometry(0.06, 0.04, 0.05), mat('#d0312d', 0.4), [0.07, 0.75, 0.18]));
+      break;
+    }
+    case 'lockers': {
+      const colors = ['#2f6fb5', '#3a9d6a', '#e85d2a', '#8e44ad'];
+      for (let i = 0; i < 5; i += 1) {
+        const x = -0.8 + i * 0.4;
+        g.add(mesh(new THREE.BoxGeometry(0.38, 1.8, 0.45), mat(colors[i % colors.length]!, 0.5, 0.2), [x, 0.9, 0]));
+        g.add(mesh(new THREE.BoxGeometry(0.03, 0.12, 0.02), M.chrome(), [x + 0.12, 1.0, 0.235]));
+        for (const y of [1.6, 1.65, 1.7]) g.add(mesh(new THREE.BoxGeometry(0.22, 0.012, 0.01), mat('#1b1d21', 0.6), [x, y, 0.228]));
+      }
+      break;
+    }
+    case 'sauna': {
+      const wood = M.wood('#b98a5a', 1, 2);
+      g.add(mesh(new THREE.BoxGeometry(1.6, 2.2, 1.4), wood, [0, 1.1, 0]));
+      g.add(mesh(new THREE.BoxGeometry(0.6, 1.8, 0.04), mat('#d8b07a', 0.25, 0, { transparent: true, opacity: 0.55 }), [0.3, 0.95, 0.71]));
+      g.add(mesh(new THREE.BoxGeometry(0.03, 0.25, 0.04), M.chrome(), [0.05, 0.95, 0.74]));
+      g.add(mesh(new THREE.PlaneGeometry(0.5, 0.18), M.glow('#ff9a3d', 0.8), [-0.45, 1.9, 0.705]));
       break;
     }
     case 'rack': {
@@ -280,9 +338,10 @@ function addPlaced(g: THREE.Group, placed: ReadonlyArray<Placed & { y?: number }
   }
 }
 
-function house(placed: Array<Placed & { y?: number }>, night: boolean, pets: { current: PetModels | null }): THREE.Group {
+function house(placed: Array<Placed & { y?: number }>, night: boolean, pets: { current: PetModels | null }, tier: number): THREE.Group {
   const g = new THREE.Group();
-  const { w, d } = HOUSE;
+  // Дом растёт влево и к зрителю — комната не по центру координат.
+  const { w, d, L, R, B, cx, cz } = houseRect(tier);
   const pq = parquetTexture();
   const floorMat = mat('#ffffff', 0.62);
   if (pq) {
@@ -291,19 +350,22 @@ function house(placed: Array<Placed & { y?: number }>, night: boolean, pets: { c
     t.needsUpdate = true;
     floorMat.map = t;
   } else floorMat.color.set('#b88a5e');
-  const floor = mesh(new THREE.PlaneGeometry(w, d), floorMat, [0, 0, 0]);
+  const floor = mesh(new THREE.PlaneGeometry(w, d), floorMat, [cx, 0, cz]);
   floor.rotation.x = -Math.PI / 2;
   floor.name = 'ground';
   floor.receiveShadow = true;
-  g.add(floor, walls(w, d, '#ece4d6', 3, '#d8cbb6'));
+  const wallsG = walls(w, d, '#ece4d6', 3, '#d8cbb6');
+  wallsG.position.set(cx, 0, cz);
+  g.add(floor, wallsG);
   // Кухонная зона: плитка на полу и фартук на стене.
-  const tiles = mesh(new THREE.PlaneGeometry(3.4, 2.6), mat('#d9d4cc', 0.35), [w / 2 - 1.7, 0.004, -d / 2 + 1.3]);
+  const tiles = mesh(new THREE.PlaneGeometry(3.4, 2.6), mat('#d9d4cc', 0.35), [R - 1.7, 0.004, B + 1.3]);
   tiles.rotation.x = -Math.PI / 2;
   tiles.receiveShadow = true;
   g.add(tiles);
-  g.add(mesh(new THREE.PlaneGeometry(3.3, 0.7), mat('#a7c7d9', 0.25), [w / 2 - 1.7, 1.25, -d / 2 + 0.02]));
-  // Окна на левой стене.
-  for (const z of [-3.6, 2.2]) g.add(sideWindow(-w / 2 + 0.01, z, -1, night));
+  g.add(mesh(new THREE.PlaneGeometry(3.3, 0.7), mat('#a7c7d9', 0.25), [R - 1.7, 1.25, B + 0.02]));
+  // Окна на левой стене (в большом доме — больше окон).
+  const winZ = tier >= 2 ? [-3.6, 2.2, 6.4] : [-3.6, 2.2];
+  for (const z of winZ) g.add(sideWindow(L + 0.01, z, -1, night));
   // Ковёр у дивана: овал с каймой.
   const rug = mesh(new THREE.CircleGeometry(1.4, 48), M.cloth('#a24b45', 3), [0.4, 0.008, -0.2]);
   rug.rotation.x = -Math.PI / 2;
@@ -315,7 +377,10 @@ function house(placed: Array<Placed & { y?: number }>, night: boolean, pets: { c
   g.add(rug, rim);
   addPlaced(g, placed, pets);
   // Потолочные светильники: днём слабее, вечером теплее и ярче.
-  for (const [x, z] of [[-3.5, -1], [3.5, -1], [0, 2.8]] as const) {
+  const lamps: Array<[number, number]> = [[-3.5, -1], [3.5, -1], [0, 2.8]];
+  if (tier >= 1) lamps.push([L + 3.5, 1.5]);
+  if (tier >= 3) lamps.push([L + 3.5, 6]);
+  for (const [x, z] of lamps) {
     const lamp = new THREE.PointLight('#ffd9a0', night ? 9 : 2.5, 11, 1.7);
     lamp.position.set(x, 2.85, z);
     g.add(lamp);
@@ -323,9 +388,9 @@ function house(placed: Array<Placed & { y?: number }>, night: boolean, pets: { c
   return g;
 }
 
-function gymRoom(tier: number, placed: Placed[], night: boolean): THREE.Group {
+function gymRoom(tier: number, placed: Placed[], night: boolean, extras: readonly string[]): THREE.Group {
   const g = new THREE.Group();
-  const { w, d } = GYM_ROOM;
+  const { w, d } = gymRect(tier);
   const floorTone = ['#3a3d42', '#34383e', '#2e3238', '#2a2d33', '#24262b'][tier]!;
   const floor = mesh(new THREE.PlaneGeometry(w, d), mat(floorTone, 0.95), [0, 0, 0]);
   floor.rotation.x = -Math.PI / 2;
@@ -346,15 +411,16 @@ function gymRoom(tier: number, placed: Placed[], night: boolean): THREE.Group {
   // Вывеска над зеркалом.
   const def = GYMS[tier]!;
   g.add(mesh(new THREE.PlaneGeometry(3.4, 0.85), new THREE.MeshBasicMaterial({ map: signTexture(`${def.icon} FIT`, ['#7a5a3a', '#2f6fb5', '#e85d2a', '#8e44ad', '#111111'][tier]!), toneMapped: false }), [0, 2.95, -d / 2 + 0.03]));
-  for (const x of gymGear(tier)) {
-    const m = gearModel(x.kind, tier);
+  const premium = extras.includes('gym_mats');
+  for (const x of gymGear(tier, extras)) {
+    const m = gearModel(x.kind, tier, premium);
     m.position.set(x.pos.x, 0, x.pos.z);
     m.rotation.y = x.rot;
     g.add(m);
   }
   addPlaced(g, placed);
   for (const x of [-4, 4]) {
-    const lamp = new THREE.PointLight('#fff4e0', 9 + tier * 2, 16, 1.6);
+    const lamp = new THREE.PointLight('#fff4e0', 9 + tier * 2 + (extras.includes('gym_lights') ? 5 : 0), 16, 1.6);
     lamp.position.set(x, 3.2, 0);
     g.add(lamp);
   }
@@ -446,31 +512,31 @@ export default function LifeScene3D(props: LifeScene3DProps) {
       const tier = Math.max(0, Math.min(GYMS.length - 1, p.gym));
       petModels.current = null;
       if (p.scene === 'home') {
-        const placed = homeLayout(p.furniture, p.cats.length > 0);
-        world.add(house(placed, night, petModels));
+        const placed = homeLayout(p.furniture, p.cats.length > 0, p.house);
+        world.add(house(placed, night, petModels, p.house));
         boxes = [...placed.map((x) => x.box).filter((b): b is Box => b !== null), ...homeObstacles()];
         // Кошки подходят к мискам и лотку вплотную — для них это не препятствия.
         catBoxes = [...placed.filter((x) => x.id !== 'cat_bowl' && x.id !== 'litter').map((x) => x.box).filter((b): b is Box => b !== null), ...homeObstacles()];
         placedNow = placed;
       } else {
         const def = GYMS[tier]!;
-        const placed = gymLayout(def.shower, def.bar);
-        world.add(gymRoom(tier, placed, night));
-        boxes = [...placed.map((x) => x.box), ...gymGear(tier).map((x) => x.box)].filter((b): b is Box => b !== null);
+        const placed = gymLayout(def.shower, def.bar, tier);
+        world.add(gymRoom(tier, placed, night, p.gymExtras));
+        boxes = [...placed.map((x) => x.box), ...gymGear(tier, p.gymExtras).map((x) => x.box)].filter((b): b is Box => b !== null);
         catBoxes = boxes;
         placedNow = placed;
       }
+      bounds = sceneBounds(p.scene, p.scene === 'home' ? p.house : tier);
       perches = perchSpots(placedNow, bounds, catBoxes);
       // Подойти можно только к предметам с действиями (декор просто украшает).
       targets = placedNow.filter((x) => actionsAt(x.id).length > 0).map((x) => ({ id: x.id, pos: x.use, obj: x }));
       ticks = ticksOf(world);
       sun.position.set(-9, 10, 3);
-      bounds = sceneBounds(p.scene);
       ground = world.getObjectByName('ground') ?? null;
       // Новое место — герой у двери; та же сцена — остаётся где был.
       if (builtScene !== p.scene) {
         builtScene = p.scene;
-        const sp = spawn(p.scene);
+        const sp = spawn(p.scene, p.scene === 'home' ? p.house : tier);
         pos.set(sp.x, 0, sp.z);
         camPos.set(sp.x * 0.6, 7, sp.z + 7);
         facing = Math.PI / 2;
@@ -1202,7 +1268,7 @@ export default function LifeScene3D(props: LifeScene3DProps) {
 
   // Перестройка сцены: другое место, мебель, уровень зала, смена дня и ночи.
   const night = isNight(props.minute);
-  const sceneKey = JSON.stringify([props.scene, props.furniture, props.gym, night, props.cats.length > 0]);
+  const sceneKey = JSON.stringify([props.scene, props.furniture, props.gym, props.gymExtras, props.house, night, props.cats.length > 0]);
   const firstScene = useRef(sceneKey);
   useEffect(() => {
     if (sceneKey === firstScene.current) return;

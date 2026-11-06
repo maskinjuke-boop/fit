@@ -101,8 +101,8 @@ export function checkAchievements(s: GameState, events: GameEvent[]): void {
     const [cur, goal] = a.progress(s);
     if (cur < goal) continue;
     s.achievements[a.id] = s.today || 'unlocked';
-    s.gold += a.reward.gold;
+    // Деньги приносят только занятия: достижение даёт опыт и титул.
     if (a.reward.xp) addXp(s, a.reward.xp, null, events);
-    events.push({ kind: 'achievement', id: a.id, xp: a.reward.xp, gold: a.reward.gold });
+    events.push({ kind: 'achievement', id: a.id, xp: a.reward.xp, gold: 0 });
   }
 }
