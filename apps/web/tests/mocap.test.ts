@@ -4,7 +4,7 @@ import { bvhPose, parseBvh } from '../tools/mocap/bvh';
 import { closeLoop, packClip, type ClipFrame } from '../tools/mocap/clip';
 import { decodeClip, gaitKeys, makePose, sampleClip, warpPhase } from '../src/ui/game/three/mocap';
 import { CLIPS } from '../src/ui/game/three/mocapClips';
-import { animate, BONES, buildRig, gaitFreq } from '../src/ui/game/three/rig';
+import { animate, BONES, buildRig, gaitFreq, seatOffsets } from '../src/ui/game/three/rig';
 
 const BVH = `HIERARCHY
 ROOT Hips
@@ -168,7 +168,7 @@ describe('ходьба на скелете', () => {
    * Персонаж идёт со скоростью v, фаза копится по gaitFreq. Пока пятка или подушечка стопы
    * на полу, она не должна сдвигаться (в мире) больше чем на 1 см; ничто не уходит под пол.
    */
-  const slide = (figure: 'male' | 'female', v: number): { slip: number; under: number } => {
+  const slide = (figure: 'male' | 'female', v: number | ((t: number) => number), secs = 3): { slip: number; under: number } => {
     const rig = rigFor(figure);
     const heelOff = new THREE.Vector3(0, -0.0934, -0.055);
     const tip = new THREE.Vector3(0, -0.03, 0.085);
@@ -176,13 +176,17 @@ describe('ходьба на скелете', () => {
     let slip = 0;
     let under = 0;
     let ph = 0;
+    let z = 0;
     const dt = 1 / 120;
     const p = new THREE.Vector3();
-    for (let i = 0; i < 120 * 3; i += 1) {
+    for (let i = 0; i < 120 * secs; i += 1) {
       const t = i * dt;
-      ph = (ph + dt * gaitFreq(rig, v, ph)) % 1;
-      animate(rig, 'walk', t, ph, 1, { speed: v });
-      rig.root.position.z = v * t;
+      const sp = typeof v === 'number' ? v : v(t);
+      if (sp < 0.06) continue;
+      ph = (ph + dt * gaitFreq(rig, sp, ph)) % 1;
+      animate(rig, 'walk', t, ph, 1, { speed: sp });
+      z += sp * dt;
+      rig.root.position.z = z;
       rig.root.updateMatrixWorld(true);
       for (const s of ['l', 'r'] as const) {
         const heel = heelOff.clone().applyMatrix4(rig.bones[`${s}_foot`].matrixWorld);
@@ -191,7 +195,7 @@ describe('ходьба на скелете', () => {
         for (const [k, pt, h] of [[`${s}h`, heel, 0.002], [`${s}b`, ball, 0.032]] as const) {
           if (pt.y < h) {
             const start = (on[k] ??= pt.clone());
-            if (t > 0.5) slip = Math.max(slip, Math.hypot(pt.x - start.x, pt.z - start.z));
+            if (t > (typeof v === 'number' ? 0.5 : 0)) slip = Math.max(slip, Math.hypot(pt.x - start.x, pt.z - start.z));
           } else on[k] = null;
         }
       }
@@ -204,6 +208,64 @@ describe('ходьба на скелете', () => {
       const r = slide(fig, v);
       expect(r.slip).toBeLessThan(0.01);
       expect(r.under).toBeLessThan(0.005);
+    }
+  });
+
+  it('смесь походок (между скоростями записей): стопа не скользит и не уходит под пол', () => {
+    for (const [fig, v] of [['female', 1.5], ['male', 1.6], ['female', 2.2], ['male', 2.3], ['female', 3.1], ['male', 3.15]] as const) {
+      const r = slide(fig, v);
+      expect(r.slip).toBeLessThan(0.01);
+      expect(r.under).toBeLessThan(0.005);
+    }
+  });
+
+  it('разгон и торможение (как в сцене): опорная стопа стоит, хотя смесь походок меняется', () => {
+    for (const fig of ['female', 'male'] as const)
+      for (const top of [2.0, 3.3]) {
+        // Скорость сглаживается к цели, как у героя: 3 с идёт, потом останавливается.
+        let sp = 0;
+        let last = -1;
+        const ramp = (t: number): number => {
+          if (t !== last) {
+            const dt = last < 0 ? 0 : t - last;
+            last = t;
+            const want = t < 3 ? top : 0;
+            sp += (want - sp) * Math.min(1, dt * (want > 0 ? 6 : 9));
+          }
+          return sp;
+        };
+        const r = slide(fig, ramp, 4);
+        expect(r.slip).toBeLessThan(0.012);
+        expect(r.under).toBeLessThan(0.005);
+      }
+  });
+
+  it('посадка: стопы стоят, пока тело уходит на место; в конце — поза сидя', () => {
+    for (const fig of ['female', 'male'] as const) {
+      const rig = rigFor(fig);
+      const o = seatOffsets(rig);
+      expect(o.feet).toBeGreaterThan(0.05);
+      expect(o.hips).toBeLessThan(-0.2);
+      const start: THREE.Vector3[] = [];
+      const a = new THREE.Vector3();
+      for (let i = 0; i <= 20; i += 1) {
+        const s = i / 20;
+        const e = s * s * (3 - 2 * s);
+        // Как в сцене: стоял на o.feet впереди места, тело уходит назад с ходом посадки.
+        rig.root.position.set(0, 0, o.feet * (1 - e));
+        animate(rig, 'sit:tv', 1, 0, 1, { settle: s });
+        rig.root.updateMatrixWorld(true);
+        (['l', 'r'] as const).forEach((side, k) => {
+          rig.bones[`${side}_foot`].getWorldPosition(a);
+          if (!start[k]) start[k] = a.clone();
+          expect(Math.hypot(a.x - start[k]!.x, a.z - start[k]!.z)).toBeLessThan(0.003);
+        });
+        for (const b of BONES) expect(Number.isFinite(rig.bones[b].quaternion.w)).toBe(true);
+      }
+      // Конец посадки — та же поза, что и без неё (ноги — почти: стопы не шире, чем стоя).
+      const seated = BONES.map((b) => rig.bones[b].quaternion.clone());
+      animate(rig, 'sit:tv', 1, 0, 1);
+      BONES.forEach((b, i) => expect(seated[i]!.angleTo(rig.bones[b].quaternion)).toBeLessThan(/thigh|shin|foot/.test(b) ? 0.12 : 0.02));
     }
   });
 

@@ -29,6 +29,8 @@ interface Spec {
   /** Стойка: где искать отрезок (с) и его длительность (с). */
   search?: [number, number];
   length?: [number, number];
+  /** Ходьба и бег: отведение рук в стороны (рад), по умолчанию ARM_OUT. */
+  armOut?: number;
   note: string;
 }
 
@@ -36,7 +38,8 @@ export const SPECS: Spec[] = [
   { name: 'walk_slow', file: '007/07_04.bvh', kind: 'gait', note: '07_04 slow walk' },
   { name: 'walk', file: '007/07_01.bvh', kind: 'gait', note: '07_01 walk' },
   { name: 'walk_fast', file: '007/07_12.bvh', kind: 'gait', note: '07_12 brisk walk' },
-  { name: 'jog', file: '002/02_03.bvh', kind: 'gait', note: '02_03 run/jog' },
+  // У актёра на бегу кисти заходят к середине груди (левая — почти к правому плечу): руки — шире.
+  { name: 'jog', file: '002/02_03.bvh', kind: 'gait', armOut: 0.24, note: '02_03 run/jog' },
   { name: 'idle', file: '139/139_02.bvh', kind: 'idle', search: [0.3, 7.7], length: [4, 7], note: '139_02 shifting weight' },
 ];
 
@@ -274,7 +277,7 @@ function toWorld(rt: ReturnType<typeof makeRetarget>, target: Target, q: readonl
 }
 
 /** Замкнутый цикл: стопы на полу без скольжения (мир едет на stride за цикл). */
-function finish(frames: ClipFrame[], rt: ReturnType<typeof makeRetarget>, target: Target, flags: [FootFlags, FootFlags], stride: number): ClipFrame[] {
+function finish(frames: ClipFrame[], rt: ReturnType<typeof makeRetarget>, target: Target, flags: [FootFlags, FootFlags], stride: number, armOut = ARM_OUT): ClipFrame[] {
   const J = target.joints;
   const geo = { ankleY: J.l_foot.y, heel: new THREE.Vector3(0, -J.l_foot.y, -0.055), ball: J.l_toe.clone().sub(J.l_foot).setX(0) };
   const i = (b: OurBone): number => rt.bones.indexOf(b);
@@ -289,7 +292,7 @@ function finish(frames: ClipFrame[], rt: ReturnType<typeof makeRetarget>, target
     }
     // Руки чуть в стороны: кисть на махе вперёд проходит перед бедром, а не перед животом.
     for (const [side, sx] of [['l', 1], ['r', -1]] as const) {
-      const turn = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), sx * ARM_OUT);
+      const turn = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), sx * armOut);
       for (const r of raw) for (const b of ['upper', 'fore', 'hand'] as const) r.world[i(`${side}_${b}`)]!.premultiply(turn);
     }
   }
@@ -299,7 +302,7 @@ function finish(frames: ClipFrame[], rt: ReturnType<typeof makeRetarget>, target
 
 const local = (rt: ReturnType<typeof makeRetarget>, target: Target, r: RawFrame): ClipFrame => ({ q: toLocal(rt, target, r.world), root: r.root, feet: r.feet });
 
-function gait(bvh: Bvh, target: Target): Built {
+function gait(bvh: Bvh, target: Target, armOut?: number): Built {
   const W = worldFrames(bvh);
   const f0 = W[0]!;
   const J: Joints = {
@@ -374,7 +377,7 @@ function gait(bvh: Bvh, target: Target): Built {
     swing: swingOf(c),
     side: side === 'l' ? 0 : 1,
   });
-  const frames = finish(closeLoop(raw, [leg('l', cl), leg('r', cr)]), rt, target, [sampleFlags(cl, at, N), sampleFlags(cr, at, N)], stride.length() * S);
+  const frames = finish(closeLoop(raw, [leg('l', cl), leg('r', cr)]), rt, target, [sampleFlags(cl, at, N), sampleFlags(cr, at, N)], stride.length() * S, armOut);
   const T = (s1 - s0) * bvh.dt;
   const v = stride.length() / T;
   // События шага — по опоре записи (кадры клипа, по кругу).
@@ -477,7 +480,7 @@ export function levelHead(frames: ClipFrame[], want: number): number {
 
 export function buildClip(spec: Spec, text: string, target: Target): Built {
   const bvh = parseBvh(text);
-  const built = spec.kind === 'gait' ? gait(bvh, target) : idle(bvh, target, spec.search ?? [0, 10], spec.length ?? [3, 6]);
+  const built = spec.kind === 'gait' ? gait(bvh, target, spec.armOut) : idle(bvh, target, spec.search ?? [0, 10], spec.length ?? [3, 6]);
   const was = levelHead(built.frames, 0.06);
   built.info += `, взгляд был ${((was * 180) / Math.PI).toFixed(0)}°`;
   if (spec.kind === 'idle') built.info += `, таз выше на ${(straightenLegs(built.frames, target) * 100).toFixed(1)} см`;

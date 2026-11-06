@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { actionsAt } from '../../../game/life';
 import { BOWL_MAX, GYMS } from '../../../game/lifeContent';
-import { GYM_ROOM, HOUSE, REACH, bounds as sceneBounds, clientSpot, detourPoint, dist, gymGear, gymLayout, homeLayout, homeObstacles, resolve, spawn, type Box, type GearKind, type P2, type Placed } from '../../../game/lifeMap';
+import { GYM_ROOM, HOUSE, REACH, STICK_WALK, WALK_SPEED, bounds as sceneBounds, blocked, clientSpot, detourPoint, dist, freeSpot, gymGear, gymLayout, homeLayout, homeObstacles, resolve, spawn, stickSpeed, type Box, type GearKind, type P2, type Placed } from '../../../game/lifeMap';
 import type { CatBreed, ObjectId, SceneId } from '../../../game/lifeTypes';
 import { animFor } from './actionAnims';
 import { disposeObject, type CharacterParts } from './buildCharacter';
@@ -12,7 +12,7 @@ import { contactShadow, objectModel, parquetTexture, plasterTexture, ticksOf, ty
 import { M, mat, mesh } from './kit';
 import { blobShadow, loadCharacter, lookKey, type Look, type Member } from './people';
 import { prepareFists, showProps, tickProps, type PropKind } from './props3d';
-import { animate, gaitFreq, type Motion } from './rig';
+import { animate, gaitFreq, seatOffsets, type Motion } from './rig';
 import { createStudio, setupRenderer } from './studio';
 
 /**
@@ -684,7 +684,10 @@ export default function LifeScene3D(props: LifeScene3DProps) {
     rebuildHero();
 
     const keys = new Set<string>();
+    /** С Shift клавишами — бегом, без него — шагом. */
+    let runKey = false;
     const onKey = (e: KeyboardEvent): void => {
+      runKey = e.shiftKey;
       const k = e.key.toLowerCase();
       if (!['w', 'a', 's', 'd', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright', 'ц', 'ф', 'ы', 'в'].includes(k)) return;
       const tag = (e.target as HTMLElement | null)?.tagName;
@@ -771,38 +774,58 @@ export default function LifeScene3D(props: LifeScene3DProps) {
       anchor: P2;
       y: number;
       face: number;
-      exit: P2;
       cat: string | null;
       /** Куда сначала подойти шагом (null — уже на месте). */
       approach: P2 | null;
-      /** Начало «устраивания» на месте: откуда, с какой высоты и поворота. */
-      settle: { at: number; from: P2; fromY: number; fromFace: number } | null;
+      /** Потом — последние шаги к месту стоя мимо препятствий (к дивану вплотную), null — уже там. */
+      inTo: P2 | null;
+      /** Где стоят стопы перед посадкой (у поз сидя — впереди места, иначе само место). */
+      stand: P2;
+      /** Свободная точка рядом с местом: отсюда подходит, сюда отходит после действия. */
+      free: P2;
+      /** Садится (посадка с неподвижными стопами), а не устраивается плавным переходом. */
+      sit: boolean;
+      /**
+       * Начало «устраивания» на месте: откуда, с какой высоты и поворота, сколько длится
+       * поворот перед посадкой и началась ли посадка.
+       */
+      settle: { at: number; from: P2; fromY: number; fromFace: number; turn: number; down: boolean } | null;
       props: PropKind[] | undefined;
     }
-    let exiting: { at: number; from: P2; fromY: number; to: P2 } | null = null;
+    /**
+     * После действия: встаёт (up — ход 1…0 посадки или плавный переход в стойку за rise с), затем
+     * шагом отходит к свободной точке (out).
+     */
+    let exiting: { at: number; from: P2; fromY: number; motion: Motion; sit: boolean; rise: number; stand: P2; to: P2; out: boolean } | null = null;
     let heroY = 0;
     const SETTLE = 0.75;
-    const EXIT = 0.6;
+    /** Посадка и вставание (с). */
+    const SIT = 1.0;
+    /** Встать из позы лёжа (с переходом на край кровати) и из позы стоя или присев. */
+    const EXIT_LIE = 0.6;
+    const EXIT_STAND = 0.35;
+    /** Ход посадки в этом кадре (для анимации). */
+    let seatK = 1;
     const nearestCat = (): CatAI | null => catLife.nearest(pos);
     const startPerform = (pf: { key: number; action: string; at: ObjectId | null }): void => {
       const spec = animFor(pf.action);
       const here = { x: pos.x, z: pos.z };
       const placed = placedNow.find((x) => x.id === pf.at);
-      const base = { key: pf.key, y: 0, cat: null, approach: null, settle: null, props: spec?.prop };
+      const base = { key: pf.key, y: 0, cat: null, approach: null, inTo: null, sit: false, settle: null, props: spec?.prop };
       if (!spec) {
-        act = { ...base, motion: 'stand:none', anchor: here, face: facing, exit: here };
+        act = { ...base, motion: 'stand:none', anchor: here, stand: here, free: here, face: facing };
         return;
       }
       if (spec.place === 'here') {
         // На месте; зовёт кошку — лицом к ближайшей.
         const c = spec.motion === 'crouch:call' ? nearestCat() : null;
-        act = { ...base, motion: spec.motion, anchor: here, face: c ? Math.atan2(c.pos.x - pos.x, c.pos.z - pos.z) : facing, exit: here };
+        act = { ...base, motion: spec.motion, anchor: here, stand: here, free: here, face: c ? Math.atan2(c.pos.x - pos.x, c.pos.z - pos.z) : facing };
         return;
       }
       if (spec.place === 'cat') {
         const best = nearestCat();
         if (!best) {
-          act = { ...base, motion: spec.motion, anchor: here, face: facing, exit: here };
+          act = { ...base, motion: spec.motion, anchor: here, stand: here, free: here, face: facing };
           return;
         }
         // Кошка на мебели — спрыгивает к герою; дальше ждёт его на полу.
@@ -811,23 +834,36 @@ export default function LifeScene3D(props: LifeScene3DProps) {
         const dz = pos.z - cp.z;
         const d = Math.hypot(dx, dz) || 1;
         const anchor = resolve({ x: cp.x + (dx / d) * 0.55, z: cp.z + (dz / d) * 0.55 }, bounds, boxes);
-        act = { ...base, motion: spec.motion, anchor, face: Math.atan2(cp.x - anchor.x, cp.z - anchor.z), exit: anchor, cat: best.id, approach: anchor };
+        act = { ...base, motion: spec.motion, anchor, stand: anchor, free: anchor, face: Math.atan2(cp.x - anchor.x, cp.z - anchor.z), cat: best.id, approach: anchor };
         return;
       }
       if (!placed) {
-        act = { ...base, motion: spec.motion, anchor: here, face: facing, exit: here };
+        act = { ...base, motion: spec.motion, anchor: here, stand: here, free: here, face: facing };
         return;
       }
       if (spec.place === 'front') {
-        act = { ...base, motion: spec.motion, anchor: { ...placed.use }, face: Math.atan2(placed.pos.x - placed.use.x, placed.pos.z - placed.use.z), exit: { ...placed.use }, approach: { ...placed.use } };
+        act = { ...base, motion: spec.motion, anchor: { ...placed.use }, stand: { ...placed.use }, free: { ...placed.use }, face: Math.atan2(placed.pos.x - placed.use.x, placed.pos.z - placed.use.z), approach: { ...placed.use } };
         return;
       }
       const [lx, lz] = spec.at ?? [0, 0];
       const c = Math.cos(placed.rot);
       const sn = Math.sin(placed.rot);
       const anchor = { x: placed.pos.x + lx * c + lz * sn, z: placed.pos.z - lx * sn + lz * c };
-      // Место на предмете (диван, кровать) — сначала шагом к месту использования.
-      act = { ...base, motion: spec.motion, anchor, y: spec.y ?? 0, face: placed.rot + (spec.face ?? 0), exit: { ...placed.use }, approach: dist(pos, anchor) > 0.5 ? { ...placed.use } : null };
+      const face = placed.rot + (spec.face ?? 0);
+      const sit = spec.motion.startsWith('sit:');
+      const lie = spec.motion.startsWith('lie:');
+      // Сидя стопы впереди таза: встаёт перед местом так, чтобы сесть, не сдвигая стоп. Там
+      // мебель (стол, ванна) — встаёт там, где окажется таз, и стопы при посадке уходят вперёд.
+      let stand: P2 = anchor;
+      if (sit && hero) {
+        const o = seatOffsets(hero.rig);
+        const at = (k: number): P2 => ({ x: anchor.x + Math.sin(face) * k, z: anchor.z + Math.cos(face) * k });
+        stand = [at(o.feet), at(o.hips)].find((q) => !blocked(q, boxes, 0.12)) ?? anchor;
+      }
+      // Место на предмете (диван, кровать): шагом к свободной точке рядом, потом вплотную.
+      const free = freeSpot(lie ? anchor : stand, placed.use, bounds, boxes);
+      const far = dist(pos, stand) > dist(free, stand) + 0.1;
+      act = { ...base, motion: spec.motion, anchor, stand, free, sit, y: spec.y ?? 0, face, approach: far ? free : null, inTo: lie || dist(far ? free : pos, stand) < 0.03 ? null : stand };
     };
     const angleTo = (from: number, to: number): number => {
       let d = to - from;
@@ -866,9 +902,6 @@ export default function LifeScene3D(props: LifeScene3DProps) {
     let via: P2 | null = null;
     const detourFor: P2 = { x: Infinity, z: Infinity };
     let detours = 0;
-    // Скорости (м сцены/с): бег трусцой со стиком и обычный шаг (как в записи ходьбы).
-    const TOP = 3.3;
-    const WALK = 1.8;
     const tick = (now: number): void => {
       raf = requestAnimationFrame(tick);
       const dt = Math.min(0.1, (now - prev) / 1000);
@@ -884,8 +917,21 @@ export default function LifeScene3D(props: LifeScene3DProps) {
         startPerform(pf);
       }
       if (!pf && act) {
-        // Действие кончилось: встаёт и отходит на место использования, предметы убирает.
-        exiting = { at: t, from: { x: pos.x, z: pos.z }, fromY: heroY, to: act.exit };
+        // Действие кончилось: встаёт (сидя — обратной посадкой), предметы убирает и шагом
+        // отходит от мебели. Не дошёл до места — просто идёт дальше.
+        const seated = act.sit && Boolean(act.settle?.down);
+        const placed = Boolean(act.settle);
+        exiting = !placed ? null : {
+          at: t,
+          from: { x: pos.x, z: pos.z },
+          fromY: heroY,
+          motion: act.motion,
+          sit: seated,
+          rise: seated ? SIT * seatK : act.motion.startsWith('lie:') ? EXIT_LIE : EXIT_STAND,
+          stand: seated ? act.stand : act.motion.startsWith('lie:') ? act.free : { x: pos.x, z: pos.z },
+          to: act.free,
+          out: false,
+        };
         if (hero) showProps(hero.rig, null);
         act = null;
       }
@@ -901,14 +947,17 @@ export default function LifeScene3D(props: LifeScene3DProps) {
         if (keys.has('d') || keys.has('arrowright') || keys.has('в')) dx += 1;
       }
       let mag = Math.min(1, Math.hypot(dx, dz));
-      // Стиком можно бежать трусцой, сам (к цели касания, к предмету) сим идёт шагом.
-      let top = TOP;
+      if (keys.size > 0 && !runKey) mag = Math.min(mag, STICK_WALK);
+      // Стиком — шаг или (до упора) бег трусцой, сам (к цели касания, к предмету) сим идёт шагом.
+      let pace = stickSpeed(mag);
       if (mag > 0.05) {
         // Игрок держит управление — сим не перехватывает.
         p.goto.current = null;
         p.onInput?.();
       }
-      const target = act ? act.approach : exiting ? null : p.goto.current;
+      // Последние шаги к месту и от него — напрямую, мимо препятствий (место у самой мебели).
+      const ghost = act ? !act.approach && act.inTo : exiting?.out ? exiting.to : null;
+      const target = act ? (act.approach ?? act.inTo) : exiting ? (exiting.out ? exiting.to : null) : p.goto.current;
       // Новая цель — обходы мебели считаются заново.
       if (!target) via = null;
       else if (Math.hypot(target.x - detourFor.x, target.z - detourFor.z) > 0.5) {
@@ -922,42 +971,78 @@ export default function LifeScene3D(props: LifeScene3DProps) {
         const gx = aim.x - pos.x;
         const gz = aim.z - pos.z;
         const d = Math.hypot(gx, gz);
-        if (d < (via ? 0.2 : act ? 0.1 : 0.25)) {
+        if (d < (via ? 0.2 : ghost ? 0.02 : act ? 0.1 : 0.25)) {
           if (via) via = null;
-          else if (act) act.approach = null;
+          else if (act && act.approach) act.approach = null;
+          else if (act) act.inTo = null;
+          else if (exiting) exiting = null;
           else p.goto.current = null;
         } else {
           dx = gx / d;
           dz = gz / d;
           mag = Math.min(1, d / 1.2 + 0.15);
-          top = WALK;
+          pace = WALK_SPEED * mag;
         }
       }
-      speed += ((mag > 0.05 ? top * mag : 0) - speed) * Math.min(1, dt * (mag > 0.05 ? 6 : 9));
+      speed += ((mag > 0.05 ? pace : 0) - speed) * Math.min(1, dt * (mag > 0.05 ? 6 : 9));
       const before = facing;
       if (mag > 0.05) facing += angleTo(facing, Math.atan2(dx, dz)) * Math.min(1, dt * 9);
-      if (act && !act.approach) {
-        // Устраивается на месте: поворачивается, садится или ложится, плавно (не скользя).
+      seatK = 1;
+      if (act && !act.approach && !act.inTo) {
+        // Устраивается на месте: поворачивается и садится (стопы на месте), ложится или
+        // встаёт к делу — плавно, не скользя.
         if (!act.settle) {
-          act.settle = { at: t, from: { x: pos.x, z: pos.z }, fromY: heroY, fromFace: facing };
+          const turn = Math.abs(angleTo(facing, act.face));
+          act.settle = { at: t, from: { x: pos.x, z: pos.z }, fromY: heroY, fromFace: facing, turn: act.sit ? 0.2 + (0.4 * turn) / Math.PI : 0, down: !act.sit };
           if (hero) showProps(hero.rig, act.props, act.motion);
-          p.onSettled?.(act.key);
+          if (!act.sit) p.onSettled?.(act.key);
         }
-        const k = smooth01((t - act.settle.at) / SETTLE);
-        pos.x = act.settle.from.x + (act.anchor.x - act.settle.from.x) * k;
-        pos.z = act.settle.from.z + (act.anchor.z - act.settle.from.z) * k;
-        heroY = act.settle.fromY + (act.y - act.settle.fromY) * smooth01((t - act.settle.at - SETTLE * 0.25) / (SETTLE * 0.75));
-        facing = act.settle.fromFace + angleTo(act.settle.fromFace, act.face) * smooth01((t - act.settle.at) / (SETTLE * 0.6));
+        const st = act.settle;
+        if (act.sit) {
+          // Сначала поворот спиной к месту, потом посадка: тело уходит назад на место ровно
+          // настолько, насколько стопы в позе сидя впереди, — стопы стоят.
+          facing = st.fromFace + angleTo(st.fromFace, act.face) * smooth01((t - st.at) / Math.max(0.01, st.turn));
+          seatK = Math.max(0, Math.min(1, (t - st.at - st.turn) / SIT));
+          if (seatK > 0 && !st.down) {
+            st.down = true;
+            p.onSettled?.(act.key);
+          }
+          const k = smooth01(seatK);
+          pos.x = st.from.x + (act.anchor.x - st.from.x) * k;
+          pos.z = st.from.z + (act.anchor.z - st.from.z) * k;
+          heroY = st.fromY + (act.y - st.fromY) * k;
+        } else {
+          const k = smooth01((t - st.at) / SETTLE);
+          pos.x = st.from.x + (act.anchor.x - st.from.x) * k;
+          pos.z = st.from.z + (act.anchor.z - st.from.z) * k;
+          heroY = st.fromY + (act.y - st.fromY) * smooth01((t - st.at - SETTLE * 0.25) / (SETTLE * 0.75));
+          facing = st.fromFace + angleTo(st.fromFace, act.face) * smooth01((t - st.at) / (SETTLE * 0.6));
+        }
         speed = 0;
-      } else if (exiting) {
-        const k = smooth01((t - exiting.at) / EXIT);
-        heroY = exiting.fromY * (1 - smooth01((t - exiting.at) / (EXIT * 0.7)));
-        pos.x = exiting.from.x + (exiting.to.x - exiting.from.x) * k;
-        pos.z = exiting.from.z + (exiting.to.z - exiting.from.z) * k;
+      } else if (exiting && !exiting.out) {
+        // Встаёт: сидя — посадка в обратную сторону (стопы на месте), из кровати — на край.
+        const k = exiting.rise > 0 ? Math.min(1, (t - exiting.at) / exiting.rise) : 1;
+        if (exiting.sit) seatK = (1 - k) * (exiting.rise / SIT);
+        const e = exiting.sit ? 1 - smooth01(seatK) / Math.max(1e-3, smooth01(exiting.rise / SIT)) : smooth01(k);
+        heroY = exiting.fromY * (1 - e);
+        pos.x = exiting.from.x + (exiting.stand.x - exiting.from.x) * e;
+        pos.z = exiting.from.z + (exiting.stand.z - exiting.from.z) * e;
         speed = 0;
         if (k >= 1) {
-          exiting = null;
           heroY = 0;
+          // Отходит от мебели шагом (если стоит у неё вплотную).
+          if (dist(pos, exiting.to) > 0.03) exiting.out = true;
+          else exiting = null;
+        }
+      } else if (ghost && speed > 0.01) {
+        // Вплотную к месту и обратно — по прямой к точке.
+        const gx = ghost.x - pos.x;
+        const gz = ghost.z - pos.z;
+        const d = Math.hypot(gx, gz);
+        const step = Math.min(d, speed * dt);
+        if (d > 1e-6) {
+          pos.x += (gx / d) * step;
+          pos.z += (gz / d) * step;
         }
       } else if (speed > 0.01) {
         const next = resolve({ x: pos.x + Math.sin(facing) * speed * dt, z: pos.z + Math.cos(facing) * speed * dt }, bounds, boxes);
@@ -969,8 +1054,11 @@ export default function LifeScene3D(props: LifeScene3DProps) {
           if (alt) {
             via = alt;
             detours += 1;
-          } else if (act) act.approach = null;
-          else if (p.goto.current) p.goto.current = null;
+          } else if (act) {
+            // Не пройти — устраивается отсюда; далеко от места — без шагов сквозь мебель.
+            act.approach = null;
+            if (dist(pos, act.stand) > 1.5) act.inTo = null;
+          } else if (p.goto.current) p.goto.current = null;
         }
         speed = Math.min(speed, moved / Math.max(dt, 1e-3) + 0.3);
         pos.x = next.x;
@@ -984,9 +1072,11 @@ export default function LifeScene3D(props: LifeScene3DProps) {
       shadow.position.set(pos.x, 0.02, pos.z);
       shadow.visible = heroY < 0.3;
       if (hero) {
-        const posed = act && !act.approach;
-        if (posed) animate(hero.rig, act!.motion, t, 0, 1 - Math.exp(-dt * 6));
-        else if (speed > 0.06 && !exiting) {
+        const posed = act && !act.approach && !act.inTo;
+        const rising = exiting && !exiting.out;
+        if (posed) animate(hero.rig, act!.motion, t, 0, 1 - Math.exp(-dt * (act!.sit ? 12 : 6)), act!.sit ? { settle: seatK } : undefined);
+        else if (rising && exiting!.sit) animate(hero.rig, exiting!.motion, t, 0, 1 - Math.exp(-dt * 12), { settle: seatK });
+        else if (speed > 0.06 && !rising) {
           // Шаг: фаза копится по частоте шагов для этой скорости — стопы не скользят.
           cycle = (cycle + dt * gaitFreq(hero.rig, speed, cycle)) % 1;
           animate(hero.rig, 'walk', t, cycle, walkBlend < 1 ? 1 - Math.exp(-dt * 12) : 1, { speed, lean });

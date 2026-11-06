@@ -450,10 +450,17 @@ interface Pose {
   ik?: boolean;
 }
 
-/** Параметры движения: скорость (м/с) и наклон в повороте. */
+/** Параметры движения: скорость (м/с), наклон в повороте и ход посадки. */
 export interface AnimOpts {
   speed?: number;
   lean?: number;
+  /**
+   * Позы сидя: ход посадки 0…1 (0 — стоит, 1 — сидит; вставание — обратно). Стопы — по
+   * прямой от места стоя к месту сидя (сцена сдвигает тело так, что они стоят на полу),
+   * таз уходит назад и вниз, корпус наклоняется вперёд, руки — к позе дела. С ходом посадки
+   * (и при 1) ширина стоп — как стоя; без него — поза сидя как есть (ученики, превью).
+   */
+  settle?: number;
 }
 
 const lerp = (a: number, b: number, t: number): number => a + (b - a) * t;
@@ -821,9 +828,10 @@ const mix = { a: null as Clip | null, b: null as Clip | null, w: 0, u: 0, pa: 0,
 /**
  * Какие две походки смешать при скорости speed (м/с сцены) и с каким весом, и где каждая
  * из них в общей фазе phase. Скорость переводится в масштаб эталона (высокие шагают
- * шире). Чаще всего играет одна походка (чуть быстрее или медленнее записи), смесь — в
- * полосе посередине; в смеси записи выравниваются по событиям шага (постановки и отрывы
- * стоп совпадают), иначе опорная стопа одной записи смешивалась бы с летящей стопой другой.
+ * шире). Вес меняется плавно почти на всём промежутке между скоростями записей (узкая
+ * полоса смеси при разгоне проскакивалась бы за пару кадров — рывком позы); в смеси записи
+ * выравниваются по событиям шага (постановки и отрывы стоп совпадают), иначе опорная стопа
+ * одной записи смешивалась бы с летящей стопой другой.
  */
 function gaitMix(rig: Rig, speed: number, phase: number): typeof mix {
   const set = clipSet();
@@ -833,7 +841,7 @@ function gaitMix(rig: Rig, speed: number, phase: number): typeof mix {
   while (i < GAITS.length - 2 && u > v(set[GAITS[i + 1]!])) i += 1;
   const a = set[GAITS[i]!];
   const b = set[GAITS[i + 1]!];
-  const w = ss(((u - v(a)) / (v(b) - v(a)) - 0.4) / 0.2);
+  const w = ss(((u - v(a)) / (v(b) - v(a)) - 0.1) / 0.8);
   const [ka, kb] = keysOf(a, b);
   warpPhase(ka, kb, w, phase, warp);
   mix.a = a;
@@ -859,16 +867,145 @@ export function gaitFreq(rig: Rig, speed: number, phase = 0): number {
 
 const poseA = makePose(BONES.length);
 const poseB = makePose(BONES.length);
+const poseM = makePose(BONES.length);
 const tq = new THREE.Quaternion();
+
+/** Цепочки «таз → стопа» (номера костей) для поворота стопы в осях тела. */
+const FOOT_CHAIN = { l: [B.root, B.l_thigh, B.l_shin, B.l_foot], r: [B.root, B.r_thigh, B.r_shin, B.r_foot] } as const;
+const FWD = new THREE.Vector3(0, 0, 1);
+/** Подъём пятки стопы с поворотом q (рад, + — пятка вверх, − — носок вверх). */
+const heelUp = (q: THREE.Quaternion): number => -Math.asin(Math.max(-1, Math.min(1, tv.copy(FWD).applyQuaternion(q).y)));
+
+/** Поворот стопы side в осях тела по позе клипа. */
+function footQ(pose: ClipPose, side: 'l' | 'r', out: THREE.Quaternion): THREE.Quaternion {
+  const c = FOOT_CHAIN[side];
+  out.fromArray(pose.q, c[0] * 4);
+  for (let k = 1; k < 4; k += 1) out.multiply(tq.fromArray(pose.q, c[k]! * 4));
+  return out;
+}
+
+/** Пятка (на полу) и подушечка стопы эталона клипов от голеностопа. */
+let refFoot: { heel: THREE.Vector3; ball: THREE.Vector3 } | null = null;
+const qa = new THREE.Quaternion();
+const qb = new THREE.Quaternion();
+const qm = new THREE.Quaternion();
+const pv = new THREE.Vector3();
+const pa = new THREE.Vector3();
+const pb = new THREE.Vector3();
+
+/** Точка опоры стопы с поворотом q (в pv, от голеностопа): пятка, пока носок поднят, подушечка — пока поднята пятка. */
+function pivot(q: THREE.Quaternion): THREE.Vector3 {
+  refFoot ??= (() => {
+    const J = joints('female');
+    return { heel: new THREE.Vector3(0, -J.l_foot.y, -0.055), ball: J.l_toe.clone().sub(J.l_foot).setX(0) };
+  })();
+  return pv.copy(refFoot.heel).lerp(refFoot.ball, ss((heelUp(q) + 0.03) / 0.06));
+}
+
+/** Шаг персонажа между кадрами: фаза, голеностопы и повороты стоп клипа, поправки стоп (x, z). */
+interface GaitHold {
+  live: boolean;
+  phase: number;
+  ankle: Float32Array;
+  q: Float32Array;
+  off: Float32Array;
+}
+const holds = new WeakMap<Rig, GaitHold>();
+
+/**
+ * Опорная стопа стоит на месте и при смене скорости: смесь походок с другим весом (разгон,
+ * торможение) сдвинула бы её по полу. Пока стопа в опоре, её точка опоры за кадр сдвигается
+ * в теле ровно на пройденный путь, а разница копится в поправке голеностопа; в переносе
+ * поправка плавно гаснет (стопа встаёт уже без неё). Всё — в масштабе эталона клипов.
+ */
+function holdFeet(rig: Rig, pose: ClipPose, m: typeof mix, phase: number): void {
+  let h = holds.get(rig);
+  if (!h) holds.set(rig, (h = { live: false, phase: 0, ankle: new Float32Array(6), q: new Float32Array(8), off: new Float32Array(4) }));
+  const dp = (((phase - h.phase) % 1) + 1) % 1;
+  const fresh = !h.live || dp > 0.25;
+  const travel = dp * (m.a!.stride * m.ra * (1 - m.w) + m.b!.stride * m.rb * m.w);
+  // Опора — по событиям шага преобладающей записи.
+  const c = m.w < 0.5 ? m.a! : m.b!;
+  const u = m.w < 0.5 ? m.pa : m.pb;
+  const e = c.events;
+  for (const side of SIDES) {
+    const o = side === 'l' ? 3 : 6;
+    const j = side === 'l' ? 0 : 2;
+    const ai = side === 'l' ? 0 : 3;
+    const qi = side === 'l' ? 0 : 4;
+    footQ(pose, side, qm);
+    const stance = !e || (side === 'l' ? u < e.lOff : e.rOn < e.rOff ? u >= e.rOn && u < e.rOff : u >= e.rOn || u < e.rOff);
+    if (fresh) {
+      h.off[j] = 0;
+      h.off[j + 1] = 0;
+    } else if (stance) {
+      pivot(qm);
+      pa.copy(pv).applyQuaternion(qa.fromArray(h.q, qi)).add(tv.fromArray(h.ankle, ai));
+      pb.copy(pv).applyQuaternion(qm).add(tv.fromArray(pose.pos, o));
+      h.off[j] = h.off[j]! + pa.x - pb.x;
+      h.off[j + 1] = h.off[j + 1]! + pa.z - travel - pb.z;
+    } else {
+      const f = 1 - Math.min(1, dp * 8);
+      h.off[j] = h.off[j]! * f;
+      h.off[j + 1] = h.off[j + 1]! * f;
+    }
+    for (let k = 0; k < 3; k += 1) h.ankle[ai + k] = pose.pos[o + k]!;
+    qm.toArray(h.q, qi);
+    pose.pos[o] = pose.pos[o]! + h.off[j]!;
+    pose.pos[o + 2] = pose.pos[o + 2]! + h.off[j + 1]!;
+  }
+  h.phase = phase;
+  h.live = true;
+}
+
+/**
+ * Смесь двух походок (w — вес b). Повороты смешиваются сферически, а голеностоп — так, чтобы
+ * точка опоры стопы (пятка при постановке, подушечка при перекате) была смесью точек опоры
+ * обеих записей: в каждой записи она неподвижна в мире, значит, и в смеси. Если смешивать
+ * сами голеностопы, у стоп с разным наклоном точка опоры ехала бы по полу и уходила под него.
+ */
+function mixGait(a: ClipPose, b: ClipPose, w: number, out: ClipPose): ClipPose {
+  mixPose(a, b, w, out);
+  if (w <= 0 || w >= 1) return out;
+  for (const side of SIDES) {
+    footQ(a, side, qa);
+    footQ(b, side, qb);
+    pivot(footQ(out, side, qm));
+    const o = side === 'l' ? 3 : 6;
+    pa.copy(pv).applyQuaternion(qa).add(tv.fromArray(a.pos, o));
+    pb.copy(pv).applyQuaternion(qb).add(tv.fromArray(b.pos, o));
+    pa.lerp(pb, w).sub(pv.applyQuaternion(qm));
+    pa.toArray(out.pos, o);
+  }
+  return out;
+}
+
+const SOLE = new THREE.Vector3(0, -0.03, 0);
+const TIP = new THREE.Vector3(0, -0.03, 0.085);
+const fq = new THREE.Quaternion();
+const fv = new THREE.Vector3();
+/**
+ * Самая низкая точка стопы (пятка, подошва под подушечкой, кончики пальцев) относительно
+ * голеностопа — по текущим поворотам костей ноги (координаты тела).
+ */
+function footLow(rig: Rig, side: 'l' | 'r', ankleY: number): number {
+  fq.copy(rig.bones.root.quaternion).multiply(rig.bones[`${side}_thigh`].quaternion).multiply(rig.bones[`${side}_shin`].quaternion).multiply(rig.bones[`${side}_foot`].quaternion);
+  const heel = fv.set(0, -ankleY, -0.055).applyQuaternion(fq).y;
+  const ball = fv.copy(rig.rest[`${side}_toe`]).applyQuaternion(fq).y;
+  const sole = ball + fv.copy(SOLE).applyQuaternion(fq).y;
+  const tip = ball + fv.copy(TIP).applyQuaternion(fq.multiply(rig.bones[`${side}_toe`].quaternion)).y;
+  return Math.min(heel, sole, tip);
+}
 
 /** Ставит позу клипа: повороты костей, таз (смещение от покоя) и ноги — по целям голеностопов. */
 function applyClip(rig: Rig, pose: ClipPose): void {
   const r = legScale(rig);
-  BONES.forEach((b, i) => {
+  for (let i = 0; i < BONES.length; i += 1) {
+    const b = BONES[i]!;
     const bone = rig.bones[b];
     bone.quaternion.fromArray(pose.q, i * 4);
     if (b !== 'root') bone.position.copy(rig.rest[b]);
-  });
+  }
   const p = pose.pos;
   rig.bones.root.position.set(rig.rest.root.x + p[0]! * r, rig.rest.root.y + p[1]! * r, rig.rest.root.z + p[2]! * r);
   // Голеностопы: по ширине — как у актёра (в масштабе ноги), по высоте и вперёд — от покоя.
@@ -878,6 +1015,8 @@ function applyClip(rig: Rig, pose: ClipPose): void {
     const ankle = restAnkle(rig, side);
     const t = side === 'l' ? tgtL : tgtR;
     t.set(p[o]! * r, ankle.y + (p[o + 1]! - CLIP_ANKLE[1]) * r, ankle.z + (p[o + 2]! - CLIP_ANKLE[2]) * r);
+    // Ничто не уходит под пол (смесь походок, другие пропорции стопы).
+    t.y -= Math.min(0, t.y + footLow(rig, side, ankle.y));
     // Нога не дотягивается (пропорции не как у актёра) — таз опускается, а не стопа повисает.
     tv.copy(rig.bones[`${side}_thigh`].position).applyQuaternion(rig.bones.root.quaternion).add(rig.bones.root.position);
     const reach = REACH * (rig.thigh + rig.shin);
@@ -1172,6 +1311,54 @@ function solveLeg(rig: Rig, side: 'l' | 'r', hip: THREE.Vector3, dy = 0, dz = 0,
   rig.bones[`${side}_foot`].rotation.x = -(th.rotation.x + sh.rotation.x) + pitch;
 }
 
+/**
+ * Где стопы и таз сидящего относительно места, где он стоял (по направлению взгляда, в
+ * масштабе персонажа): стопы — впереди корня, таз — позади.
+ */
+export function seatOffsets(rig: Rig): { feet: number; hips: number } {
+  const st = stancePose('sit', 0);
+  const e = new THREE.Euler();
+  const q1 = new THREE.Quaternion().setFromEuler(e.set(...(st.rot.l_thigh ?? [0, 0, 0])));
+  const q2 = new THREE.Quaternion().setFromEuler(e.set(...(st.rot.l_shin ?? [0, 0, 0])));
+  const z = (st.hip?.[2] ?? 0) + rig.rest.l_shin.clone().applyQuaternion(q1).z + rig.rest.l_foot.clone().applyQuaternion(q1.multiply(q2)).z;
+  const sc = rig.root.scale.x;
+  return { feet: (z - rig.rest.l_shin.z - rig.rest.l_foot.z) * sc, hips: (st.hip?.[2] ?? 0) * sc };
+}
+
+const seatAnkle = { l: new THREE.Vector3(), r: new THREE.Vector3() };
+const qI = new THREE.Quaternion();
+const LEGS = new Set<BoneName>(['l_thigh', 'l_shin', 'l_foot', 'l_toe', 'r_thigh', 'r_shin', 'r_foot', 'r_toe']);
+
+/**
+ * Посадка на ходу s (0 — стоит, 1 — сидит) поверх позы сидя, уже поставленной на кости:
+ * стопы — от покоя к месту сидя по прямой, таз сначала уходит назад, потом опускается,
+ * корпус наклоняется вперёд (сильнее всего посередине), голова смотрит вперёд.
+ */
+function seat(rig: Rig, hip: THREE.Vector3, s: number): void {
+  const e = ss(s);
+  ankleAt(rig, 'l', seatAnkle.l);
+  ankleAt(rig, 'r', seatAnkle.r);
+  for (const b of BONES) {
+    if (LEGS.has(b)) continue;
+    const q = rig.bones[b].quaternion;
+    tq.copy(q);
+    q.copy(qI).slerp(tq, e);
+  }
+  const lean = 0.55 * Math.sin(Math.PI * clamp01(s / 0.95));
+  rig.bones.spine.rotateX(lean * 0.6);
+  rig.bones.chest.rotateX(lean * 0.4);
+  rig.bones.neck.rotateX(-lean * 0.6);
+  const dx = hip.x - rig.rest.root.x;
+  const dy = hip.y - rig.rest.root.y;
+  const dz = hip.z - rig.rest.root.z;
+  rig.bones.root.position.set(rig.rest.root.x + dx * e, rig.rest.root.y + dy * ss((s - 0.15) / 0.85), rig.rest.root.z + dz * ss(s / 0.85));
+  // Ширина стоп — как стоя (иначе сидя колени врозь развели бы стопы по полу на 4–5 см).
+  for (const side of SIDES) {
+    const rest = restAnkle(rig, side);
+    reachLeg(rig, side, seatAnkle[side].lerp(rest, 1 - e).setX(rest.x));
+  }
+}
+
 const prevQ = new Float32Array(BONES.length * 4);
 const prevRoot = new THREE.Vector3();
 const prevAnkle = { l: new THREE.Vector3(), r: new THREE.Vector3() };
@@ -1199,7 +1386,7 @@ function ankleAt(rig: Rig, side: 'l' | 'r', out: THREE.Vector3): THREE.Vector3 {
 export function animate(rig: Rig, motion: Motion, t: number, phase = 0, blend = 1, opts?: AnimOpts): void {
   const k = Math.min(1, Math.max(0, blend));
   if (k < 1) {
-    BONES.forEach((b, i) => rig.bones[b].quaternion.toArray(prevQ, i * 4));
+    for (let i = 0; i < BONES.length; i += 1) rig.bones[BONES[i]!].quaternion.toArray(prevQ, i * 4);
     prevRoot.copy(rig.bones.root.position);
     ankleAt(rig, 'l', prevAnkle.l);
     ankleAt(rig, 'r', prevAnkle.r);
@@ -1208,9 +1395,16 @@ export function animate(rig: Rig, motion: Motion, t: number, phase = 0, blend = 
   let lift = 0;
   // Стопы стоят на полу: при переходе голеностопы идут по прямой, а не как придётся.
   let planted = true;
+  // Шаг прервался — поправки опорных стоп начинаются заново.
+  if (motion !== 'walk') {
+    const h = holds.get(rig);
+    if (h) h.live = false;
+  }
   if (motion === 'walk') {
     const m = gaitMix(rig, opts?.speed ?? 1.2, phase);
-    applyClip(rig, mixPose(sampleClip(m.a!, m.pa, poseA), sampleClip(m.b!, m.pb, poseB), m.w, poseA));
+    const pose = mixGait(sampleClip(m.a!, m.pa, poseA), sampleClip(m.b!, m.pb, poseB), m.w, poseM);
+    holdFeet(rig, pose, m, phase);
+    applyClip(rig, pose);
   } else if (motion === 'idle') {
     const c = clipSet().idle;
     applyClip(rig, sampleClip(c, t / c.duration, poseA));
@@ -1235,6 +1429,10 @@ export function animate(rig: Rig, motion: Motion, t: number, phase = 0, blend = 
       solveLeg(rig, 'r', hip);
     }
     planted = Boolean(p.ik);
+    if (opts?.settle !== undefined && motion.startsWith('sit:')) {
+      seat(rig, hip, clamp01(opts.settle));
+      planted = true;
+    }
     pitch = p.pitch ?? 0;
     lift = p.lift ?? 0;
   }
@@ -1243,11 +1441,11 @@ export function animate(rig: Rig, motion: Motion, t: number, phase = 0, blend = 
       ankleAt(rig, 'l', nextAnkle.l);
       ankleAt(rig, 'r', nextAnkle.r);
     }
-    BONES.forEach((b, i) => {
-      const q = rig.bones[b].quaternion;
+    for (let i = 0; i < BONES.length; i += 1) {
+      const q = rig.bones[BONES[i]!].quaternion;
       tq.copy(q);
       q.fromArray(prevQ, i * 4).slerp(tq, k);
-    });
+    }
     rig.bones.root.position.lerpVectors(prevRoot, rig.bones.root.position, k);
     if (planted)
       // Цель — та же доля пути между прежним и новым положением голеностопа.

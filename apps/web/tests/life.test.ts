@@ -36,7 +36,7 @@ import {
   upgradeGym,
 } from '../src/game/life';
 import { ACTIONS, BOWL_MAX, CAT_BREEDS, LITTER_DIRTY, FURNITURE, GYMS, HOUSE_SLOTS, LIFE_EVENTS, MAX_CATS, OBJECTS, SESSION_EXERCISES, actionById, lifeEventById, mountOf, slotsFor } from '../src/game/lifeContent';
-import { bounds, clientSpot, detourPoint, gymGear, gymLayout, homeLayout, homeObstacles, resolve, spawn, type Box, type P2 } from '../src/game/lifeMap';
+import { RUN_SPEED, STICK_WALK, WALK_SPEED, blocked, bounds, clientSpot, detourPoint, freeSpot, gymGear, gymLayout, homeLayout, homeObstacles, resolve, spawn, stickSpeed, type Box, type P2 } from '../src/game/lifeMap';
 import type { Txt } from '../src/game/lifeTypes';
 import { itemById } from '../src/game/items';
 import { createState, DEFAULT_APPEARANCE, migrate, type GameState } from '../src/game/state';
@@ -572,6 +572,44 @@ describe('раскладка дома', () => {
     const sofa = placed.find((p) => p.id === 'sofa')!;
     // Из кухни, от кровати, от двери и из-за телевизора — к дивану сбоку от столика.
     for (const from of [{ x: 5, z: -3 }, { x: -4, z: -2.5 }, { x: -6, z: 4 }, { x: 0.4, z: -0.7 }, { x: 3, z: 3 }]) expect(walk(from, sofa.use)).toBe(true);
+  });
+
+  it('место у мебели: свободная точка рядом, куда герой подходит и откуда уходит шагом', () => {
+    const b = bounds('home');
+    const placed = homeLayout(['computer'], true);
+    const boxes: Box[] = [...placed.map((p) => p.box).filter((x): x is Box => x !== null), ...homeObstacles()];
+    const sofa = placed.find((p) => p.id === 'sofa')!;
+    const bed = placed.find((p) => p.id === 'bed')!;
+    // Место сидя на диване — у самого сиденья (вплотную подойти нельзя), свободная точка — на пути к месту использования.
+    const seat = { x: sofa.pos.x, z: sofa.pos.z - 0.45 };
+    expect(blocked(seat, boxes, 0)).toBe(true);
+    const free = freeSpot(seat, sofa.use, b, boxes);
+    const r = resolve(free, b, boxes);
+    expect(Math.hypot(r.x - free.x, r.z - free.z)).toBeLessThan(1e-6);
+    expect(Math.hypot(free.x - sofa.use.x, free.z - sofa.use.z)).toBeLessThan(Math.hypot(seat.x - sofa.use.x, seat.z - sofa.use.z) + 1e-6);
+    // Из кровати — к краю, а не к дальнему месту использования.
+    const inBed = { x: bed.pos.x, z: bed.pos.z + 0.95 };
+    const edge = freeSpot(inBed, bed.use, b, boxes);
+    expect(Math.hypot(edge.x - inBed.x, edge.z - inBed.z)).toBeLessThan(Math.hypot(bed.use.x - inBed.x, bed.use.z - inBed.z));
+    expect(blocked(edge, boxes, 0.29)).toBe(false);
+    // Свободная точка — сама точка.
+    expect(freeSpot(sofa.use, seat, b, boxes)).toEqual(sofa.use);
+  });
+
+  it('стик: неполный наклон — шаг, до упора — бег трусцой; скорость растёт без скачков', () => {
+    expect(stickSpeed(0)).toBe(0);
+    expect(stickSpeed(0.04)).toBe(0);
+    expect(stickSpeed(0.5)).toBeLessThan(WALK_SPEED);
+    expect(stickSpeed(STICK_WALK)).toBeCloseTo(WALK_SPEED, 6);
+    expect(stickSpeed(1)).toBeCloseTo(RUN_SPEED, 6);
+    expect(stickSpeed(1.5)).toBeCloseTo(RUN_SPEED, 6);
+    let prev = stickSpeed(0.06);
+    for (let m = 0.07; m <= 1; m += 0.01) {
+      const v = stickSpeed(m);
+      expect(v).toBeGreaterThan(prev);
+      expect(v - prev).toBeLessThan(0.1);
+      prev = v;
+    }
   });
 });
 

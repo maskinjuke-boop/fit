@@ -187,6 +187,22 @@ export function spawn(scene: SceneId): P2 {
 
 export const REACH = 1.7;
 
+/**
+ * Скорости героя (м сцены/с; сцена крупнее метра в 1,33 раза): шаг — сам идёт к цели
+ * (≈ 1,5 м/с у человека), бег трусцой — стик до упора.
+ */
+export const WALK_SPEED = 2.0;
+export const RUN_SPEED = 3.3;
+/** До какого наклона стика герой идёт шагом (клавиши без Shift — тоже шагом). */
+export const STICK_WALK = 0.7;
+
+/** Скорость по наклону стика (0…1): до 70 % — шаг (чем дальше, тем быстрее), дальше — разгон до бега. */
+export function stickSpeed(mag: number): number {
+  if (mag <= 0.05) return 0;
+  const m = Math.min(1, mag);
+  return m <= STICK_WALK ? (WALK_SPEED * m) / STICK_WALK : WALK_SPEED + ((RUN_SPEED - WALK_SPEED) * (m - STICK_WALK)) / (1 - STICK_WALK);
+}
+
 export const dist = (a: P2, b: P2): number => Math.hypot(a.x - b.x, a.z - b.z);
 
 /** Удерживает точку в границах и выталкивает из препятствий. */
@@ -209,6 +225,25 @@ export function resolve(p: P2, b0: Box, boxes: readonly Box[]): P2 {
     }
   }
   return { x, z };
+}
+
+/** Стоит ли точка внутри препятствия (с запасом r). */
+export function blocked(p: P2, boxes: readonly Box[], r: number): boolean {
+  return boxes.some((b) => p.x > b.x0 - r && p.x < b.x1 + r && p.z > b.z0 - r && p.z < b.z1 + r);
+}
+
+/**
+ * Первая точка на пути from → to, где герой может стоять (resolve её не сдвигает): с места у
+ * мебели (на диване, в кровати) он выходит сюда шагом и отсюда же подходит. Нет такой — to.
+ */
+export function freeSpot(from: P2, to: P2, b0: Box, boxes: readonly Box[]): P2 {
+  const steps = Math.max(1, Math.ceil(dist(from, to) / 0.05));
+  for (let k = 0; k < steps; k += 1) {
+    const m = { x: from.x + ((to.x - from.x) * k) / steps, z: from.z + ((to.z - from.z) * k) / steps };
+    const r = resolve(m, b0, boxes);
+    if (Math.abs(r.x - m.x) + Math.abs(r.z - m.z) < 1e-6) return m;
+  }
+  return { ...to };
 }
 
 /** Свободна ли точка и прямой путь к ней (без препятствий по дороге). */
