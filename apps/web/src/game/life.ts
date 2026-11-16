@@ -74,6 +74,11 @@ function migrateHome(r: Partial<LifeState>): Pick<LifeState, 'house' | 'decor' |
   for (const k of DECOR_KINDS) {
     const id = r.decor![k];
     if (typeof id === 'string' && finishById(id)?.kind === k && finishes.includes(id)) decor[k] = id;
+    // Новые разделы ремонта в старом сохранении: в обжитом доме — простой ремонт.
+    else if (id === undefined && house > 0) {
+      decor[k] = BASIC_DECOR[k];
+      if (!finishes.includes(BASIC_DECOR[k])) finishes.push(BASIC_DECOR[k]);
+    }
   }
   const kit = { ...OLD_KIT };
   for (const k of KITS) kit[k.id] = r.kit?.[k.id] === 1 ? 1 : 0;

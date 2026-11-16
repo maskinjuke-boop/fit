@@ -1031,12 +1031,32 @@ describe('деньги только с занятий, жильё и удобс�
 });
 
 describe('ремонт', () => {
+  it('новые разделы ремонта: кухня, окна и дверь; старые сохранения получают простой ремонт', () => {
+    for (const k of ['kitchen', 'window', 'door'] as const) {
+      expect(DECOR_KINDS).toContain(k);
+      expect(finishById(OLD_DECOR[k])!.old).toBe(true);
+      expect(finishById(BASIC_DECOR[k])!.kind).toBe(k);
+      expect(FINISHES.filter((f) => f.kind === k).length).toBeGreaterThanOrEqual(5);
+    }
+    // Сохранение квартиры до появления новых разделов.
+    const s = hero();
+    const raw = structuredClone(s.life);
+    raw.house = 1;
+    raw.decor = { ...BASIC_DECOR };
+    for (const k of ['kitchen', 'window', 'door'] as const) delete (raw.decor as Partial<typeof raw.decor>)[k];
+    raw.finishes = Object.values(raw.decor);
+    const m = migrateLife(raw);
+    expect(m.decor.kitchen).toBe(BASIC_DECOR.kitchen);
+    expect(m.decor.door).toBe(BASIC_DECOR.door);
+    expect(m.finishes).toContain(BASIC_DECOR.window);
+  });
+
   it('игра начинается в убитой однушке со старой мебелью', () => {
     const s = hero();
     expect(s.life.house).toBe(0);
     expect(s.life.decor).toEqual(OLD_DECOR);
     expect(s.life.kit).toEqual(OLD_KIT);
-    expect(oldStuff(s.life)).toBe(10);
+    expect(oldStuff(s.life)).toBe(DECOR_KINDS.length + 4);
     expect(HOUSES[0]!.w * HOUSES[0]!.d).toBeLessThan(HOUSES[1]!.w * HOUSES[1]!.d * 0.6);
     expect(HOUSES[0]!.slots).toBeLessThan(HOUSES[1]!.slots);
     // Новое сохранение после ремонта не теряет отделку.

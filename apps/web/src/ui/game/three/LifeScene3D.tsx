@@ -10,7 +10,8 @@ import { createCatLife, perchSpots, type CatAI, type CatHeroAct, type CatWorld, 
 import { buildBowls, buildLitter } from './cats3d';
 import { BASIC_DECOR, NEW_KIT, kitOf, type HomeLook } from '../../../game/homeDecor';
 import { contactShadow, objectModel, plasterTexture, ticksOf, type HomeAnim } from './homeModels';
-import { curtains, floorMesh, roomLights, roomWalls, rugMesh } from './interior';
+import { curtains, doorModel, floorMesh, kitchenTiles, lampHalo, roomLights, roomOcclusion, roomWalls, rugMesh, windowStyle } from './interior';
+import { rubberTexture } from './gymBackdrop';
 
 /** Дом без данных о ремонте — простой новый ремонт и новая мебель. */
 const DEFAULT_LOOK: HomeLook = { decor: BASIC_DECOR, kit: NEW_KIT };
@@ -272,9 +273,11 @@ function walls(w: number, d: number, tone: string, H = 3, wainscot?: string): TH
 }
 
 /** Окно в боковой стене со светлым проёмом и пятном света на полу; old — старая облезлая рама. */
-function sideWindow(x: number, z: number, side: number, night: boolean, look: HomeLook = DEFAULT_LOOK, old = false): THREE.Group {
+function sideWindow(x: number, z: number, side: number, night: boolean, look: HomeLook = DEFAULT_LOOK): THREE.Group {
   const g = new THREE.Group();
-  const frame = old ? M.wood('#d8d0bc', 2, 1) : mat('#ffffff', 0.45);
+  const ws = windowStyle(look);
+  const old = ws.old;
+  const frame = ws.frame;
   const glass = night ? M.glow('#1d2b55', 0.45) : M.glow('#cfe9ff', 0.9);
   const w = 1.7;
   const h = 1.4;
@@ -289,6 +292,8 @@ function sideWindow(x: number, z: number, side: number, night: boolean, look: Ho
     const crack = mat('#ffffff', 0.2, 0, { transparent: true, opacity: 0.6 });
     g.add(mesh(new THREE.BoxGeometry(0.4, 0.008, 0.002), crack, [0.35, 0.35, 0.008]).rotateZ(0.7), mesh(new THREE.BoxGeometry(0.25, 0.008, 0.002), crack, [0.5, 0.42, 0.008]).rotateZ(-0.4));
   }
+  const extra = ws.extra(w, h);
+  if (extra) g.add(extra);
   g.add(curtains(look, w, h, night));
   g.position.set(x, 1.75, z);
   g.rotation.y = side > 0 ? -Math.PI / 2 : Math.PI / 2;
@@ -339,8 +344,9 @@ function addPlaced(g: THREE.Group, placed: ReadonlyArray<Placed & { y?: number }
     }
     // Старая базовая мебель; дверь и зеркало в убитой однушке тоже старые.
     const kit = kitOf(p.id);
-    const old = look ? (kit ? !look.kit[kit] : tier <= 0 && (p.id === 'door' || p.id === 'mirror')) : false;
-    const m = objectModel(p.id, old);
+    const old = look ? (kit ? !look.kit[kit] : p.id === 'door' ? look.decor.door === 'door_old' : tier <= 0 && p.id === 'mirror') : false;
+    const custom = look && p.id === 'door' && !old ? doorModel(look) : null;
+    const m = custom ?? objectModel(p.id, old);
     m.position.set(p.pos.x, p.y ?? 0, p.pos.z);
     m.rotation.y = p.rot;
     g.add(m);
@@ -360,28 +366,16 @@ function house(placed: Array<Placed & { y?: number }>, night: boolean, pets: { c
   const room = { w, d, cx, cz };
   const wallsG = roomWalls(look, room);
   wallsG.position.set(cx, 0, cz);
-  g.add(floorMesh(look, room), wallsG);
-  // Кухонная зона: плитка на полу и фартук на стене (на старой кухне — битая плитка).
-  const oldKitchen = !look.kit.kitchen;
-  const tiles = mesh(new THREE.PlaneGeometry(3.4, 2.6), mat(oldKitchen ? '#c8bfa9' : '#d9d4cc', oldKitchen ? 0.6 : 0.35), [R - 1.7, 0.004, B + 1.3]);
-  tiles.rotation.x = -Math.PI / 2;
-  tiles.receiveShadow = true;
-  g.add(tiles);
-  if (oldKitchen) {
-    const grout = mat('#8f8676', 0.9);
-    for (let i = 1; i < 6; i += 1) {
-      g.add(mesh(new THREE.BoxGeometry(3.4, 0.002, 0.02), grout, [R - 1.7, 0.006, B + i * 0.43]));
-      g.add(mesh(new THREE.BoxGeometry(0.02, 0.002, 2.6), grout, [R - 3.4 + i * 0.57, 0.006, B + 1.3]));
-    }
-    // Сколы и трещины на плитке.
-    for (const [x, z, r] of [[R - 2.6, B + 1.9, 0.5], [R - 1.1, B + 2.2, -0.3]] as const) g.add(mesh(new THREE.BoxGeometry(0.35, 0.003, 0.012), mat('#5e574b', 0.9), [x, 0.007, z]).rotateY(r));
-    g.add(mesh(new THREE.PlaneGeometry(3.3, 0.7), mat('#b5b19a', 0.6), [R - 1.7, 1.25, B + 0.02]));
-    // Отвалившаяся плитка фартука.
-    g.add(mesh(new THREE.PlaneGeometry(0.3, 0.2), mat('#8f8a7c', 0.95), [R - 2.9, 1.42, B + 0.025]), mesh(new THREE.PlaneGeometry(0.15, 0.2), mat('#8f8a7c', 0.95), [R - 0.6, 1.05, B + 0.025]));
-  } else g.add(mesh(new THREE.PlaneGeometry(3.3, 0.7), mat('#a7c7d9', 0.25), [R - 1.7, 1.25, B + 0.02]));
+  const ao = roomOcclusion(w, d, 0.9);
+  ao.position.set(cx, 0, cz);
+  g.add(floorMesh(look, room), wallsG, ao);
+  // Кухонная зона: плитка на полу и фартук на стене (по отделке «Кухня»).
+  const kitchen = kitchenTiles(look, 3.4, 2.6, B);
+  kitchen.position.x = R - 1.7;
+  g.add(kitchen);
   // Окна на левой стене (в большом доме — больше окон, в однушке — одно).
   const winZ = tier >= 3 ? [-3.6, 2.2, 6.4] : tier >= 1 ? [-3.6, 2.2] : [-3.2];
-  for (const z of winZ) g.add(sideWindow(L + 0.01, z, -1, night, look, tier <= 0));
+  for (const z of winZ) g.add(sideWindow(L + 0.01, z, -1, night, look));
   // Ковёр у дивана.
   const rug = rugMesh(look, 0.4, -0.2);
   if (rug) g.add(rug);
@@ -398,11 +392,21 @@ function gymRoom(tier: number, placed: Placed[], night: boolean, extras: readonl
   const g = new THREE.Group();
   const { w, d } = gymRect(tier);
   const floorTone = ['#3a3d42', '#34383e', '#2e3238', '#2a2d33', '#24262b'][tier]!;
-  const floor = mesh(new THREE.PlaneGeometry(w, d), mat(floorTone, 0.95), [0, 0, 0]);
+  // Резиновое покрытие с крошкой (оттенок — по уровню зала).
+  const floorMat = mat(floorTone, 0.95);
+  const rubber = rubberTexture(w, d);
+  if (rubber) {
+    floorMat.map = rubber;
+    // Холст тёмный (#2b2e33): цвет материала поднимает его до тона зала.
+    const base = new THREE.Color('#2b2e33');
+    const tone = new THREE.Color(floorTone);
+    floorMat.color.setRGB(tone.r / base.r, tone.g / base.g, tone.b / base.b);
+  }
+  const floor = mesh(new THREE.PlaneGeometry(w, d), floorMat, [0, 0, 0]);
   floor.rotation.x = -Math.PI / 2;
   floor.name = 'ground';
   floor.receiveShadow = true;
-  g.add(floor, walls(w, d, ['#c9c4bb', '#dfe3e6', '#e9edf0', '#f0f0f0', '#f5f2ec'][tier]!, 3.4));
+  g.add(floor, walls(w, d, ['#c9c4bb', '#dfe3e6', '#e9edf0', '#f0f0f0', '#f5f2ec'][tier]!, 3.4), roomOcclusion(w, d, 0.8));
   // Деревянная дорожка у входа (с ростом зала).
   if (tier >= 2) {
     const strip = mesh(new THREE.PlaneGeometry(4.2, d), mat('#a87a4c', 0.7), [-w / 2 + 2.1, 0.004, 0]);
@@ -429,6 +433,13 @@ function gymRoom(tier: number, placed: Placed[], night: boolean, extras: readonl
     const lamp = new THREE.PointLight('#fff4e0', 9 + tier * 2 + (extras.includes('gym_lights') ? 5 : 0), 16, 1.6);
     lamp.position.set(x, 3.2, 0);
     g.add(lamp);
+    if (night) {
+      const halo = lampHalo('#fff1d6', 1.6, 0.4);
+      if (halo) {
+        halo.position.set(x, 3.25, 0);
+        g.add(halo);
+      }
+    }
   }
   return g;
 }

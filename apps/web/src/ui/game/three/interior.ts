@@ -572,6 +572,100 @@ const rugDraw: Record<string, (d: FinishDef) => Draw> = {
   },
 };
 
+// ─── Кухонная плитка (холст — 1,2 × 1,2 м) ─────────────────────────────
+
+export const KTILE = 1.2;
+
+/** Плитка с затиркой, бликом и лёгкой неровностью тона. */
+function tile(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, color: string, grout: string, r: () => number, gap = 4): void {
+  ctx.fillStyle = grout;
+  ctx.fillRect(x, y, w, h);
+  const g = ctx.createLinearGradient(x, y, x + w, y + h);
+  const k = (r() - 0.5) * 0.08;
+  g.addColorStop(0, tone(color, k + 0.08));
+  g.addColorStop(1, tone(color, k - 0.06));
+  ctx.fillStyle = g;
+  ctx.fillRect(x + gap / 2, y + gap / 2, w - gap, h - gap);
+  ctx.fillStyle = 'rgba(255,255,255,0.18)';
+  ctx.fillRect(x + gap / 2, y + gap / 2, w - gap, Math.max(2, h * 0.06));
+}
+
+const tileDraw: Record<string, (d: FinishDef) => Draw> = {
+  square: (d) => (ctx, w, h, r) => {
+    const n = 8;
+    for (let i = 0; i < n; i += 1) for (let j = 0; j < n; j += 1) tile(ctx, (i * w) / n, (j * h) / n, w / n, h / n, d.look.color, d.look.accent ?? '#e5e2dc', r, 6);
+  },
+  subway: (d) => (ctx, w, h, r) => {
+    const rows = 16;
+    const th = h / rows;
+    const tw = th * 2;
+    for (let j = 0; j < rows; j += 1) for (let x = j % 2 ? -tw / 2 : 0; x < w; x += tw) tile(ctx, x, j * th, tw, th, d.look.color, d.look.accent ?? '#c4beb3', r, 5);
+  },
+  mosaic: (d) => (ctx, w, h, r) => {
+    const n = 24;
+    for (let i = 0; i < n; i += 1)
+      for (let j = 0; j < n; j += 1) {
+        const c = r() < 0.35 ? (d.look.accent ?? '#ffffff') : tone(d.look.color, (r() - 0.5) * 0.4);
+        tile(ctx, (i * w) / n, (j * h) / n, w / n, h / n, c, '#e8ecec', r, 3);
+      }
+  },
+  marble: (d) => (ctx, w, h, r) => {
+    ctx.fillStyle = d.look.color;
+    ctx.fillRect(0, 0, w, h);
+    for (let i = 0; i < 4000; i += 1) {
+      ctx.fillStyle = tone(d.look.color, (r() - 0.5) * 0.08, 0.6);
+      ctx.fillRect(r() * w, r() * h, 3 + r() * 6, 3 + r() * 6);
+    }
+    veins(ctx, w, h, r, d.look.accent ?? '#a9a39a', 7);
+    ctx.strokeStyle = 'rgba(0,0,0,0.12)';
+    ctx.lineWidth = 2;
+    for (let i = 1; i < 2; i += 1) {
+      ctx.beginPath();
+      ctx.moveTo((i * w) / 2, 0);
+      ctx.lineTo((i * w) / 2, h);
+      ctx.moveTo(0, (i * h) / 2);
+      ctx.lineTo(w, (i * h) / 2);
+      ctx.stroke();
+    }
+  },
+  old: (d) => (ctx, w, h, r) => {
+    const n = 8;
+    for (let i = 0; i < n; i += 1)
+      for (let j = 0; j < n; j += 1) {
+        const x = (i * w) / n;
+        const y = (j * h) / n;
+        // Отвалившаяся плитка — серый цемент.
+        if (r() < 0.06) {
+          ctx.fillStyle = '#8f8a7c';
+          ctx.fillRect(x, y, w / n, h / n);
+          speckle(ctx, w / n, h / n, r, 40, 0.3);
+          continue;
+        }
+        tile(ctx, x, y, w / n, h / n, tone(d.look.color, (r() - 0.5) * 0.12), d.look.accent ?? '#8f8676', r, 6);
+      }
+    // Трещины и пятна.
+    ctx.strokeStyle = 'rgba(60,52,40,0.7)';
+    ctx.lineWidth = 1.5;
+    for (let i = 0; i < 6; i += 1) {
+      let x = r() * w;
+      let y = r() * h;
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      for (let k = 0; k < 6; k += 1) {
+        x += (r() - 0.5) * 40;
+        y += (r() - 0.3) * 30;
+        ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+    }
+    for (let i = 0; i < 5; i += 1) {
+      ctx.fillStyle = `rgba(110,85,40,${0.08 + r() * 0.1})`;
+      blotch(ctx, r() * w, r() * h, 20 + r() * 40, 14 + r() * 30, r);
+      ctx.fill();
+    }
+  },
+};
+
 // ─── Холсты и текстуры ─────────────────────────────────────────────────
 
 const canvases = new Map<string, HTMLCanvasElement | null>();
@@ -601,6 +695,7 @@ function finishCanvas(d: FinishDef): HTMLCanvasElement | null {
   if (d.kind === 'wall') return canvasOf(d.id, WALL_W, WALL_H, (wallDraw[d.look.style] ?? wallDraw.plaster!)(d), seedOf(d.id));
   if (d.kind === 'floor') return canvasOf(d.id, FLOOR_PX, FLOOR_PX, (floorDraw[d.look.style] ?? floorDraw.planks!)(d), seedOf(d.id));
   if (d.kind === 'rug') return canvasOf(d.id, 512, 512, (rugDraw[d.look.style] ?? rugDraw.plain!)(d), seedOf(d.id));
+  if (d.kind === 'kitchen') return canvasOf(d.id, 512, 512, (tileDraw[d.look.style] ?? tileDraw.square!)(d), seedOf(d.id));
   return null;
 }
 
@@ -642,6 +737,8 @@ export function finishSwatch(id: string, size = 120): string | null {
   const src = finishCanvas(d);
   const s = size;
   if (src && d.kind === 'wall') ctx.drawImage(src, 0, 0, src.width * 0.3, src.height * 0.4, 0, 0, s, s);
+  else if (src && d.kind === 'kitchen') ctx.drawImage(src, 0, 0, src.width * 0.5, src.height * 0.5, 0, 0, s, s);
+  else if (d.kind === 'window' || d.kind === 'door') drawOpeningSwatch(ctx, d, s);
   else if (src && d.kind === 'floor') ctx.drawImage(src, 0, 0, src.width * 0.5, src.height * 0.5, 0, 0, s, s);
   else if (d.kind === 'rug') {
     ctx.fillStyle = '#c9b79c';
@@ -776,6 +873,85 @@ export function finishSwatch(id: string, size = 120): string | null {
   const url = c.toDataURL('image/png');
   swatches.set(key, url);
   return url;
+}
+
+/** Образец окна или двери: плоский рисунок проёма. */
+function drawOpeningSwatch(ctx: CanvasRenderingContext2D, d: FinishDef, s: number): void {
+  ctx.fillStyle = '#e8e0d0';
+  ctx.fillRect(0, 0, s, s);
+  const st = d.look.style;
+  if (d.kind === 'window') {
+    ctx.fillStyle = '#bfe0f7';
+    ctx.fillRect(s * 0.16, s * 0.14, s * 0.68, s * 0.6);
+    ctx.strokeStyle = st === 'old' ? '#b9ae96' : d.look.color === '#ffffff' ? '#ffffff' : d.look.color;
+    ctx.lineWidth = st === 'loft' ? s * 0.025 : s * 0.05;
+    ctx.strokeRect(s * 0.16, s * 0.14, s * 0.68, s * 0.6);
+    ctx.beginPath();
+    ctx.moveTo(s * 0.5, s * 0.14);
+    ctx.lineTo(s * 0.5, s * 0.74);
+    if (st === 'loft') {
+      for (const k of [0.33, 0.67]) {
+        ctx.moveTo(s * 0.16, s * (0.14 + 0.6 * k));
+        ctx.lineTo(s * 0.84, s * (0.14 + 0.6 * k));
+        ctx.moveTo(s * (0.16 + 0.68 * (k - 0.165)), s * 0.14);
+        ctx.lineTo(s * (0.16 + 0.68 * (k - 0.165)), s * 0.74);
+      }
+    }
+    ctx.stroke();
+    ctx.fillStyle = st === 'wood' ? d.look.color : st === 'old' ? '#c8bea8' : '#f6f4ef';
+    ctx.fillRect(s * 0.1, s * 0.74, s * 0.8, s * (st === 'garden' ? 0.09 : 0.06));
+    if (st === 'garden') {
+      for (const x of [0.25, 0.5, 0.75]) {
+        ctx.fillStyle = '#b5603c';
+        ctx.fillRect(s * (x - 0.05), s * 0.66, s * 0.1, s * 0.08);
+        ctx.fillStyle = d.look.accent ?? '#4f8a4a';
+        ctx.beginPath();
+        ctx.arc(s * x, s * 0.62, s * 0.07, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+    if (st === 'old') {
+      ctx.strokeStyle = 'rgba(255,255,255,0.9)';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(s * 0.55, s * 0.2);
+      ctx.lineTo(s * 0.7, s * 0.4);
+      ctx.lineTo(s * 0.65, s * 0.5);
+      ctx.stroke();
+    }
+    return;
+  }
+  // Дверь.
+  ctx.fillStyle = st === 'old' ? '#8a7a64' : '#d8d2c6';
+  ctx.fillRect(s * 0.22, s * 0.06, s * 0.56, s * 0.94);
+  ctx.fillStyle = d.look.color;
+  ctx.fillRect(s * 0.27, s * 0.1, s * 0.46, s * 0.9);
+  ctx.strokeStyle = 'rgba(0,0,0,0.2)';
+  ctx.lineWidth = 2;
+  if (st === 'panel' || st === 'wood') {
+    ctx.strokeRect(s * 0.33, s * 0.16, s * 0.34, s * 0.32);
+    ctx.strokeRect(s * 0.33, s * 0.56, s * 0.34, s * 0.36);
+  } else if (st === 'steel') {
+    for (let y = 0.2; y < 0.95; y += 0.12) {
+      ctx.beginPath();
+      ctx.moveTo(s * 0.3, s * y);
+      ctx.lineTo(s * 0.7, s * y);
+      ctx.stroke();
+    }
+  } else if (st === 'glass') {
+    ctx.fillStyle = d.look.accent ?? '#bfe6f2';
+    for (const y of [0.16, 0.42, 0.68]) ctx.fillRect(s * 0.34, s * y, s * 0.32, s * 0.2);
+  } else if (st === 'old') {
+    ctx.fillStyle = '#4a3a2c';
+    ctx.fillRect(s * 0.31, s * 0.16, s * 0.38, s * 0.34);
+    ctx.fillRect(s * 0.31, s * 0.56, s * 0.38, s * 0.36);
+    ctx.fillStyle = '#a59478';
+    ctx.fillRect(s * 0.3, s * 0.2, s * 0.06, s * 0.08);
+  }
+  ctx.fillStyle = st === 'steel' ? d.look.accent ?? '#c9ced4' : st === 'old' ? '#8a8a80' : '#d4af37';
+  ctx.beginPath();
+  ctx.arc(s * 0.66, s * 0.56, s * 0.025, 0, Math.PI * 2);
+  ctx.fill();
 }
 
 // ─── Сборка отделки в сцене ────────────────────────────────────────────
@@ -954,6 +1130,11 @@ export function roomLights(look: HomeLook, spots: ReadonlyArray<[number, number]
       const lamp = new THREE.PointLight(color, night ? 8 : 1.6, 9, 1.8);
       lamp.position.set(x, H - 0.85, z);
       g.add(lamp);
+      const halo = lampHalo('#ffd590', night ? 1.1 : 0.5, night ? 0.75 : 0.3);
+      if (halo) {
+        halo.position.set(x, H - 0.8, z);
+        g.add(halo);
+      }
       ticks.push((t, _m, n) => {
         lamp.intensity = (n ? 8 : 1.6) * (0.92 + 0.08 * Math.sin(t * 23) * Math.sin(t * 3.7));
       });
@@ -966,6 +1147,13 @@ export function roomLights(look: HomeLook, spots: ReadonlyArray<[number, number]
     const lamp = new THREE.PointLight(color, (night ? 9 : 2.5) * k, 11, 1.7);
     lamp.position.set(x, 2.85, z);
     g.add(lamp);
+    if (night && st !== 'chandelier') {
+      const halo = lampHalo(color, 1.4, 0.45);
+      if (halo) {
+        halo.position.set(x, 2.9, z);
+        g.add(halo);
+      }
+    }
   }
   if (st === 'chandelier') {
     const [x, z] = spots[0] ?? [0, 0];
@@ -983,8 +1171,177 @@ export function roomLights(look: HomeLook, spots: ReadonlyArray<[number, number]
     }
     ch.position.set(x, H - 0.55, z);
     g.add(ch);
+    if (night) {
+      const halo = lampHalo('#ffe2a8', 1.8, 0.55);
+      if (halo) {
+        halo.position.set(x, H - 0.45, z);
+        g.add(halo);
+      }
+    }
   }
   return g;
 }
 
 export { H as ROOM_H };
+
+// ─── Кухня, окна, дверь ───────────────────────────────────────────────
+
+/** Кухонная зона: плитка на полу (w×d м, центр в начале координат) и фартук на стене. */
+export function kitchenTiles(look: HomeLook, w: number, d: number, backZ: number): THREE.Group {
+  const g = new THREE.Group();
+  const def = pick(look.decor.kitchen, 'ktile_blue');
+  const old = def.look.style === 'old';
+  const floorMat = finishMat(def, w / KTILE, d / KTILE, old ? 0.6 : def.look.style === 'marble' ? 0.25 : 0.35);
+  const tiles = mesh(new THREE.PlaneGeometry(w, d), floorMat, [0, 0.004, backZ + d / 2]);
+  tiles.rotation.x = -Math.PI / 2;
+  tiles.receiveShadow = true;
+  g.add(tiles);
+  // Фартук: та же плитка, глянцевая; полка-бортик снизу.
+  const bw = w - 0.1;
+  const back = mesh(new THREE.PlaneGeometry(bw, 0.7), finishMat(def, bw / KTILE, 0.7 / KTILE, old ? 0.55 : 0.18), [0, 1.25, backZ + 0.02]);
+  g.add(back);
+  g.add(mesh(new THREE.BoxGeometry(bw, 0.03, 0.03), mat(old ? '#9c9580' : '#e9e6df', 0.4), [0, 0.89, backZ + 0.035]));
+  return g;
+}
+
+/** Стиль окна: рама, подоконник, дополнительные переплёты и цветы. */
+export function windowStyle(look: HomeLook): { old: boolean; frame: THREE.Material; extra(w: number, h: number): THREE.Object3D | null } {
+  const def = pick(look.decor.window, 'win_pvc');
+  const st = def.look.style;
+  const frame = st === 'old' ? M.wood('#d8d0bc', 2, 1) : st === 'wood' ? M.wood(def.look.color, 2, 1) : st === 'loft' ? mat(def.look.color, 0.35, 0.6) : mat(def.look.color, 0.4);
+  return {
+    old: st === 'old',
+    frame,
+    extra(w, h) {
+      const g = new THREE.Group();
+      if (st === 'loft') {
+        // Мелкая расстекловка, как в лофте.
+        for (const k of [-1 / 3, 1 / 3]) g.add(mesh(new THREE.BoxGeometry(w, 0.025, 0.04), frame, [0, k * h, 0.03]));
+        for (const k of [-0.25, 0.25]) g.add(mesh(new THREE.BoxGeometry(0.025, h, 0.04), frame, [k * w, 0, 0.03]));
+      }
+      if (st === 'garden') {
+        // Глубокий подоконник с горшками.
+        g.add(mesh(new THREE.BoxGeometry(w + 0.3, 0.06, 0.38), mat('#f4f1ea', 0.4), [0, -h / 2 - 0.05, 0.19]));
+        [-0.55, 0, 0.55].forEach((x, i) => {
+          g.add(mesh(new THREE.CylinderGeometry(0.08, 0.06, 0.14, 12), mat('#b5603c', 0.8), [x, -h / 2 + 0.05, 0.2]));
+          const leaf = mat(['#4f8a4a', '#6aa05a', '#3d7a5c'][i]!, 0.8);
+          for (let k = 0; k < 5; k += 1) {
+            const a = (k / 5) * Math.PI * 2;
+            g.add(mesh(new THREE.SphereGeometry(0.06, 8, 6), leaf, [x + Math.cos(a) * 0.05, -h / 2 + 0.19 + (k % 2) * 0.05, 0.2 + Math.sin(a) * 0.05]));
+          }
+        });
+      }
+      return g.children.length ? g : null;
+    },
+  };
+}
+
+/** Входная дверь по отделке (стоит на полу, смотрит на +Z; ширина 1,1 м). */
+export function doorModel(look: HomeLook): THREE.Group | null {
+  const def = pick(look.decor.door, 'door_oak');
+  const st = def.look.style;
+  if (st === 'old') return null;
+  const g = new THREE.Group();
+  const frameM = mat(st === 'steel' ? '#2b2f35' : st === 'glass' ? '#1f2828' : '#ece8df', 0.5);
+  g.add(mesh(new THREE.BoxGeometry(1.3, 0.1, 0.14), frameM, [0, 2.25, 0]));
+  for (const x of [-0.6, 0.6]) g.add(mesh(new THREE.BoxGeometry(0.1, 2.3, 0.14), frameM, [x, 1.15, 0]));
+  const leafM = st === 'wood' ? M.wood(def.look.color, 1, 2) : st === 'steel' ? mat(def.look.color, 0.35, 0.7) : mat(def.look.color, 0.45);
+  g.add(mesh(new THREE.BoxGeometry(1.1, 2.2, 0.07), leafM, [0, 1.1, 0]));
+  const inset = st === 'wood' ? M.wood(new THREE.Color(def.look.color).multiplyScalar(0.85).getStyle(), 1, 2) : mat(new THREE.Color(def.look.color).multiplyScalar(0.92).getStyle(), 0.5);
+  if (st === 'panel' || st === 'wood') {
+    for (const [y, h] of [[1.6, 0.75], [0.6, 0.85]] as const) {
+      g.add(mesh(new THREE.BoxGeometry(0.78, h, 0.02), inset, [0, y, 0.045]));
+      g.add(mesh(new THREE.BoxGeometry(0.7, h - 0.08, 0.02), leafM, [0, y, 0.055]));
+    }
+  } else if (st === 'steel') {
+    for (let i = 0; i < 6; i += 1) g.add(mesh(new THREE.BoxGeometry(0.9, 0.015, 0.01), mat('#1f2328', 0.4, 0.6), [0, 0.35 + i * 0.3, 0.04]));
+    g.add(mesh(new THREE.CylinderGeometry(0.018, 0.018, 0.04, 10), mat('#c9ced4', 0.2, 1), [0, 1.55, 0.05]).rotateX(Math.PI / 2));
+  } else if (st === 'glass') {
+    const glass = mat(def.look.accent ?? '#bfe6f2', 0.05, 0.1, { transparent: true, opacity: 0.75 });
+    for (const y of [1.75, 1.15, 0.55]) g.add(mesh(new THREE.BoxGeometry(0.6, 0.45, 0.02), glass, [0, y, 0.04]));
+  }
+  // Ручка и накладка.
+  const metal = st === 'steel' ? mat('#c9ced4', 0.25, 1) : M.gold();
+  g.add(mesh(new THREE.BoxGeometry(0.05, 0.2, 0.02), metal, [0.42, 1.05, 0.045]));
+  g.add(mesh(new THREE.BoxGeometry(0.14, 0.025, 0.025), metal, [0.38, 1.1, 0.07]));
+  return g;
+}
+
+// ─── Мягкое затенение углов и ореолы ламп ─────────────────────────────
+
+let aoTex: THREE.CanvasTexture | null = null;
+function aoTexture(): THREE.CanvasTexture | null {
+  if (aoTex) return aoTex;
+  if (typeof document === 'undefined') return null;
+  const c = document.createElement('canvas');
+  c.width = 4;
+  c.height = 128;
+  const ctx = c.getContext('2d');
+  if (!ctx) return null;
+  const g = ctx.createLinearGradient(0, 0, 0, 128);
+  g.addColorStop(0, 'rgba(0,0,0,0.55)');
+  g.addColorStop(0.35, 'rgba(0,0,0,0.2)');
+  g.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, 4, 128);
+  aoTex = new THREE.CanvasTexture(c);
+  aoTex.userData.shared = true;
+  return aoTex;
+}
+
+/**
+ * Запечённое «затенение» (вместо дорогого SSAO): тёмная полоса на полу вдоль стен и
+ * снизу на стенах — комната выглядит объёмнее, мебель и стены «стоят» на полу.
+ * Стены: задняя (z = −d/2) и две боковые; центр комнаты в начале координат.
+ */
+export function roomOcclusion(w: number, d: number, strength = 1): THREE.Group {
+  const g = new THREE.Group();
+  const t = aoTexture();
+  if (!t) return g;
+  const m = new THREE.MeshBasicMaterial({ map: t, transparent: true, depthWrite: false, opacity: strength, polygonOffset: true, polygonOffsetFactor: -2 });
+  const floorStrip = (len: number, x: number, z: number, ry: number): void => {
+    const p = new THREE.Mesh(new THREE.PlaneGeometry(len, 0.9), m);
+    p.rotation.set(-Math.PI / 2, 0, ry);
+    p.position.set(x, 0.006, z);
+    p.renderOrder = 1;
+    g.add(p);
+  };
+  // Полоса текстуры тёмная со стороны v=1 (верх холста) — разворачиваем к стене.
+  floorStrip(w, 0, -d / 2 + 0.45, 0);
+  floorStrip(d, -w / 2 + 0.45, 0, Math.PI / 2);
+  floorStrip(d, w / 2 - 0.45, 0, -Math.PI / 2);
+  const wallStrip = (len: number, x: number, z: number, ry: number): void => {
+    const p = new THREE.Mesh(new THREE.PlaneGeometry(len, 0.6), m);
+    p.rotation.set(0, ry, Math.PI);
+    p.position.set(x, 0.3, z);
+    p.renderOrder = 1;
+    g.add(p);
+  };
+  wallStrip(w, 0, -d / 2 + 0.005, 0);
+  wallStrip(d, -w / 2 + 0.005, 0, Math.PI / 2);
+  wallStrip(d, w / 2 - 0.005, 0, -Math.PI / 2);
+  return g;
+}
+
+let haloTex: THREE.CanvasTexture | null = null;
+/** Мягкий ореол вокруг светильника (аддитивный спрайт — дешёвая замена bloom). */
+export function lampHalo(color: string, size: number, opacity: number): THREE.Sprite | null {
+  if (!haloTex) {
+    if (typeof document === 'undefined') return null;
+    const c = document.createElement('canvas');
+    c.width = c.height = 64;
+    const ctx = c.getContext('2d');
+    if (!ctx) return null;
+    const g = ctx.createRadialGradient(32, 32, 0, 32, 32, 32);
+    g.addColorStop(0, 'rgba(255,255,255,1)');
+    g.addColorStop(0.25, 'rgba(255,255,255,0.45)');
+    g.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, 64, 64);
+    haloTex = new THREE.CanvasTexture(c);
+    haloTex.userData.shared = true;
+  }
+  const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: haloTex, color, transparent: true, opacity, blending: THREE.AdditiveBlending, depthWrite: false }));
+  sp.scale.setScalar(size);
+  return sp;
+}

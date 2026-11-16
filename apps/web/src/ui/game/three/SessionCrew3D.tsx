@@ -4,7 +4,8 @@ import type { ExerciseId } from '../../../tracking/exercise';
 import { disposeObject, type CharacterParts } from './buildCharacter';
 import { blobShadow, loadCharacter, type Member } from './people';
 import { animate } from './rig';
-import { createStudio, setupRenderer } from './studio';
+import { createStudio, enableShadows, setupRenderer } from './studio';
+import { gymBackdrop } from './gymBackdrop';
 
 /**
  * Ученики на занятии: полоса с 3D-фигурами поверх камеры. Каждый засчитанный повтор
@@ -53,26 +54,46 @@ export default function SessionCrew3D({ clients, exercise, reps }: SessionCrew3D
     if (!el || clients.length === 0) return;
     let renderer: THREE.WebGLRenderer;
     try {
-      renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'high-performance' });
+      renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
     } catch {
       return;
     }
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
-    setupRenderer(renderer, false);
-    renderer.setClearColor(0x000000, 0);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.75));
+    setupRenderer(renderer, true);
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     const canvas = renderer.domElement;
     canvas.className = 'crew-canvas';
     el.appendChild(canvas);
-    const studio = createStudio(renderer, false);
+    const studio = createStudio(renderer, true);
     const { scene } = studio;
-    scene.background = null;
-    scene.environmentIntensity = 0.6;
+    scene.background = new THREE.Color('#1c1f25');
+    scene.environmentIntensity = 0.55;
+    const fog = new THREE.Fog('#1c1f25', 9, 16);
+    scene.fog = fog;
+    scene.add(gymBackdrop());
+    scene.add(new THREE.HemisphereLight('#fff4e4', '#3b3530', 0.55));
+    // Свет сверху-спереди с мягкими тенями на всю группу.
+    const key = studio.key;
+    key.position.set(1.6, 6, 4.5);
+    key.target.position.set(0, 0, -1);
+    key.intensity = 2.3;
+    key.shadow.mapSize.set(1536, 1536);
+    key.shadow.camera.left = -5;
+    key.shadow.camera.right = 5;
+    key.shadow.camera.top = 5;
+    key.shadow.camera.bottom = -5;
+    key.shadow.camera.far = 20;
+    key.shadow.radius = 4;
+    key.shadow.camera.updateProjectionMatrix();
 
     const lying = LYING.includes(exercise);
     // Лёжа в полосу помещается не больше пяти — остальные занимаются «за кадром».
     const shown = lying ? clients.slice(0, 5) : clients;
     const n = shown.length;
-    const perRow = n > 5 ? Math.ceil(n / 2) : n;
+    // Узкий экран (телефон стоя) — больше рядов, чтобы ученики были крупнее.
+    const portrait = (el.clientWidth || 1) < (el.clientHeight || 1);
+    const rows = lying ? 1 : portrait ? (n <= 2 ? 1 : n <= 6 ? 2 : 3) : n > 5 ? 2 : 1;
+    const perRow = Math.ceil(n / rows);
     // Полные ученики шире — стоят свободнее.
     const heavy = Math.max(0, ...shown.map((c) => c.appearance.heavy ?? 0));
     const gap = 0.95 + 0.75 * heavy;
@@ -89,8 +110,8 @@ export default function SessionCrew3D({ clients, exercise, reps }: SessionCrew3D
       } else {
         const row = Math.floor(i / perRow);
         const k = i % perRow;
-        const inRow = row === 0 ? Math.min(perRow, n) : n - perRow;
-        root.position.set((k - (inRow - 1) / 2) * gap + row * gap * 0.5, 0, -row * 1.3);
+        const inRow = Math.min(perRow, n - row * perRow);
+        root.position.set((k - (inRow - 1) / 2) * gap + (row % 2) * gap * 0.5, 0, -row * 1.3);
       }
       const sh = blobShadow(lying ? 1.8 : 0.9);
       sh.position.set(root.position.x - (lying ? shiftX : 0), 0.01, root.position.z);
@@ -109,6 +130,7 @@ export default function SessionCrew3D({ clients, exercise, reps }: SessionCrew3D
           disposeObject(parts.root);
           return;
         }
+        enableShadows(parts.root);
         list[i]!.parts = parts;
         list[i]!.root.add(parts.root);
       }).catch(() => {
@@ -124,17 +146,21 @@ export default function SessionCrew3D({ clients, exercise, reps }: SessionCrew3D
       const h = el.clientHeight || 1;
       renderer.setSize(w, h, false);
       camera.aspect = w / h;
+      // На узком экране — шире угол, иначе камера уезжает далеко и все мелкие.
+      camera.fov = camera.aspect < 0.8 ? 52 : camera.aspect < 1.2 ? 40 : 30;
       // Отодвинуть камеру, чтобы все поместились по ширине.
       const width = lying ? 2.8 + (n - 1) * STEP_X : perRow * gap + 0.8;
       // Ближний лежащий крупнее — центр кадра чуть к нему.
       const cx = lying ? -0.35 : 0;
       const vfov = (camera.fov * Math.PI) / 180;
       const hfov = 2 * Math.atan(Math.tan(vfov / 2) * camera.aspect);
-      const depth = lying ? (n - 1) * STEP_Z : n > perRow ? 1.3 : 0;
+      const depth = lying ? (n - 1) * STEP_Z : (rows - 1) * 1.3;
       const dist = Math.max(lying ? 3.4 : 4.6, width / 2 / Math.tan(hfov / 2) + 0.6);
       const ty = lying ? 0.35 : 0.85;
       camera.position.set(cx, ty + dist * (lying ? 0.32 : 0.18), dist);
       camera.lookAt(cx, ty, -depth / 2);
+      fog.near = dist + 3;
+      fog.far = dist + 16;
       camera.updateProjectionMatrix();
     };
     const ro = new ResizeObserver(fit);

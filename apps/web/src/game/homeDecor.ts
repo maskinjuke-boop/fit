@@ -9,8 +9,8 @@ import type { Txt } from './lifeTypes';
 
 const t = (ru: string, en: string): Txt => ({ ru, en });
 
-export type DecorKind = 'wall' | 'floor' | 'trim' | 'curtains' | 'rug' | 'light';
-export const DECOR_KINDS: readonly DecorKind[] = ['wall', 'floor', 'trim', 'curtains', 'rug', 'light'];
+export type DecorKind = 'wall' | 'floor' | 'trim' | 'curtains' | 'rug' | 'light' | 'kitchen' | 'window' | 'door';
+export const DECOR_KINDS: readonly DecorKind[] = ['wall', 'floor', 'trim', 'kitchen', 'window', 'curtains', 'door', 'rug', 'light'];
 
 export const DECOR_KIND_NAME: Record<DecorKind, Txt> = {
   wall: t('Стены', 'Walls'),
@@ -19,9 +19,12 @@ export const DECOR_KIND_NAME: Record<DecorKind, Txt> = {
   curtains: t('Шторы', 'Curtains'),
   rug: t('Ковёр', 'Rug'),
   light: t('Свет', 'Lighting'),
+  kitchen: t('Кухня: плитка и фартук', 'Kitchen tiles & backsplash'),
+  window: t('Окна', 'Windows'),
+  door: t('Входная дверь', 'Front door'),
 };
 
-export const DECOR_KIND_ICON: Record<DecorKind, string> = { wall: '🧱', floor: '🪵', trim: '📏', curtains: '🪟', rug: '🟫', light: '💡' };
+export const DECOR_KIND_ICON: Record<DecorKind, string> = { wall: '🧱', floor: '🪵', trim: '📏', curtains: '🎀', rug: '🟫', light: '💡', kitchen: '🍽️', window: '🪟', door: '🚪' };
 
 /** Как выглядит отделка: рисунок и цвета (рисует 3D-сцена и образцы в магазине). */
 export interface FinishLook {
@@ -95,6 +98,26 @@ export const FINISHES: readonly FinishDef[] = [
   f('light_day', 'light', t('Дневной свет', 'Daylight lamps'), 200, 1, { style: 'warm', color: '#f2f6ff' }),
   f('light_led', 'light', t('Светодиодная подсветка', 'LED cove lighting'), 450, 2, { style: 'led', color: '#ffe2b8', accent: '#8a6cff' }, { level: 3 }),
   f('light_chandelier', 'light', t('Люстра', 'Chandelier'), 600, 2, { style: 'chandelier', color: '#ffe0ae', accent: '#d4af37' }, { level: 4 }),
+  // Кухня: плитка на полу кухонной зоны и фартук над плитой.
+  f('ktile_old', 'kitchen', t('Битая советская плитка', 'Cracked old tiles'), 0, -1, { style: 'old', color: '#cbc2aa', accent: '#8f8676' }, { old: true }),
+  f('ktile_blue', 'kitchen', t('Голубая плитка', 'Pale blue tiles'), 100, 1, { style: 'square', color: '#a7c7d9', accent: '#e9eef1' }),
+  f('ktile_subway', 'kitchen', t('Белый «кабанчик»', 'White subway tiles'), 140, 1, { style: 'subway', color: '#f4f2ee', accent: '#c4beb3' }),
+  f('ktile_green', 'kitchen', t('Зелёный «кабанчик»', 'Green subway tiles'), 180, 1, { style: 'subway', color: '#6f9c84', accent: '#e8eee9' }, { level: 2 }),
+  f('ktile_terra', 'kitchen', t('Терракота', 'Terracotta'), 220, 1, { style: 'square', color: '#c2734f', accent: '#ead8c6' }, { level: 2 }),
+  f('ktile_mosaic', 'kitchen', t('Морская мозаика', 'Sea-glass mosaic'), 320, 2, { style: 'mosaic', color: '#2f7f8a', accent: '#bfe3e6' }, { level: 3 }),
+  f('ktile_marble', 'kitchen', t('Мраморный фартук', 'Marble backsplash'), 650, 2, { style: 'marble', color: '#f1eee9', accent: '#a9a39a' }, { level: 6 }),
+  // Окна: рамы и подоконник.
+  f('win_old', 'window', t('Облезлые рамы', 'Peeling frames'), 0, -1, { style: 'old', color: '#d8d0bc' }, { old: true }),
+  f('win_pvc', 'window', t('Белые пластиковые', 'White PVC'), 150, 1, { style: 'pvc', color: '#ffffff' }),
+  f('win_wood', 'window', t('Деревянные рамы', 'Wooden frames'), 260, 1, { style: 'wood', color: '#8a5a36' }, { level: 2 }),
+  f('win_loft', 'window', t('Чёрные лофт-рамы', 'Black loft frames'), 380, 2, { style: 'loft', color: '#22252a' }, { level: 3 }),
+  f('win_garden', 'window', t('Широкий подоконник с цветами', 'Deep sill with plants'), 520, 2, { style: 'garden', color: '#f4f1ea', accent: '#4f8a4a' }, { level: 5 }),
+  // Входная дверь.
+  f('door_old', 'door', t('Обшарпанная дверь', 'Shabby door'), 0, 0, { style: 'old', color: '#6b5440' }, { old: true }),
+  f('door_white', 'door', t('Белая филёнчатая', 'White panelled'), 140, 1, { style: 'panel', color: '#f2f0ea' }),
+  f('door_oak', 'door', t('Дубовая', 'Oak door'), 240, 1, { style: 'wood', color: '#7a4e2d' }),
+  f('door_steel', 'door', t('Стальная с отделкой', 'Steel security door'), 320, 1, { style: 'steel', color: '#3a3f46', accent: '#c9ced4' }, { level: 2 }),
+  f('door_glass', 'door', t('Со стеклянными вставками', 'Glazed door'), 480, 2, { style: 'glass', color: '#2d3a3a', accent: '#bfe6f2' }, { level: 5 }),
 ];
 
 export const finishById = (id: string): FinishDef | undefined => FINISHES.find((x) => x.id === id);
@@ -103,9 +126,9 @@ export const finishesOf = (kind: DecorKind): FinishDef[] => FINISHES.filter((x) 
 export type Decor = Record<DecorKind, string>;
 
 /** Стартовая убитая квартира. */
-export const OLD_DECOR: Decor = { wall: 'wall_peeling', floor: 'floor_linoleum', trim: 'trim_old', curtains: 'curt_old', rug: 'rug_old', light: 'light_bulb' };
+export const OLD_DECOR: Decor = { wall: 'wall_peeling', floor: 'floor_linoleum', trim: 'trim_old', curtains: 'curt_old', rug: 'rug_old', light: 'light_bulb', kitchen: 'ktile_old', window: 'win_old', door: 'door_old' };
 /** Простой новый ремонт (так выглядел дом до ремонтов; им же заменяется старьё при переезде). */
-export const BASIC_DECOR: Decor = { wall: 'wall_plaster', floor: 'floor_parquet', trim: 'trim_beige', curtains: 'curt_linen', rug: 'rug_red', light: 'light_warm' };
+export const BASIC_DECOR: Decor = { wall: 'wall_plaster', floor: 'floor_parquet', trim: 'trim_beige', curtains: 'curt_linen', rug: 'rug_red', light: 'light_warm', kitchen: 'ktile_blue', window: 'win_pvc', door: 'door_oak' };
 
 /** Внешний вид дома для сцены: отделка и состояние базовой мебели. */
 export interface HomeLook {
