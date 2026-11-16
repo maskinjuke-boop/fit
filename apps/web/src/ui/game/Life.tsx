@@ -58,7 +58,8 @@ interface PointerLike {
 
 const AUTO_KEY = 'fitness-rpg.lifeAuto';
 /** Через сколько после управления игроком сим снова действует сам (между своими делами — без паузы). */
-const INPUT_GRACE_MS = 1000;
+/** Сим начинает действовать сам, если игрок ничего не трогал столько времени. */
+const INPUT_GRACE_MS = 15000;
 /** Сим бросает затею, если столько времени не приближается к цели (упёрся), и в любом случае через TASK_MAX_MS. */
 const TASK_STUCK_MS = 6000;
 const TASK_MAX_MS = 60000;
@@ -86,6 +87,8 @@ interface Perform {
   action: string;
   at: ObjectId | null;
   free?: boolean;
+  /** Дело выбрал сам сим (после него следующее — сразу). */
+  self?: boolean;
 }
 
 const NEED_ICON: Record<NeedId, string> = { food: '🍔', energy: '⚡', hygiene: '🚿', fun: '🎉', social: '💬' };
@@ -588,7 +591,7 @@ export function LifeTab({ state, onTrain, onSession }: { state: GameState; onTra
     }
   });
   const [autoTask, setAutoTask] = useState<AutoTask | null>(null);
-  const lastInput = useRef(performance.now() - INPUT_GRACE_MS);
+  const lastInput = useRef(performance.now());
   /** Последние дела сима (чтобы не повторять одно и то же). */
   const recent = useRef<string[]>([]);
   /** До какого момента сим берёт только срочное: прохаживается и потягивается, игровое время стоит. */
@@ -657,8 +660,8 @@ export function LifeTab({ state, onTrain, onSession }: { state: GameState; onTra
       done();
       performRef.current = null;
       setPerform(null);
-      // Следующее дело сим выбирает сразу, без паузы.
-      lastInput.current = performance.now() - INPUT_GRACE_MS;
+      // После своего дела сим выбирает следующее сразу; после дела игрока — ждёт, пока игрок не бездействует.
+      lastInput.current = pf.self ? performance.now() - INPUT_GRACE_MS : performance.now();
     };
     settled.current = (key: number): void => {
       if (key !== pf.key) return;
@@ -692,7 +695,7 @@ export function LifeTab({ state, onTrain, onSession }: { state: GameState; onTra
     }
     performKey.current += 1;
     recent.current = [...recent.current.slice(-11), a.id];
-    play({ key: performKey.current, action: a.id, at: a.at }, spec.ms ?? 2600, () => {
+    play({ key: performKey.current, action: a.id, at: a.at, self }, spec.ms ?? 2600, () => {
       lifeRef.current.act(a.id);
       // Дело съело игровое время — до следующего несрочного дела сим прохаживается (время стоит).
       if (self) restUntil.current = performance.now() + Math.min(REST_MAX_MS, Math.max(REST_MIN_MS, a.minutes * REST_MS_PER_MINUTE));
@@ -703,7 +706,7 @@ export function LifeTab({ state, onTrain, onSession }: { state: GameState; onTra
     const spec = animFor(id);
     if (!spec || performRef.current) return;
     performKey.current += 1;
-    play({ key: performKey.current, action: id, at: spec.place === 'cat' ? 'cat' : null, free: true }, spec.ms ?? 2600, () => {});
+    play({ key: performKey.current, action: id, at: spec.place === 'cat' ? 'cat' : null, free: true, self: true }, spec.ms ?? 2600, () => {});
   };
   const doActionRef = useRef(doAction);
   doActionRef.current = doAction;
@@ -766,7 +769,7 @@ export function LifeTab({ state, onTrain, onSession }: { state: GameState; onTra
           strolled.current = false;
           const near = catSpots.current[0];
           const petting = st.life.scene === 'home' && near && Math.hypot(near.x - hero.x, near.z - hero.z) < 4 && Math.random() < 0.4;
-          const list = st.life.scene === 'home' ? ['free_stretch', 'free_look'] : ['free_stretch', 'free_circles'];
+          const list = st.life.scene === 'home' ? ['free_look'] : ['free_look', 'free_circles'];
           doFreeRef.current(petting ? 'free_pet' : list[Math.floor(Math.random() * list.length)]!);
           return;
         }

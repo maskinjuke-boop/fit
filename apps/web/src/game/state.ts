@@ -20,6 +20,8 @@ export interface Appearance {
   eyes: number;
   /** Настройки тела по группам: −1 … 1 (0 — как задумано для фигуры). */
   body?: Partial<Record<BodyPart, number>>;
+  /** Сильная полнота сверх ползунков: 0 … 1 (только ученики-новички, у героя нет). */
+  heavy?: number;
   /** Настройки черт лица: −1 … 1. */
   face?: Partial<Record<FacePart, number>>;
 }

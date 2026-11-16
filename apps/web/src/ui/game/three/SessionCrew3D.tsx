@@ -73,10 +73,12 @@ export default function SessionCrew3D({ clients, exercise, reps }: SessionCrew3D
     const shown = lying ? clients.slice(0, 5) : clients;
     const n = shown.length;
     const perRow = n > 5 ? Math.ceil(n / 2) : n;
-    const gap = 0.95;
+    // Полные ученики шире — стоят свободнее.
+    const heavy = Math.max(0, ...shown.map((c) => c.appearance.heavy ?? 0));
+    const gap = 0.95 + 0.4 * heavy;
     // Лёжа — уступом (тело вдоль x), чтобы все были видны сбоку; стоя — в один-два ряда.
     const STEP_X = 0.5;
-    const STEP_Z = 0.85;
+    const STEP_Z = 0.85 + 0.35 * heavy;
     const shiftX = exercise === 'pushup' ? 0.8 : -1.1;
     let disposed = false;
     const list: Follower[] = shown.map((c, i) => {
@@ -93,8 +95,8 @@ export default function SessionCrew3D({ clients, exercise, reps }: SessionCrew3D
       const sh = blobShadow(lying ? 1.8 : 0.9);
       sh.position.set(root.position.x - (lying ? shiftX : 0), 0.01, root.position.z);
       scene.add(root, sh);
-      const fat = c.appearance.body?.weight ?? 0;
-      return { parts: null, root, delay: 0.12 + ((i * 37) % 7) * 0.04 + Math.max(0, fat) * 0.2, dur: 0.9 + Math.max(0, fat) * 0.6, queue: [] };
+      const fat = Math.max(0, c.appearance.body?.weight ?? 0) + (c.appearance.heavy ?? 0) * 0.6;
+      return { parts: null, root, delay: 0.12 + ((i * 37) % 7) * 0.04 + fat * 0.2, dur: 0.9 + fat * 0.6, queue: [] };
     });
     followers.current = list;
     let chain: Promise<void> = Promise.resolve();

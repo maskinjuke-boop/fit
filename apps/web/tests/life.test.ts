@@ -34,6 +34,8 @@ import {
   furnitureBlocker,
   gymBlocker,
   makeClient,
+  clientHeavy,
+  clientAppearance,
   migrateLife,
   quotaFor,
   repsOn,
@@ -48,6 +50,7 @@ import { ACTIONS, GYM_EXTRAS, HOUSES, BOWL_MAX, CAT_BREEDS, LITTER_DIRTY, FURNIT
 import { RUN_SPEED, STICK_WALK, WALK_SPEED, blocked, bounds, clientSpot, detourPoint, freeSpot, gymGear, gymLayout, homeLayout, homeObstacles, resolve, spawn, stickSpeed, type Box, type P2 } from '../src/game/lifeMap';
 import type { Txt } from '../src/game/lifeTypes';
 import { itemById } from '../src/game/items';
+import { bodyValues } from '../src/ui/game/three/morph';
 import { createState, DEFAULT_APPEARANCE, migrate, type GameState } from '../src/game/state';
 
 const now = new Date(2026, 10, 5, 10, 0, 0);
@@ -870,6 +873,20 @@ describe('деньги только с занятий, жильё и удобс�
       expect(sum / 20).toBeLessThan(prev);
       prev = sum / 20;
     }
+  });
+
+  it('новички на первых уровнях в разы полнее: сильная полнота убывает с уровнем и с занятиями', () => {
+    const first = makeClient(1, 1, 1);
+    expect(clientHeavy(first)).toBe(1);
+    expect(clientAppearance(first).heavy).toBe(1);
+    const thin = bodyValues({});
+    const fat = bodyValues(clientAppearance(first));
+    // Талия и живот — в несколько раз больше, чем даёт ползунок «вес» на максимуме.
+    expect(fat.waist).toBeGreaterThan(bodyValues({ body: { weight: 1 } }).waist * 3);
+    expect(fat.belly).toBeGreaterThan(thin.belly + 3);
+    expect(clientHeavy(makeClient(1, 7, 1))).toBeLessThan(0.5);
+    expect(clientHeavy(makeClient(1, 13, 1))).toBe(0);
+    expect(clientHeavy({ ...first, fat: 0.6 })).toBeLessThan(clientHeavy(first));
   });
 
   it('жильё расширяется: нужен уровень и деньги, больше мест, уюта и кошек; вещи на месте', () => {

@@ -625,14 +625,18 @@ export default function LifeScene3D(props: LifeScene3DProps) {
       ['squat', 6, 2.2],
       ['stand:stretch', 1, 6],
       ['jumping_jack', 10, 0.9],
+      ['pushup', 5, 2.2],
       ['lunge', 6, 2.3],
       ['stand:circles', 4, 1.5],
-      ['high_knees', 12, 0.7],
-      ['pushup', 5, 2.2],
       ['situp', 6, 2.0],
+      ['high_knees', 12, 0.7],
     ];
     const REST = 1.2;
-    const lens = DRILLS.map(([, n, d]) => n * d + REST);
+    /** Упражнения лёжа: ученик сначала приседает и опускается на пол, после — так же встаёт. */
+    const LYING_DRILLS: ReadonlySet<Motion> = new Set<Motion>(['pushup', 'situp']);
+    const DOWN = 1.1;
+    const UP = 0.9;
+    const lens = DRILLS.map(([m, n, d]) => n * d + REST + (LYING_DRILLS.has(m) ? DOWN + UP : 0));
     const total = lens.reduce((a, x) => a + x, 0);
     /** Что ученик делает в момент t: упражнение и фаза повтора (подходы по кругу без простоя). */
     const crewSet = (e: Crew, t: number): { motion: Motion; phase: number } => {
@@ -645,7 +649,15 @@ export default function LifeScene3D(props: LifeScene3DProps) {
         const len = lens[i]!;
         if (tt < acc + len) {
           const [m, n, d] = DRILLS[i]!;
-          const x = tt - acc;
+          let x = tt - acc;
+          if (LYING_DRILLS.has(m)) {
+            // Присед, затем на пол; в конце подхода — снова через присед вверх (без кувырка через стопы).
+            if (x < DOWN * 0.45) return { motion: 'squat', phase: 0.5 };
+            if (x < DOWN) return { motion: m, phase: 0 };
+            x -= DOWN;
+            if (x > n * d && x < n * d + UP) return { motion: 'squat', phase: 0.5 };
+            if (x > n * d) return { motion: 'idle', phase: 0 };
+          }
           if (x > n * d) return { motion: 'idle', phase: 0 };
           return { motion: m, phase: (x / d) % 1 };
         }
@@ -1145,7 +1157,10 @@ export default function LifeScene3D(props: LifeScene3DProps) {
         else if (speed > 0.06 && !rising) {
           // Шаг: фаза копится по частоте шагов для этой скорости — стопы не скользят.
           cycle = (cycle + dt * gaitFreq(hero.rig, speed, cycle)) % 1;
-          animate(hero.rig, 'walk', t, cycle, walkBlend < 1 ? 1 - Math.exp(-dt * 12) : 1, { speed, lean });
+          // Переход в шаг: доля догоняния растёт плавно до 1 (без скачка позы в конце перехода).
+          const kIn = 1 - Math.exp(-dt * 12);
+          const wb = walkBlend * walkBlend * (3 - 2 * walkBlend);
+          animate(hero.rig, 'walk', t, cycle, walkBlend < 1 ? kIn + (1 - kIn) * wb : 1, { speed, lean });
           walkBlend = Math.min(1, walkBlend + dt * 4);
         } else {
           animate(hero.rig, 'idle', t, 0, ease);

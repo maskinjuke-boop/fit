@@ -158,6 +158,9 @@ export const clientName = (c: Client): Txt => CLIENT_NAMES[c.figure][c.name % CL
 /** Сколько учеников ходит при этом уровне тренера и зала. */
 export const clientTarget = (s: GameState): number => Math.min(GYMS[s.life.gym]!.cap, 1 + Math.floor((trainerLevel(s) - 1) / 2));
 
+/** Сильная полнота ученика 0 … 1: новичок на первом уровне — самый полный, с занятиями и уровнем — меньше. */
+export const clientHeavy = (c: Client): number => Math.round(Math.max(0, c.fat) ** 1.3 * 100) / 100;
+
 export function clientAppearance(c: Client): Appearance {
   return {
     figure: c.figure,
@@ -167,6 +170,7 @@ export function clientAppearance(c: Client): Appearance {
     beard: false,
     eyes: c.seed % 3,
     body: { weight: c.fat, belly: Math.max(0, c.fat) * 0.9, muscle: c.muscle, chest: Math.max(0, c.fat) * 0.3, arms: c.fat * 0.4 },
+    heavy: clientHeavy(c),
   };
 }
 

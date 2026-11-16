@@ -42,29 +42,34 @@ function nearest(p: THREE.Vector3, pts: THREE.Vector3[], out: THREE.Vector3): { 
 export type Morph = (p: THREE.Vector3) => void;
 
 /** Значения ползунков (общие «вес» и «мышцы» раскладываются по группам). */
-export function bodyValues(a: Pick<Appearance, 'body'>): Record<BodyPart, number> {
+export function bodyValues(a: Pick<Appearance, 'body' | 'heavy'>): Record<BodyPart, number> {
   const b = a.body ?? {};
   const v = (k: BodyPart): number => sliderValue(b[k]);
   const weight = v('weight');
   const muscle = v('muscle');
+  // Сильная полнота (ученики-новички): объём в несколько раз больше, чем даёт ползунок «вес».
+  const h = heavyValue(a);
   return {
     height: v('height'),
     weight,
     muscle,
-    shoulders: v('shoulders') + muscle * 0.5,
-    chest: v('chest') + muscle * 0.35 + weight * 0.25,
-    arms: v('arms') + muscle * 0.6 + weight * 0.4,
-    neck: v('neck') + muscle * 0.5 + weight * 0.3,
-    waist: v('waist') + weight * 0.7 - muscle * 0.1,
-    belly: v('belly') + weight * 0.8,
-    hips: v('hips') + weight * 0.45,
-    glutes: v('glutes') + weight * 0.35 + muscle * 0.2,
-    legs: v('legs') + muscle * 0.45 + weight * 0.45,
+    shoulders: v('shoulders') + muscle * 0.5 + h * 0.35,
+    chest: v('chest') + muscle * 0.35 + weight * 0.25 + h * 0.9,
+    arms: v('arms') + muscle * 0.6 + weight * 0.4 + h * 1.5,
+    neck: v('neck') + muscle * 0.5 + weight * 0.3 + h * 1.3,
+    waist: v('waist') + weight * 0.7 - muscle * 0.1 + h * 2.4,
+    belly: v('belly') + weight * 0.8 + h * 2.6,
+    hips: v('hips') + weight * 0.45 + h * 1.7,
+    glutes: v('glutes') + weight * 0.35 + muscle * 0.2 + h * 1.4,
+    legs: v('legs') + muscle * 0.45 + weight * 0.45 + h * 1.5,
   };
 }
 
+/** Сильная полнота 0 … 1. */
+export const heavyValue = (a: Pick<Appearance, 'heavy'>): number => (typeof a.heavy === 'number' && Number.isFinite(a.heavy) ? Math.max(0, Math.min(1, a.heavy)) : 0);
+
 /** Деформация тела по ползункам; null — всё по умолчанию. */
-export function bodyMorph(shape: BodyShape, a: Pick<Appearance, 'body'>): Morph | null {
+export function bodyMorph(shape: BodyShape, a: Pick<Appearance, 'body' | 'heavy'>): Morph | null {
   const m = bodyValues(a);
   const parts: BodyPart[] = ['shoulders', 'chest', 'arms', 'neck', 'waist', 'belly', 'hips', 'glutes', 'legs'];
   if (parts.every((k) => Math.abs(m[k]) < 1e-3)) return null;
@@ -110,8 +115,13 @@ export function bodyMorph(shape: BodyShape, a: Pick<Appearance, 'body'>): Morph 
       d.z += (loc.z - (chestC.z - 0.09)) * k;
     }
     // Руки отходят от тела, когда шире бёдра, талия или руки, — чтобы не входили в корпус.
-    const spread = 0.045 * Math.max(0, m.hips) + 0.03 * Math.max(0, m.waist) + 0.02 * Math.max(0, m.arms) + 0.02 * Math.max(0, m.glutes);
-    if (spread && armW > 0) d.x += spread * armW * smooth(shape.shoulder.y, shape.elbow.y, loc.y);
+    const spread = Math.min(0.13, 0.045 * Math.max(0, m.hips) + 0.03 * Math.max(0, m.waist) + 0.02 * Math.max(0, m.arms) + 0.02 * Math.max(0, m.glutes));
+    // Только сама рука (не соседние точки бёдер и брюк с частичным весом руки).
+    if (spread && armW > 0) {
+      // Ниже локтя кисть висит у бедра: точки бедра ближе к оси ноги, чем кисть, — их не уводим.
+      const nearLeg = smooth(shape.elbow.y - 0.05, shape.elbow.y - 0.15, loc.y) * smooth(0.17, 0.115, nl.d);
+      d.x += spread * smooth(0.5, 0.92, armW) * (1 - nearLeg) * smooth(shape.shoulder.y, shape.elbow.y, loc.y);
+    }
     // Руки толще или тоньше (кисть не меняется).
     if (m.arms && armW > 0) {
       const k = 0.35 * m.arms * armW * smooth(shape.wrist.y + 0.01, shape.wrist.y + 0.12, loc.y);
@@ -134,7 +144,9 @@ export function bodyMorph(shape: BodyShape, a: Pick<Appearance, 'body'>): Morph 
     }
     // Живот вперёд.
     if (m.belly) {
-      const g = Math.exp(-(((loc.y - (L.waist - 0.05)) / 0.11) ** 2) - (loc.x / 0.15) ** 2) * smooth(-0.02, 0.08, loc.z) * torsoW;
+      // Большой живот — шире и ниже, а не острым бугром.
+      const big = Math.max(0, m.belly - 1);
+      const g = Math.exp(-(((loc.y - (L.waist - 0.05 - 0.02 * big)) / (0.11 + 0.025 * big)) ** 2) - (loc.x / (0.15 + 0.03 * big)) ** 2) * smooth(-0.02, 0.08, loc.z) * torsoW;
       d.z += 0.07 * m.belly * g;
       d.y -= 0.01 * m.belly * g;
     }
@@ -154,7 +166,9 @@ export function bodyMorph(shape: BodyShape, a: Pick<Appearance, 'body'>): Morph 
     // Ноги толще или тоньше (у щиколотки — меньше, там обувь).
     if (m.legs && legW > 0) {
       const k = 0.3 * m.legs * legW * smooth(shape.ankle.y + 0.05, shape.ankle.y + 0.2, loc.y);
-      d.x += (loc.x - ql.x) * k;
+      // Внутренняя сторона бедра растёт меньше: толстые ноги не проходят друг сквозь друга.
+      const dx = (loc.x - ql.x) * k;
+      d.x += dx < 0 ? dx * 0.3 : dx;
       d.z += (loc.z - ql.z) * k;
     }
     p.x += d.x * sx;

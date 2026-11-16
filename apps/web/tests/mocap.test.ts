@@ -211,6 +211,32 @@ describe('ходьба на скелете', () => {
     }
   });
 
+  it('колени не дёргаются: нет рывков колена за кадр на шаге и на бегу (у прямой ноги и в смеси походок)', () => {
+    for (const figure of ['female', 'male'] as const) {
+      const rig = rigFor(figure);
+      for (const v of [0.9, 1.7, 2.0, 2.6, 3.2]) {
+        let cycle = 0;
+        let z = 0;
+        const dt = 1 / 60;
+        const hist: THREE.Vector3[][] = [[], []];
+        for (let i = 0; i < 260; i += 1) {
+          cycle = (cycle + dt * gaitFreq(rig, v, cycle)) % 1;
+          animate(rig, 'walk', i * dt, cycle, 1, { speed: v });
+          z += v * dt;
+          rig.root.position.z = z;
+          rig.root.updateMatrixWorld(true);
+          hist[0]!.push(rig.bones.l_shin.getWorldPosition(new THREE.Vector3()));
+          hist[1]!.push(rig.bones.r_shin.getWorldPosition(new THREE.Vector3()));
+        }
+        let worst = 0;
+        for (const h of hist)
+          for (let i = 102; i < h.length; i += 1) worst = Math.max(worst, h[i]!.clone().sub(h[i - 1]!).sub(h[i - 1]!.clone().sub(h[i - 2]!)).length() / dt / dt);
+        // Раньше колено перескакивало на 7–15 см за кадр (≈ 600–900 м/с²).
+        expect(worst).toBeLessThan(320);
+      }
+    }
+  });
+
   it('смесь походок (между скоростями записей): стопа не скользит и не уходит под пол', () => {
     for (const [fig, v] of [['female', 1.5], ['male', 1.6], ['female', 2.2], ['male', 2.3], ['female', 3.1], ['male', 3.15]] as const) {
       const r = slide(fig, v);

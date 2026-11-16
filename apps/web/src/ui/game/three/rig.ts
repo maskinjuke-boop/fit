@@ -912,6 +912,13 @@ interface GaitHold {
 }
 const holds = new WeakMap<Rig, GaitHold>();
 
+/** Стопа side в опоре в записи c в её фазе u (по событиям шага). */
+function inStance(c: Clip, u: number, side: 'l' | 'r'): boolean {
+  const e = c.events;
+  if (!e) return true;
+  return side === 'l' ? u < e.lOff : e.rOn < e.rOff ? u >= e.rOn && u < e.rOff : u >= e.rOn || u < e.rOff;
+}
+
 /**
  * Опорная стопа стоит на месте и при смене скорости: смесь походок с другим весом (разгон,
  * торможение) сдвинула бы её по полу. Пока стопа в опоре, её точка опоры за кадр сдвигается
@@ -924,17 +931,17 @@ function holdFeet(rig: Rig, pose: ClipPose, m: typeof mix, phase: number): void 
   const dp = (((phase - h.phase) % 1) + 1) % 1;
   const fresh = !h.live || dp > 0.25;
   const travel = dp * (m.a!.stride * m.ra * (1 - m.w) + m.b!.stride * m.rb * m.w);
-  // Опора — по событиям шага преобладающей записи.
-  const c = m.w < 0.5 ? m.a! : m.b!;
-  const u = m.w < 0.5 ? m.pa : m.pb;
-  const e = c.events;
+  // Опора — когда стопа стоит в обеих смешиваемых записях (у шага опора дольше, чем у бега:
+  // по одной записи «опорная» стопа смеси уже летела бы, и поправка копилась бы до десятков см).
+  const onA = m.w < 0.85;
+  const onB = m.w > 0.15;
   for (const side of SIDES) {
     const o = side === 'l' ? 3 : 6;
     const j = side === 'l' ? 0 : 2;
     const ai = side === 'l' ? 0 : 3;
     const qi = side === 'l' ? 0 : 4;
     footQ(pose, side, qm);
-    const stance = !e || (side === 'l' ? u < e.lOff : e.rOn < e.rOff ? u >= e.rOn && u < e.rOff : u >= e.rOn || u < e.rOff);
+    const stance = (!onA || inStance(m.a!, m.pa, side)) && (!onB || inStance(m.b!, m.pb, side));
     if (fresh) {
       h.off[j] = 0;
       h.off[j + 1] = 0;
@@ -1080,9 +1087,16 @@ function reachLeg(rig: Rig, side: 'l' | 'r', target: THREE.Vector3): void {
   if (d < 1e-6) return;
   vU.divideScalar(d);
   const L = Math.min(a + b - 1e-4, Math.max(Math.abs(a - b) + 1e-4, d));
-  // Направление сгиба: колено от линии «таз — цель» (как в клипе; если нога прямая — вперёд).
-  vN.subVectors(pK, pH).addScaledVector(vU, -vU.dot(vX.subVectors(pK, pH)));
-  if (vN.lengthSq() < 1e-8) vN.set(0, 0, 1).applyQuaternion(qT).addScaledVector(vU, -vU.z);
+  // Направление сгиба — как в позе клипа: колено от линии «таз — голеностоп» самого клипа
+  // (не от линии к новой цели: у почти прямой ноги разница целей уводила бы колено вбок
+  // и оно перескакивало за кадр). Чуть-чуть «вперёд по бедру» — чтобы у прямой ноги
+  // направление не дрожало.
+  vY.subVectors(pA, pH).normalize();
+  vX.subVectors(pK, pH);
+  vN.copy(vX).addScaledVector(vY, -vY.dot(vX));
+  vN.add(vX.set(0, 0, 0.1 * a).applyQuaternion(qT));
+  vN.addScaledVector(vU, -vU.dot(vN));
+  if (vN.lengthSq() < 1e-10) vN.set(0, 0, 1).applyQuaternion(qT).addScaledVector(vU, -vU.dot(vN));
   vN.normalize();
   const cb = (a * a + L * L - b * b) / (2 * a * L);
   const sb = Math.sqrt(Math.max(0, 1 - cb * cb));
@@ -1185,16 +1199,17 @@ function poseFor(motion: Motion, t: number, phase: number): Pose {
       };
     }
     case 'situp': {
-      // Лёжа на спине с согнутыми коленями; корпус поднимается к коленям.
+      // Лёжа на спине, колени согнуты, стопы стоят на полу; корпус поднимается к коленям.
+      // Бедро под 45° к полу, голень вниз к полу (колено ~90°), стопа плашмя.
       const up = k;
       return {
         rot: {
-          l_thigh: [-1.25, 0, 0.05],
-          r_thigh: [-1.25, 0, -0.05],
-          l_shin: [1.9, 0, 0],
-          r_shin: [1.9, 0, 0],
-          l_foot: [-0.6, 0, 0],
-          r_foot: [-0.6, 0, 0],
+          l_thigh: [-0.8, 0, 0.06],
+          r_thigh: [-0.8, 0, -0.06],
+          l_shin: [1.8, 0, 0],
+          r_shin: [1.8, 0, 0],
+          l_foot: [0.57, 0, 0],
+          r_foot: [0.57, 0, 0],
           spine: [0.55 * up, 0, 0],
           chest: [0.45 * up, 0, 0],
           neck: [0.3 * up, 0, 0],
