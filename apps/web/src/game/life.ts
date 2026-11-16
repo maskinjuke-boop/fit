@@ -4,7 +4,7 @@ import { addDays, daysBetween } from './dates';
 import type { GameEvent } from './engine';
 import type { Slot } from './items';
 import { levelOf } from './levels';
-import { ACTIONS, GYM_EXTRAS, HOUSES, gymExtraById, type GymExtraId, BOWL_MAX, CAT_BREEDS, CAT_RATES, LITTER_DIRTY, WATER_RATE, CAT_NAMES, CLIENT_NAMES, FURNITURE, GYMS, GYM_HOURS, HOME_OBJECTS, LIFE_EVENTS, MAX_CATS, OBJECTS, SESSION_EXERCISES, actionById, catBreedById, lifeEventById, mountOf, slotsFor } from './lifeContent';
+import { ACTIONS, GYM_EXTRAS, HOUSES, gymExtraById, type GymExtraId, BOWL_MAX, CAT_AGE, CAT_BREEDS, CAT_PREGNANCY_DAYS, CAT_RATES, LITTER_DIRTY, WATER_RATE, CAT_NAMES, CLIENT_NAMES, FURNITURE, GYMS, GYM_HOURS, HOME_OBJECTS, LIFE_EVENTS, MAX_CATS, OBJECTS, SESSION_EXERCISES, actionById, catBreedById, lifeEventById, mountOf, slotsFor } from './lifeContent';
 import { BASIC_DECOR, DECOR_KINDS, KITS, NEW_KIT, OLD_DECOR, OLD_KIT, OLD_KIT_COMFORT, OLD_KIT_FACTOR, finishById, kitById, kitOf, type KitId } from './homeDecor';
 import { rng } from './random';
 import type { Appearance, BodyPart, GameState, HairStyle } from './state';
@@ -99,7 +99,7 @@ export function migrateLife(raw: Partial<LifeState> | undefined): LifeState {
     cats: Array.isArray(r.cats)
       ? r.cats
           .filter((c) => CAT_BREEDS.some((b) => b.id === c.breed))
-          .map((c) => ({ ...c, fed: num(c.fed, 80), play: num(c.play, 70), toilet: num(c.toilet, 90) }))
+          .map((c) => migrateCat(c, typeof r.day === 'number' ? r.day : 1))
       : [],
     // Старые сохранения с кошками получают полную миску и чистый лоток.
     bowl: typeof r.bowl === 'number' ? r.bowl : Array.isArray(r.cats) && r.cats.length ? BOWL_MAX : 0,
@@ -316,6 +316,103 @@ export function kitFactor(life: LifeState, object: ObjectId): number {
   return k && !life.kit[k] ? OLD_KIT_FACTOR : 1;
 }
 
+// ─── Возраст и родословная кошек ───────────────────────────────────────
+
+const isBreed = (b: unknown): b is CatBreed => CAT_BREEDS.some((x) => x.id === b);
+
+/** Старые сохранения: пол по id, возраст — взрослая (год на момент появления). */
+function migrateCat(c: Partial<Cat> & { id: string; breed: CatBreed }, day: number): Cat {
+  const sex = c.sex === 'f' || c.sex === 'm' ? c.sex : (Number(c.id.replace(/\D/g, '')) || 0) % 2 ? 'f' : 'm';
+  const out: Cat = {
+    id: c.id,
+    breed: c.breed,
+    name: typeof c.name === 'number' ? c.name : 0,
+    adopted: typeof c.adopted === 'number' ? c.adopted : day,
+    fed: num(c.fed, 80),
+    play: num(c.play, 70),
+    toilet: num(c.toilet, 90),
+    sex,
+    born: typeof c.born === 'number' ? c.born : (typeof c.adopted === 'number' ? c.adopted : day) - CAT_AGE.GROWN,
+  };
+  if (isBreed(c.mix) && c.mix !== c.breed) out.mix = c.mix;
+  if (c.pregnant && typeof c.pregnant.due === 'number' && isBreed(c.pregnant.father)) {
+    out.pregnant = { due: c.pregnant.due, father: c.pregnant.father };
+    if (isBreed(c.pregnant.fatherMix)) out.pregnant.fatherMix = c.pregnant.fatherMix;
+  }
+  if (typeof c.mother === 'string') out.mother = c.mother;
+  return out;
+}
+
+/** Возраст кошки в месяцах (один игровой день — месяц). */
+export const catAge = (c: Cat, day: number): number => Math.max(0, day - c.born);
+export const isKitten = (c: Cat, day: number): boolean => catAge(c, day) < CAT_AGE.KITTEN;
+/** Рост 0.42…1: котёнок растёт до года. */
+export const catGrowth = (c: Cat, day: number): number => Math.min(1, 0.42 + (0.58 * catAge(c, day)) / CAT_AGE.GROWN);
+/** «Кошка ждёт котят» и котята, которых ждут, — занимают места в доме. */
+const catsReserved = (life: LifeState): number => life.cats.length + life.cats.filter((c) => c.pregnant).length;
+
+export type PairBlocker = 'pair' | 'pregnant' | 'catsMax' | 'catMood' | null;
+
+/** Пара для котят: взрослые кот и кошка (кошка не ждёт котят), самые довольные. */
+export function catCouple(life: LifeState): { mother: Cat; father: Cat } | null {
+  const adult = life.cats.filter((c) => catAge(c, life.day) >= CAT_AGE.ADULT);
+  const byMood = (a: Cat, b: Cat): number => catMood(b, life) - catMood(a, life);
+  const mother = adult.filter((c) => c.sex === 'f' && !c.pregnant).sort(byMood)[0];
+  const father = adult.filter((c) => c.sex === 'm').sort(byMood)[0];
+  return mother && father ? { mother, father } : null;
+}
+
+export function pairBlocker(life: LifeState): PairBlocker {
+  const adult = life.cats.filter((c) => catAge(c, life.day) >= CAT_AGE.ADULT);
+  if (!adult.some((c) => c.sex === 'm') || !adult.some((c) => c.sex === 'f')) return 'pair';
+  const couple = catCouple(life);
+  if (!couple) return 'pregnant';
+  if (catsReserved(life) >= maxCats(life)) return 'catsMax';
+  if (catMood(couple.mother, life) < 40 || catMood(couple.father, life) < 40) return 'catMood';
+  return null;
+}
+
+/** Порода котёнка: по одному «гену» от матери и отца; разные — метис. */
+export function kittenGenes(mother: { breed: CatBreed; mix?: CatBreed }, father: { breed: CatBreed; mix?: CatBreed }, r: () => number): { breed: CatBreed; mix?: CatBreed } {
+  const m = mother.mix && r() < 0.5 ? mother.mix : mother.breed;
+  const f = father.mix && r() < 0.5 ? father.mix : father.breed;
+  return m === f ? { breed: m } : { breed: m, mix: f };
+}
+
+function freeCatName(life: LifeState, r: () => number): number {
+  const used = new Set(life.cats.map((c) => c.name % CAT_NAMES.length));
+  let name = Math.floor(r() * CAT_NAMES.length);
+  for (let i = 0; i < CAT_NAMES.length && used.has(name); i += 1) name = (name + 1) % CAT_NAMES.length;
+  return name;
+}
+
+const nextCatId = (life: LifeState): string => `cat${life.cats.reduce((m, c) => Math.max(m, Number(c.id.slice(3)) || 0), 0) + 1}`;
+
+/** Роды: котята (1–3, сколько поместится) с генами родителей. */
+function catBirths(s: GameState, tally: Tally): void {
+  const life = s.life;
+  for (const mother of [...life.cats]) {
+    const p = mother.pregnant;
+    if (!p || p.due > life.day) continue;
+    delete mother.pregnant;
+    const r = rng(`${s.character.id}:litter:${mother.id}:${life.day}`);
+    const room = Math.max(1, maxCats(life) - life.cats.length);
+    const n = Math.min(room, 1 + Math.floor(r() * 3));
+    const names: string[] = [];
+    for (let i = 0; i < n; i += 1) {
+      const genes = kittenGenes(mother, { breed: p.father, ...(p.fatherMix ? { mix: p.fatherMix } : {}) }, r);
+      const kitten: Cat = { id: nextCatId(life), ...genes, name: freeCatName(life, r), adopted: life.day, fed: 90, play: 80, toilet: 100, sex: r() < 0.5 ? 'f' : 'm', born: life.day, mother: mother.id };
+      life.cats.push(kitten);
+      names.push(catName(kitten).ru);
+    }
+    tally.notes.push(
+      n === 1
+        ? t(`🐾 У ${catName(mother).ru} родился котёнок!`, `🐾 ${catName(mother).en} had a kitten!`)
+        : t(`🐾 У ${catName(mother).ru} родились котята: ${n}!`, `🐾 ${catName(mother).en} had ${n} kittens!`),
+    );
+  }
+}
+
 /** Настроение кошки 0…100: сытость, игра, туалет; грязный лоток, пустые миски с кормом и водой — хуже. */
 export function catMood(c: Cat, life: LifeState): number {
   let m = (c.fed + c.play + c.toilet) / 3;
@@ -344,7 +441,7 @@ function catsLive(life: LifeState, hours: number, asleep: boolean, tally: Tally)
       else if (life.scene === 'home') tally.needs.hygiene = (tally.needs.hygiene ?? 0) + bump(life, 'hygiene', -6);
       c.toilet = 100;
     }
-    c.play = clamp(c.play - CAT_RATES.play * hours * (asleep ? 0.4 : 1), 0, 100);
+    c.play = clamp(c.play - CAT_RATES.play * hours * (asleep ? 0.4 : 1) * (isKitten(c, life.day) ? 1.5 : 1), 0, 100);
     // Пьёт понемногу весь день (ночью меньше).
     life.water = clamp(life.water - WATER_RATE * hours * (asleep ? 0.6 : 1), 0, 100);
   }
@@ -387,6 +484,7 @@ function passTime(s: GameState, minutes: number, asleep: boolean, tally: Tally, 
 function newGameDay(s: GameState, tally: Tally): void {
   const life = s.life;
   const roll = rng(`${s.character.id}:life:${life.day}`);
+  catBirths(s, tally);
   if (roll() < 0.5) recruit(s, tally.notes);
   if (!life.event && roll() < 0.45) {
     const pool = LIFE_EVENTS.filter((e) => !e.needsClients || life.clients.length > 0);
@@ -446,7 +544,7 @@ function applyEffect(s: GameState, e: LifeEffect, tally: Tally): void {
 
 // ─── Доступность действий ──────────────────────────────────────────────
 
-export type Blocker = 'closed' | 'money' | 'groceries' | 'need' | 'skill' | 'missing' | 'clients' | 'session' | 'enough' | null;
+export type Blocker = 'closed' | 'money' | 'groceries' | 'need' | 'skill' | 'missing' | 'clients' | 'session' | 'enough' | Exclude<PairBlocker, null> | null;
 
 /** Есть ли предмет в текущей локации. */
 export function hasObject(s: GameState, id: ObjectId): boolean {
@@ -464,6 +562,10 @@ export function blocker(s: GameState, a: ActionDef): Blocker {
   if (!hasObject(s, a.at)) return 'missing';
   if (a.at === 'coach' && !gymOpen(life.minute)) return 'closed';
   if (a.id === 'chat_clients' && life.clients.length === 0) return 'clients';
+  if (a.id === 'pair_cats') {
+    const pb = pairBlocker(life);
+    if (pb) return pb;
+  }
   // Миски и так полны, лоток и так чистый.
   if (a.effect.bowl && life.bowl >= BOWL_MAX && life.water >= 90) return 'enough';
   if (a.effect.litter && a.effect.litter < 0 && life.litter < 5) return 'enough';
@@ -533,6 +635,18 @@ export function act(state: GameState, actionId: string): LifeOutcome {
     applyEffect(s, needs === a.effect.needs ? a.effect : { ...a.effect, needs }, tally);
   }
   if (a.id === 'cook' || a.id === 'cook_fit') life.stats.meals += 1;
+  if (a.id === 'pair_cats') {
+    const couple = catCouple(life);
+    if (couple) {
+      couple.mother.pregnant = { due: life.day + CAT_PREGNANCY_DAYS, father: couple.father.breed, ...(couple.father.mix ? { fatherMix: couple.father.mix } : {}) };
+      tally.notes.push(
+        t(
+          `💞 ${catName(couple.father).ru} и ${catName(couple.mother).ru} подружились — через ${CAT_PREGNANCY_DAYS} дня ждите котят!`,
+          `💞 ${catName(couple.father).en} and ${catName(couple.mother).en} hit it off — kittens in ${CAT_PREGNANCY_DAYS} days!`,
+        ),
+      );
+    }
+  }
   if (a.go) life.scene = a.go;
   minutes += collapse(s, tally);
   if (a.go && tally.notes.length === 0) life.last = null;
@@ -692,37 +806,47 @@ export function sellFurniture(state: GameState, id: ObjectId): GameState {
 export type CatBlocker = 'max' | 'money' | null;
 
 export function catBlocker(s: GameState, breed: CatBreed): CatBlocker {
-  if (s.life.cats.length >= maxCats(s.life)) return 'max';
+  if (catsReserved(s.life) >= maxCats(s.life)) return 'max';
   if (s.gold < catBreedById(breed).price) return 'money';
   return null;
 }
 
 /** Взять кошку: имя выбирается так, чтобы не повторяться. */
-export function adoptCat(state: GameState, breed: CatBreed): GameState {
+export function adoptCat(state: GameState, breed: CatBreed, sex?: 'f' | 'm'): GameState {
   if (catBlocker(state, breed)) return state;
   const s = structuredClone(state);
   const life = s.life;
   s.gold -= catBreedById(breed).price;
-  const used = new Set(life.cats.map((c) => c.name));
   const r = rng(`${s.character.id}:cat:${life.cats.length}:${breed}`);
-  let name = Math.floor(r() * CAT_NAMES.length);
-  while (used.has(name)) name = (name + 1) % CAT_NAMES.length;
-  const n = life.cats.reduce((m, c) => Math.max(m, Number(c.id.slice(3)) || 0), 0) + 1;
+  const name = freeCatName(life, r);
+  const id = nextCatId(life);
+  // Из приюта — молодая кошка от 8 месяцев до 2 лет.
+  const age = CAT_AGE.ADULT + Math.floor(r() * 16);
+  const gender = sex ?? (r() < 0.5 ? 'f' : 'm');
   // С первой кошкой появляются миски (полные корма и воды) и чистый лоток.
   if (life.cats.length === 0) {
     life.bowl = BOWL_MAX;
     life.water = 100;
     life.litter = 0;
   }
-  life.cats.push({ id: `cat${n}`, breed, name, adopted: life.day, fed: 80, play: 70, toilet: 90 });
+  life.cats.push({ id, breed, name, adopted: life.day, fed: 80, play: 70, toilet: 90, sex: gender, born: life.day - age });
   return s;
 }
 
-/** Отдать кошку в добрые руки (деньги не возвращаются). */
+/** Цена котёнка в добрые руки: породистый — половина цены породы, метис — треть средней. */
+export function kittenPrice(c: Cat, day: number): number {
+  if (!isKitten(c, day)) return 0;
+  const p = catBreedById(c.breed).price;
+  return c.mix ? Math.round((p + catBreedById(c.mix).price) / 6) : Math.round(p / 2);
+}
+
+/** Отдать кошку в добрые руки (за котят платят, за взрослых — нет). */
 export function rehomeCat(state: GameState, id: string): GameState {
-  if (!state.life.cats.some((c) => c.id === id)) return state;
+  const c = state.life.cats.find((x) => x.id === id);
+  if (!c) return state;
   const s = structuredClone(state);
-  s.life.cats = s.life.cats.filter((c) => c.id !== id);
+  s.gold += kittenPrice(c, s.life.day);
+  s.life.cats = s.life.cats.filter((x) => x.id !== id);
   return s;
 }
 
@@ -906,7 +1030,7 @@ function affordable(state: GameState, a: ActionDef): boolean {
 function leisureValue(state: GameState, a: ActionDef): number {
   const life = state.life;
   const e = a.effect;
-  if (a.cost || a.sleep || a.id === 'groceries' || a.id === 'call_cat') return -Infinity;
+  if (a.cost || a.sleep || a.id === 'groceries' || a.id === 'call_cat' || a.id === 'pair_cats') return -Infinity;
   if (e.needs?.food && life.needs.food > 70) return -Infinity;
   if ((e.fat ?? 0) > 0 && life.fat > 0.2) return -Infinity;
   const spend = Math.min(0, e.needs?.energy ?? 0);
@@ -975,7 +1099,7 @@ export function autoChoice(state: GameState, recent: readonly string[] = [], urg
     if (a.id === 'groceries') v = life.groceries === 0 && life.needs.food < 70 ? urgency(life.needs.food) * 25 : -Infinity;
     else if (a.id === 'fill_bowl') v = life.bowl === 0 || life.water < 10 ? 30 : life.bowl === 1 || life.water < 30 ? 12 : -Infinity;
     else if (a.id === 'clean_litter') v = life.litter >= LITTER_DIRTY ? 18 + (life.litter - LITTER_DIRTY) * 0.3 : -Infinity;
-    else if (a.id === 'call_cat') v = -Infinity;
+    else if (a.id === 'call_cat' || a.id === 'pair_cats') v = -Infinity;
     else v = actionValue(state, a);
     v -= repeats(a.id) * 9;
     if (v > score) {

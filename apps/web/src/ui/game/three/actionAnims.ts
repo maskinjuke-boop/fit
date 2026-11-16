@@ -61,6 +61,7 @@ export const ACTION_ANIMS: Record<string, ActionAnim> = {
   play_cat: { motion: 'crouch:play', place: 'cat', ms: 3400, prop: ['teaser'] },
   feed_cat: { motion: 'crouch:feed', place: 'cat', ms: 2800, prop: ['treat'] },
   call_cat: { motion: 'crouch:call', place: 'here', ms: 2600 },
+  pair_cats: { motion: 'crouch:pet', place: 'cat', ms: 3200 },
   fill_bowl: front('crouch:pour', ['foodbag'], 2800),
   clean_litter: front('crouch:scoop', ['scoop'], 3000),
   // Зал.

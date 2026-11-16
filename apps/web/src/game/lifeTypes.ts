@@ -135,6 +135,16 @@ export interface Cat {
   fed: number;
   play: number;
   toilet: number;
+  /** Пол: кошка или кот. */
+  sex: 'f' | 'm';
+  /** Игровой день рождения: один игровой день — месяц жизни кошки. */
+  born: number;
+  /** Вторая порода у метиса (помесь). */
+  mix?: CatBreed;
+  /** Ждёт котят: день родов и породы отца. */
+  pregnant?: { due: number; father: CatBreed; fatherMix?: CatBreed };
+  /** Чей котёнок (id матери). */
+  mother?: string;
 }
 
 /** Ученик: внешность из зерна, форма улучшается с занятиями. */

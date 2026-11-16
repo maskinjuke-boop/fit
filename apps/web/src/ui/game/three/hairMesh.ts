@@ -48,6 +48,8 @@ function decode(style: MeshHairStyle): Decoded {
 export interface HairFit {
   /** Черты лица (ползунки): причёска повторяет изменения головы. */
   face: Record<FacePart, number>;
+  /** Полнота лица 0…1. */
+  fat?: number;
   neutral: boolean;
   /** Под шляпой — волосы прижаты к голове выше края; под шлемом — убраны. */
   cover: 'none' | 'hat' | 'helm';
@@ -69,7 +71,7 @@ export function meshHairGeometry(style: MeshHairStyle, female: boolean, fit: Hai
   if (!female || !fit.neutral) {
     // Другая форма головы (мужская, изменённая ползунками) — по сдвигу ближайшей вершины головы.
     const base = headPositions(true, Object.fromEntries(Object.keys(fit.face).map((k) => [k, 0])) as Record<FacePart, number>);
-    const moved = headPositions(female, fit.face);
+    const moved = headPositions(female, fit.face, fit.fat ?? 0);
     for (let i = 0; i < d.near.length; i += 1) {
       const j = d.near[i]! * 3;
       for (let c = 0; c < 3; c += 1) pos[i * 3 + c] = pos[i * 3 + c]! + moved[j + c]! - base[j + c]!;

@@ -156,7 +156,16 @@ export const LITTER_DIRTY = 60;
 export const CAT_RATES = { fed: 5, play: 4, toilet: 8 } as const;
 /** Сколько воды (из 100) выпивает кошка за час игрового времени. */
 export const WATER_RATE = 2.5;
-export const CAT_NAMES: readonly Txt[] = [t('Мурка', 'Murka'), t('Барсик', 'Barsik'), t('Пушок', 'Fluffy'), t('Луна', 'Luna'), t('Симба', 'Simba'), t('Тиша', 'Tisha'), t('Персик', 'Peach'), t('Оскар', 'Oscar'), t('Соня', 'Sonya'), t('Феликс', 'Felix'), t('Багира', 'Bagheera'), t('Кекс', 'Muffin')];
+export const CAT_NAMES: readonly Txt[] = [
+  t('Мурка', 'Murka'), t('Барсик', 'Barsik'), t('Пушок', 'Fluffy'), t('Луна', 'Luna'), t('Симба', 'Simba'), t('Тиша', 'Tisha'),
+  t('Персик', 'Peach'), t('Оскар', 'Oscar'), t('Соня', 'Sonya'), t('Феликс', 'Felix'), t('Багира', 'Bagheera'), t('Кекс', 'Muffin'),
+  t('Зефир', 'Marshmallow'), t('Булочка', 'Bun'), t('Уголёк', 'Ember'), t('Снежок', 'Snowball'), t('Ириска', 'Toffee'), t('Тигра', 'Tigger'),
+  t('Пуговка', 'Button'), t('Рыжик', 'Rusty'), t('Масяня', 'Masya'), t('Котлета', 'Meatball'), t('Плюша', 'Plushy'), t('Черныш', 'Shadow'),
+];
+/** Возраст кошки в месяцах (один игровой день — месяц): до KITTEN — котёнок, с ADULT — взрослая. */
+export const CAT_AGE = { KITTEN: 6, ADULT: 8, GROWN: 12 } as const;
+/** Сколько игровых дней кошка ждёт котят. */
+export const CAT_PREGNANCY_DAYS = 2;
 
 // ─── Зал ───────────────────────────────────────────────────────────────
 
@@ -279,6 +288,7 @@ export const ACTIONS: readonly ActionDef[] = [
   { id: 'pet_cat', icon: '🤲', label: t('Погладить кошку', 'Pet the cat'), at: 'cat', minutes: 10, effect: fx({ needs: { fun: 12, social: 10 }, catPlay: 12 }) },
   { id: 'play_cat', icon: '🧶', label: t('Поиграть с кошкой', 'Play with the cat'), at: 'cat', minutes: 20, effect: fx({ needs: { fun: 22, social: 8, energy: -4 }, catPlay: 45 }) },
   { id: 'feed_cat', icon: '🐟', label: t('Угостить кошку', 'Give the cat a treat'), at: 'cat', minutes: 5, cost: 5, effect: fx({ needs: { fun: 6, social: 6 }, catFed: 25, catPlay: 5 }) },
+  { id: 'pair_cats', icon: '💞', label: t('Познакомить кота и кошку', 'Introduce the tom and the queen'), at: 'cat', minutes: 30, effect: fx({ needs: { fun: 8, social: 4 }, catPlay: 10 }) },
   { id: 'call_cat', icon: '📣', label: t('Позвать кошку', 'Call the cat'), at: 'cat', minutes: 2, effect: fx({ needs: { social: 2 }, catPlay: 3 }) },
   { id: 'fill_bowl', icon: '🥣', label: t('Насыпать корм и налить воды', 'Fill the food and water bowls'), at: 'cat_bowl', minutes: 5, cost: 8, effect: fx({ bowl: BOWL_MAX, water: 100 }) },
   { id: 'clean_litter', icon: '🧹', label: t('Убрать лоток', 'Clean the litter box'), at: 'litter', minutes: 10, effect: fx({ litter: -100, needs: { hygiene: -3 } }) },

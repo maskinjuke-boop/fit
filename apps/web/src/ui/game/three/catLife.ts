@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { PETS, dist, resolve, type Box, type P2, type Placed } from '../../../game/lifeMap';
 import type { CatBreed, ObjectId } from '../../../game/lifeTypes';
-import { buildCat, buildToy, poseCat, type Cat3D, type CatMode } from './cats3d';
+import { buildCat, buildToy, catLookKey, poseCat, type Cat3D, type CatMode } from './cats3d';
 import { disposeObject } from './kit';
 import type { Motion } from './rig';
 
@@ -488,10 +488,10 @@ export function createCatLife(parent: THREE.Object3D, shadow: () => THREE.Object
     cats,
     toys,
     /** Кошки и игрушки по списку (новые появляются в случайном месте, лишние убираются). */
-    sync(want: ReadonlyArray<{ id: string; breed: CatBreed }>, w: CatWorld): void {
+    sync(want: ReadonlyArray<{ id: string; breed: CatBreed; mix?: CatBreed; grow?: number }>, w: CatWorld): void {
       litterAt = w.litter ?? PETS.litter.pos;
       for (const [id, c] of cats) {
-        if (!want.some((x) => x.id === id && x.breed === c.cat.breed)) {
+        if (!want.some((x) => x.id === id && catLookKey(x.breed, x) === c.cat.key)) {
           parent.remove(c.cat.root, c.shadow);
           disposeObject(c.cat.root);
           cats.delete(id);
@@ -499,7 +499,7 @@ export function createCatLife(parent: THREE.Object3D, shadow: () => THREE.Object
       }
       want.forEach((x, i) => {
         if (cats.has(x.id)) return;
-        const cat = buildCat(x.breed, i + 1);
+        const cat = buildCat(x.breed, Number(x.id.replace(/\D/g, '')) || i + 1, x);
         const sh = shadow();
         const start = randomSpot(w);
         cat.root.position.set(start.x, 0, start.z);

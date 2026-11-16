@@ -1,5 +1,5 @@
-import { actionsAt, catBlocker, catName, comfort, effectiveAppearance, furnitureBlocker, maxCats } from '../../game/life';
-import { CAT_BREEDS, FURNITURE, OBJECTS, catBreedById, mountOf, slotsFor, type HomeKind } from '../../game/lifeContent';
+import { actionsAt, catBlocker, catGrowth, catName, comfort, kittenPrice, effectiveAppearance, furnitureBlocker, maxCats } from '../../game/life';
+import { CAT_BREEDS, FURNITURE, OBJECTS, mountOf, slotsFor, type HomeKind } from '../../game/lifeContent';
 import type { ObjectId } from '../../game/lifeTypes';
 import { useState, type MouseEvent } from 'react';
 import { canBuy, equipmentBonus } from '../../game/engine';
@@ -11,6 +11,7 @@ import { useI18n, type I18nKey } from '../../i18n';
 import { Hero3D } from './Hero3D';
 import { CatImage, HomeImage, ItemImage } from './Renders';
 import { Renovation } from './Renovation';
+import { catBreedText, catMeta } from './catText';
 
 const itemName = (t: (k: I18nKey) => string, id: string): string => t(`item.${id}` as I18nKey);
 
@@ -221,33 +222,50 @@ function CatShop({ state }: { state: GameState }) {
   const { t, tf, lang } = useI18n();
   const { life } = useGame();
   const cats = state.life.cats;
+  const day = state.life.day;
+  const [sex, setSex] = useState<'f' | 'm'>('f');
   return (
     <>
       <p className="muted small">{tf('cats.hint', { n: cats.length, m: maxCats(state.life) })}</p>
+      <p className="muted small">{t('cats.breedHint')}</p>
       {cats.length > 0 && (
         <ul className="life-list cats-own">
-          {cats.map((c) => (
-            <li key={c.id}>
-              <span className="cat-thumb">
-                <CatImage breed={c.breed} size={56} />
-              </span>
-              <div>
-                <b>{catName(c)[lang]}</b>
-                <div className="muted small">{catBreedById(c.breed).name[lang]}</div>
-              </div>
-              <button className="btn ghost small" onClick={() => life.rehomeCat(c.id)}>
-                {t('cats.rehome')}
-              </button>
-            </li>
-          ))}
+          {cats.map((c) => {
+            const price = kittenPrice(c, day);
+            return (
+              <li key={c.id}>
+                <span className="cat-thumb">
+                  <CatImage breed={c.breed} mix={c.mix} grow={catGrowth(c, day)} size={56} />
+                </span>
+                <div>
+                  <b>{catName(c)[lang]}</b>
+                  <div className="muted small">{catBreedText(c, lang, t)}</div>
+                  <div className="small">{catMeta(c, day, t, tf)}</div>
+                </div>
+                <button className="btn ghost small" onClick={() => life.rehomeCat(c.id)}>
+                  {price > 0 ? tf('cats.sell', { n: price }) : t('cats.rehome')}
+                </button>
+              </li>
+            );
+          })}
         </ul>
       )}
+      <div className="cat-sex">
+        <span className="small muted">{t('cats.sex')}</span>
+        <div className="segmented">
+          {(['f', 'm'] as const).map((x) => (
+            <button key={x} className={sex === x ? 'on' : ''} onClick={() => setSex(x)}>
+              {t(x === 'f' ? 'cat.f' : 'cat.m')}
+            </button>
+          ))}
+        </div>
+      </div>
       <ul className="item-grid">
         {CAT_BREEDS.map((b) => {
           const block = catBlocker(state, b.id);
           return (
             <li key={b.id}>
-              <button className={`item-card ${block === 'max' ? 'locked' : ''}`} disabled={block !== null} onClick={() => life.adoptCat(b.id)}>
+              <button className={`item-card ${block === 'max' ? 'locked' : ''}`} disabled={block !== null} onClick={() => life.adoptCat(b.id, sex)}>
                 <span className="item-art home-art">
                   <CatImage breed={b.id} size={92} />
                 </span>

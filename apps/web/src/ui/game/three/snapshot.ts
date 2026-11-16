@@ -226,10 +226,10 @@ export function renderHome(id: ObjectId, size = 192): Promise<string> {
 }
 
 /** Портрет кошки породы breed (сидит вполоборота). */
-export function renderCat(breed: CatBreed, size = 192): Promise<string> {
+export function renderCat(breed: CatBreed, size = 192, mix?: CatBreed, grow = 1): Promise<string> {
   return enqueue(() => {
     const { studio: st } = ensure();
-    const cat = buildCat(breed, 3);
+    const cat = buildCat(breed, 3, { mix, grow });
     for (let i = 0; i < 30; i += 1) poseCat(cat, 'sit', 2.2, 0, 0.35, 0.4);
     enableShadows(cat.root);
     st.rim.color.set('#ffffff');

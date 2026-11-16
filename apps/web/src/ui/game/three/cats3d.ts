@@ -67,6 +67,51 @@ const LOOKS: Record<CatBreed, Look> = {
 /** Основной цвет породы (для значков). */
 export const catColor = (b: CatBreed): string => LOOKS[b].base;
 
+const HEAD: Partial<Record<CatBreed, number>> = { british: 1.12, persian: 1.08, maine_coon: 1.04 };
+
+const hash = (seed: number, k: number): number => {
+  const h = Math.sin(seed * 91.17 + k * 47.31) * 43758.5453;
+  return h - Math.floor(h);
+};
+
+const blend = (a: string, b: string, k: number): string => '#' + new THREE.Color(a).lerp(new THREE.Color(b), k).getHexString();
+
+/**
+ * Окрас и сложение помеси: цвета — смесь родителей (с перевесом в сторону одного),
+ * рисунок и глаза — от одного из них; вислоухость, плоская морда и бесшёрстность
+ * проявляются, только если они у обоих (как рецессивные признаки).
+ */
+function mixLook(a: Look, b: Look, seed: number): Look {
+  const k = 0.3 + hash(seed, 1) * 0.4;
+  // Сиамские «отметины» проявляются, только если у обоих.
+  const pattern = a.pattern === b.pattern ? a.pattern : a.pattern === 'points' ? b.pattern : b.pattern === 'points' ? a.pattern : hash(seed, 2) < 0.5 ? a.pattern : b.pattern;
+  const ears = a.ears === b.ears ? a.ears : a.ears === 'fold' ? b.ears : b.ears === 'fold' ? a.ears : hash(seed, 3) < 0.5 ? a.ears : b.ears;
+  return {
+    base: blend(a.base, b.base, k),
+    dark: blend(a.dark, b.dark, k),
+    light: blend(a.light, b.light, k),
+    eyes: hash(seed, 4) < 0.5 ? a.eyes : b.eyes,
+    pattern,
+    white: Math.max(a.white, b.white) * (0.6 + hash(seed, 5) * 0.4),
+    size: (a.size + b.size) / 2,
+    fluff: (a.fluff + b.fluff) / 2,
+    tail: (a.tail + b.tail) / 2,
+    ears,
+    flat: a.flat && b.flat,
+    hairless: a.hairless && b.hairless,
+  };
+}
+
+export interface CatLookOpts {
+  /** Вторая порода у метиса. */
+  mix?: CatBreed;
+  /** Рост котёнка 0.42…1 (1 — взрослая). */
+  grow?: number;
+}
+
+/** Ключ внешности: пересобрать модель, если поменялся. */
+export const catLookKey = (breed: CatBreed, o: CatLookOpts = {}): string => `${breed}|${o.mix ?? ''}|${Math.round((o.grow ?? 1) * 10)}`;
+
 interface Leg {
   pivot: THREE.Group;
   lower: THREE.Group;
@@ -77,6 +122,8 @@ interface Leg {
 export interface Cat3D {
   root: THREE.Group;
   breed: CatBreed;
+  /** Ключ внешности (порода, помесь, рост). */
+  key: string;
   body: THREE.Group;
   head: THREE.Group;
   legs: Leg[];
@@ -197,8 +244,13 @@ function stick(r0: number, r1: number, len: number, m: THREE.Material, part: str
 }
 
 /** Строит кошку породы breed (смотрит на +Z, лапы на полу). */
-export function buildCat(breed: CatBreed, seed = 1): Cat3D {
-  const look = LOOKS[breed];
+export function buildCat(breed: CatBreed, seed = 1, opts: CatLookOpts = {}): Cat3D {
+  const mix = opts.mix && opts.mix !== breed ? opts.mix : undefined;
+  const look = mix ? mixLook(LOOKS[breed], LOOKS[mix], seed) : LOOKS[breed];
+  const grow = Math.max(0.42, Math.min(1, opts.grow ?? 1));
+  // Котёнок: голова, глаза и уши крупнее относительно тела, хвост короче, шерсть пушистее.
+  const young = (1 - grow) / 0.58;
+  const darkCoat = new THREE.Color(look.base).getHSL({ h: 0, s: 0, l: 0 }).l < 0.15;
   const fur = new THREE.MeshPhysicalMaterial({
     vertexColors: true,
     roughness: look.hairless ? 0.55 : 0.88,
@@ -209,7 +261,7 @@ export function buildCat(breed: CatBreed, seed = 1): Cat3D {
   const F = look.fluff;
   const root = new THREE.Group();
   const scaleRoot = new THREE.Group();
-  scaleRoot.scale.setScalar(look.size);
+  scaleRoot.scale.setScalar(look.size * grow);
   root.add(scaleRoot);
 
   // Корпус: начало координат — у таза (кошка садится, поворачиваясь вокруг него).
@@ -226,22 +278,24 @@ export function buildCat(breed: CatBreed, seed = 1): Cat3D {
   torso.castShadow = true;
   body.add(torso);
   body.add(blob(0.1, 1.0 * F, 1.06 * F, 0.95, fur, 'body', [0, 0.018, 0.25]));
-  if (breed === 'maine_coon' || breed === 'persian') body.add(blob(0.1, 1.15 * F, 1.05 * F, 0.8, fur, 'body', [0, 0.04, 0.31]));
+  if (look.fluff > 1.15) body.add(blob(0.1, 1.15 * F, 1.05 * F, 0.8, fur, 'body', [0, 0.04, 0.31]));
 
   // Голова.
   const head = new THREE.Group();
   head.position.set(0, 0.075, 0.34);
   body.add(head);
-  const hs = breed === 'british' ? 1.12 : breed === 'persian' ? 1.08 : 1;
+  const hs = ((HEAD[breed] ?? 1) + (HEAD[mix ?? breed] ?? 1)) / 2;
+  head.scale.setScalar(1 + young * 0.42);
   head.add(blob(0.075, 1.08 * hs, 0.95 * hs, 1.0 * hs, fur, 'head', [0, 0.06, 0.03]));
   head.add(blob(0.04, 1.35 * hs, 0.9 * hs, 1, fur, 'head', [0.032, 0.035, 0.07]), blob(0.04, 1.35 * hs, 0.9 * hs, 1, fur, 'head', [-0.032, 0.035, 0.07]));
   head.add(blob(0.034, 1.25, 0.85, look.flat ? 0.55 : 1.0, fur, 'muzzle', [0, 0.032, look.flat ? 0.098 : 0.1]));
-  const nose = new THREE.Mesh(new THREE.SphereGeometry(0.011, 10, 8), new THREE.MeshStandardMaterial({ color: breed === 'black' ? '#2b2b2b' : '#d98a8a', roughness: 0.5 }));
+  const nose = new THREE.Mesh(new THREE.SphereGeometry(0.011, 10, 8), new THREE.MeshStandardMaterial({ color: darkCoat ? '#2b2b2b' : '#d98a8a', roughness: 0.5 }));
   nose.position.set(0, 0.05, look.flat ? 0.118 : 0.132);
   nose.scale.set(1.2, 0.8, 0.8);
   head.add(nose);
   // Глаза: радужка и вертикальный зрачок.
   const eyes: THREE.Object3D[] = [];
+  const eyeBig = 1 + young * 0.25;
   const eyeMat = new THREE.MeshPhysicalMaterial({ color: look.eyes, roughness: 0.08, clearcoat: 1, emissive: new THREE.Color(look.eyes), emissiveIntensity: 0.18 });
   const pupilMat = new THREE.MeshStandardMaterial({ color: '#050505', roughness: 0.2 });
   for (const sx of [-1, 1]) {
@@ -249,10 +303,11 @@ export function buildCat(breed: CatBreed, seed = 1): Cat3D {
     eye.position.set(sx * 0.033 * hs, 0.075 * hs, 0.088 * hs);
     eye.rotation.y = sx * 0.35;
     const ball = new THREE.Mesh(new THREE.SphereGeometry(0.017, 14, 10), eyeMat);
-    ball.scale.set(1, 0.85, 0.6);
+    ball.scale.set(eyeBig, 0.85 * eyeBig, 0.6);
     ball.userData.keepColor = true;
     const pupil = new THREE.Mesh(new THREE.SphereGeometry(0.0172, 10, 8), pupilMat);
-    pupil.scale.set(0.25, 0.8, 0.62);
+    // У котят зрачки круглее.
+    pupil.scale.set((0.25 + young * 0.35) * eyeBig, 0.8 * eyeBig, 0.62);
     pupil.position.z = 0.0012;
     pupil.userData.keepColor = true;
     eye.add(ball, pupil);
@@ -293,7 +348,7 @@ export function buildCat(breed: CatBreed, seed = 1): Cat3D {
   }
   const wg = new THREE.BufferGeometry();
   wg.setAttribute('position', new THREE.Float32BufferAttribute(wpos, 3));
-  const whiskers = new THREE.LineSegments(wg, new THREE.LineBasicMaterial({ color: breed === 'black' ? '#777777' : '#f5f5f5', transparent: true, opacity: 0.8 }));
+  const whiskers = new THREE.LineSegments(wg, new THREE.LineBasicMaterial({ color: darkCoat ? '#777777' : '#f5f5f5', transparent: true, opacity: 0.8 }));
   head.add(whiskers);
 
   // Лапы: у каждой бедро/плечо и нижнее звено с подушечкой.
@@ -344,8 +399,9 @@ export function buildCat(breed: CatBreed, seed = 1): Cat3D {
     parent = g;
   }
 
+  if (young > 0) tail[0]!.scale.setScalar(1 - young * 0.35);
   paint(root, head, look, seed);
-  const cat: Cat3D = { root, breed, body, head, legs, tail, eyes, pose: restPose() };
+  const cat: Cat3D = { root, breed, key: catLookKey(breed, { mix, grow }), body, head, legs, tail, eyes, pose: restPose() };
   poseCat(cat, 'idle', 0, 0, 1);
   return cat;
 }

@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import type { Appearance, Figure } from '../../../game/state';
 import { anatomy } from './anatomy';
 import { HEAD_GROW, HEAD_Y, NECK_WORLD, NECK_Y } from './body';
-import { faceKey, faceNeutral, faceValues, skullPoint } from './head';
+import { faceFat, faceKey, faceNeutral, faceValues, skullPoint } from './head';
 import { hairTexture, isMeshHair, loadHairTexture, meshHairGeometry } from './hairMesh';
 import { M, mesh, v, type Mat } from './kit';
 import type { Drape } from './strands';
@@ -58,6 +58,7 @@ function meshHair(style: string, m: Mat, cover: Cover, figure: Figure, clearance
   const geo = cached(key, () =>
     meshHairGeometry(style as never, female, {
       face: faceValues(),
+      fat: faceFat(),
       neutral: faceNeutral(),
       cover,
       skull: (d, off) => skullPoint(d, female, off),

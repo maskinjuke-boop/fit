@@ -21,6 +21,7 @@ import {
   payFactors,
   sessionPay,
   fitness,
+  catGrowth,
   catMood,
   catName,
   comfort,
@@ -38,7 +39,8 @@ import {
   type Blocker,
 } from '../../game/life';
 import { Renovation } from './Renovation';
-import { BOWL_MAX, GYMS, GYM_EXTRAS, GYM_HOURS, HOUSES, OBJECTS, SESSION_EXERCISES, actionById, catBreedById, lifeEventById } from '../../game/lifeContent';
+import { catBreedText, catMeta } from './catText';
+import { BOWL_MAX, GYMS, GYM_EXTRAS, GYM_HOURS, HOUSES, OBJECTS, SESSION_EXERCISES, actionById, lifeEventById } from '../../game/lifeContent';
 import { gymLayout, homeLayout, type P2 } from '../../game/lifeMap';
 import { NEEDS, SKILLS, type ActionDef, type Client, type NeedId, type ObjectId } from '../../game/lifeTypes';
 import { useI18n, type I18nKey } from '../../i18n';
@@ -476,8 +478,9 @@ function FurnitureList({ state }: { state: GameState }) {
             <div>
               <b>🐈 {catName(c)[lang]}</b>
               <div className="muted small">
-                {catBreedById(c.breed).name[lang]} · {tf('life.catMood', { n: catMood(c, state.life) })}
+                {catBreedText(c, lang, t)} · {tf('life.catMood', { n: catMood(c, state.life) })}
               </div>
+              <div className="small">{catMeta(c, state.life.day, t, tf)}</div>
               {(['fed', 'play', 'toilet'] as const).map((k) => (
                 <div key={k} className={`need wide ${c[k] < 25 ? 'low' : c[k] < 50 ? 'mid' : ''}`}>
                   <span className="need-name">{t(k === 'fed' ? 'life.catFed' : k === 'play' ? 'life.catPlay' : 'life.catToilet')}</span>
@@ -858,6 +861,7 @@ export function LifeTab({ state, onTrain, onSession }: { state: GameState; onTra
   const homeHint = L.cats.length && L.bowl === 0 ? t('life.bowlEmpty') : L.cats.length && L.water <= 0 ? t('life.waterEmpty') : litterDirty(L) ? t('life.litterDirty') : t('life.hintHome');
   const hint = L.scene === 'home' ? homeHint : open ? t('life.hintGym') : tf('life.hintClosed', { from: GYM_HOURS[0], to: GYM_HOURS[1] });
   const callCat = actionById('call_cat');
+  const catsView = useMemo(() => L.cats.map((c) => ({ ...c, grow: catGrowth(c, L.day) })), [L.cats, L.day]);
   return (
     <div className="world-tab life-tab">
       <div className={`world-view life-view ${perform && /^(sleep|nap)$/.test(perform.action) ? 'sleeping' : ''}`}>
@@ -890,7 +894,7 @@ export function LifeTab({ state, onTrain, onSession }: { state: GameState; onTra
               onNear={setNear}
               onInput={playerInput}
               onSettled={(k: number) => settled.current(k)}
-              cats={L.cats}
+              cats={catsView}
               pets={pets}
               perform={perform}
               catSpots={catSpots}
@@ -917,6 +921,15 @@ export function LifeTab({ state, onTrain, onSession }: { state: GameState; onTra
         <button className="phone-btn" onClick={() => setSheet('phone')} aria-label={t('life.phone')}>
           📱
         </button>
+        {(() => {
+          const go = actionById(L.scene === 'home' ? 'go_gym' : 'go_home');
+          if (!go) return null;
+          return (
+            <button className="travel-btn" disabled={!!perform && !perform.free} onClick={() => doAction(go)} title={go.label[lang]}>
+              {L.scene === 'home' ? `🏋️ ${t('life.toGym')}` : `🏠 ${t('life.toHome')}`}
+            </button>
+          );
+        })()}
         <button className={`auto-btn ${auto ? 'on' : ''}`} onClick={toggleAuto} title={t('life.autoHint')}>
           🤖 {t(auto ? 'life.autoOn' : 'life.autoOff')}
         </button>

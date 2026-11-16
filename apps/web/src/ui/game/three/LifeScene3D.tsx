@@ -45,7 +45,7 @@ export interface LifeScene3DProps {
   /** Ученики в зале (пусто, если зал закрыт или герой дома). */
   clients: Member[];
   /** Свои кошки (живут дома) и их потребности 0…100 (сытость, игра, туалет). */
-  cats: Array<{ id: string; breed: CatBreed; fed?: number; play?: number; toilet?: number }>;
+  cats: Array<{ id: string; breed: CatBreed; mix?: CatBreed; grow?: number; fed?: number; play?: number; toilet?: number }>;
   /** Корм в миске (порций), вода в миске 0…100 и грязь в лотке 0…100. */
   pets?: { bowl: number; water: number; litter: number };
   /** Герой выполняет действие у предмета (анимация до результата). */
@@ -1306,7 +1306,7 @@ export default function LifeScene3D(props: LifeScene3DProps) {
     api.current?.rebuildHero();
   }, [heroKey]);
 
-  const catsKey = JSON.stringify(props.cats.map((c) => [c.id, c.breed]));
+  const catsKey = JSON.stringify(props.cats.map((c) => [c.id, c.breed, c.mix, Math.round((c.grow ?? 1) * 10)]));
   useEffect(() => {
     api.current?.syncCats();
   }, [catsKey]);

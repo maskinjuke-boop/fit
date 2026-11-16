@@ -56,7 +56,7 @@ export interface LifeActions {
   buyExtra(id: GymExtraId): void;
   buyFurniture(id: ObjectId): void;
   sellFurniture(id: ObjectId): void;
-  adoptCat(breed: CatBreed): void;
+  adoptCat(breed: CatBreed, sex?: 'f' | 'm'): void;
   rehomeCat(id: string): void;
   dismiss(): void;
 }
@@ -236,7 +236,7 @@ export function GameProvider({ children }: { children: ReactNode }) {
       buyExtra: (id) => plain((s) => buyExtra(s, id)),
       buyFurniture: (id) => plain((s) => buyFurniture(s, id)),
       sellFurniture: (id) => plain((s) => sellFurniture(s, id)),
-      adoptCat: (b) => plain((s) => adoptCat(s, b)),
+      adoptCat: (b, sex) => plain((s) => adoptCat(s, b, sex)),
       rehomeCat: (id) => plain((s) => rehomeCat(s, id)),
       dismiss: () => plain(dismissResult),
     };

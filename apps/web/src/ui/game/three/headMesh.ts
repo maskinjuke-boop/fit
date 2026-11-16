@@ -65,11 +65,73 @@ export const eyeScale = (v: number): number => 1 + 0.13 * v;
 /** Сила мишеней MakeHuman при крайнем положении ползунка. */
 export const SLIDER_GAIN: Partial<Record<FacePart, number>> = { faceWidth: 0.6, cheekbones: 0.7, jaw: 0.6, chin: 0.6, nose: 0.7, lips: 0.75, eyes: 1 };
 
-/** Вершины головы с учётом черт лица (значения ползунков −1 … 1). */
-export function headPositions(female: boolean, face: Record<FacePart, number>): Float32Array {
+const gauss = (v: number, c: number, s: number): number => Math.exp(-(((v - c) / s) ** 2));
+const smoothstep = (e0: number, e1: number, x: number): number => {
+  const t = Math.min(1, Math.max(0, (x - e0) / (e1 - e0)));
+  return t * t * (3 - 2 * t);
+};
+
+/**
+ * Полное лицо (fat 0…1): круглые щёки, шире нижняя часть лица, брыли у челюсти и второй
+ * подбородок. Кольцо шеи (шов с телом) не двигается — сдвиг плавно сходит к нему на нет;
+ * уши отодвигаются вместе со щеками.
+ */
+function fatten(p: Float32Array, female: boolean, fat: number): void {
+  const ring = headRing(female).idx;
+  const ears = earMask();
+  const rx: number[] = [];
+  for (const i of ring) rx.push(p[i * 3]!, p[i * 3 + 1]!, p[i * 3 + 2]!);
+  const fixed = new Uint8Array(p.length / 3);
+  for (const i of ring) fixed[i] = 1;
+  const k = female ? 0.9 : 1;
+  for (let i = 0; i < p.length / 3; i += 1) {
+    if (fixed[i]) continue;
+    const x = p[i * 3]!;
+    const y = p[i * 3 + 1]!;
+    const z = p[i * 3 + 2]!;
+    const ax = Math.abs(x);
+    const s = Math.sign(x) || 1;
+    let near = 1;
+    if (y < -0.18) {
+      let d = 9;
+      for (let j = 0; j < rx.length; j += 3) d = Math.min(d, Math.hypot(x - rx[j]!, y - rx[j + 1]!, z - rx[j + 2]!));
+      near = smoothstep(0.0, 0.05, d);
+    }
+    if (ears[i]) {
+      // Уши — целиком наружу, как щёки под ними.
+      p[i * 3] = x + s * fat * 0.032 * k;
+      continue;
+    }
+    const front = smoothstep(-0.16, 0.06, z);
+    // Нижняя половина лица шире — растяжение от средней линии (гладко, без складок у рта),
+    // сильнее всего на уровне щёк и челюсти; глазницы и веки не трогаем.
+    const band = gauss(y, -0.15, 0.13) * smoothstep(0.01, -0.06, y);
+    let dx = x * fat * 0.42 * band * front * k;
+    // Брыли у углов челюсти.
+    dx += s * fat * 0.018 * gauss(y, -0.24, 0.045) * smoothstep(-0.02, 0.14, z) * smoothstep(0.06, 0.13, ax) * k;
+    // Круглые щёки выдаются вперёд.
+    let dz = fat * 0.03 * gauss(ax, 0.1, 0.055) * gauss(y, -0.11, 0.07) * smoothstep(0.08, 0.2, z);
+    let dy = 0;
+    // Второй подбородок: под челюстью вперёд и вниз.
+    const chin = gauss(y, -0.285, 0.04) * smoothstep(0.04, 0.2, z) * gauss(x, 0, 0.11);
+    dz += fat * 0.07 * chin;
+    dy -= fat * 0.022 * chin;
+    // Вся голова чуть полнее и круглее сзади и сверху.
+    const round = fat * 0.012 * smoothstep(-0.2, 0.05, y) * (1 - smoothstep(0.06, 0.16, z));
+    const r = Math.hypot(x, z) || 1;
+    dx += (x / r) * round;
+    dz += (z / r) * round;
+    p[i * 3] = x + dx * near;
+    p[i * 3 + 1] = y + dy * near;
+    p[i * 3 + 2] = z + dz * near;
+  }
+}
+
+/** Вершины головы с учётом черт лица (значения ползунков −1 … 1) и полноты fat (0 … 1). */
+export function headPositions(female: boolean, face: Record<FacePart, number>, fat = 0): Float32Array {
   const base = basePositions(sexOf(female));
   const parts = (Object.keys(SLIDER_GAIN) as FacePart[]).filter((k) => face[k] && k !== 'eyes');
-  if (!parts.length && !face.eyes) return base;
+  if (!parts.length && !face.eyes && !fat) return base;
   const p = Float32Array.from(base);
   if (face.eyes) {
     // Размер глаз: веки и глазница масштабируются вокруг центра глаза вместе с глазным яблоком.
@@ -100,6 +162,7 @@ export function headPositions(female: boolean, face: Record<FacePart, number>): 
       p[i + 2] = p[i + 2]! + dl.d[j * 3 + 2]! * w;
     }
   }
+  if (fat > 0) fatten(p, female, fat);
   return p;
 }
 

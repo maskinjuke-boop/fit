@@ -33,11 +33,17 @@ const smooth = (e0: number, e1: number, x: number): number => {
 /** Текущие черты лица (−1 … 1). Задаются перед сборкой головы и причёски (сборка синхронная). */
 let F: Record<FacePart, number> = Object.fromEntries(FACE_PARTS.map((k) => [k, 0])) as Record<FacePart, number>;
 let FKEY = '0';
+/** Полнота лица 0…1 (у полных персонажей). */
+let FAT = 0;
 
-export function setFace(face: Appearance['face']): void {
+export function setFace(face: Appearance['face'], fat = 0): void {
   F = Object.fromEntries(FACE_PARTS.map((k) => [k, Math.round(sliderValue(face?.[k]) * 100) / 100])) as Record<FacePart, number>;
-  FKEY = FACE_PARTS.some((k) => F[k] !== 0) ? FACE_PARTS.map((k) => F[k]).join(',') : '0';
+  FAT = Math.round(Math.max(0, Math.min(1, fat)) * 20) / 20;
+  FKEY = FACE_PARTS.some((k) => F[k] !== 0) || FAT > 0 ? [...FACE_PARTS.map((k) => F[k]), FAT].join(',') : '0';
 }
+
+/** Текущая полнота лица. */
+export const faceFat = (): number => FAT;
 
 /** Ключ черт лица для кэшей; '0' — лицо по умолчанию. */
 export const faceKey = (): string => FKEY;
@@ -54,7 +60,7 @@ function radiusTable(female: boolean): Float32Array {
   const key = `${female}|${FKEY}`;
   let tab = radiusTables.get(key);
   if (tab) return tab;
-  tab = rayRadiusTable(headPositions(female, F), NT, NP);
+  tab = rayRadiusTable(headPositions(female, F, FAT), NT, NP);
   radiusTables.set(key, tab);
   // Держим только несколько последних вариантов лица (ползунки меняются часто).
   while (radiusTables.size > 6) radiusTables.delete(radiusTables.keys().next().value!);
@@ -146,7 +152,7 @@ function buildSkull(female: boolean, blush: number): THREE.BufferGeometry {
   const ring = headRing(female);
   const fixed = new Uint8Array(lw.length);
   for (const i of ring.idx) fixed[i] = 1;
-  const sub = loopSubdivide(headPositions(female, F), headTris(), Float32Array.from(lw, (x) => x / 255), fixed);
+  const sub = loopSubdivide(headPositions(female, F, FAT), headTris(), Float32Array.from(lw, (x) => x / 255), fixed);
   const pos = sub.pos;
   const lip = sub.scalar;
   const geo = new THREE.BufferGeometry();

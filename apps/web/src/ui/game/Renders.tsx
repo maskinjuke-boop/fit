@@ -87,8 +87,9 @@ export function HomeImage({ id, icon, size = 72 }: { id: ObjectId; icon: string;
 }
 
 /** Портрет кошки из 3D-модели. */
-export function CatImage({ breed, size = 72 }: { breed: CatBreed; size?: number }) {
-  const url = useSnapshot(`cat|${breed}`, (m) => m.renderCat(breed, Math.min(256, Math.round(size * 2.4))));
+export function CatImage({ breed, mix, grow = 1, size = 72 }: { breed: CatBreed; mix?: CatBreed; grow?: number; size?: number }) {
+  const g = Math.round(grow * 10) / 10;
+  const url = useSnapshot(`cat|${breed}|${mix ?? ''}|${g}`, (m) => m.renderCat(breed, Math.min(256, Math.round(size * 2.4)), mix, g));
   if (!url) return <span className="home-emoji" style={{ fontSize: size * 0.55, width: size, height: size }}>🐈</span>;
   return <img className="item-render" src={url} width={size} height={size} alt="" draggable={false} />;
 }

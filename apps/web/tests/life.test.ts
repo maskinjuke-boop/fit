@@ -23,6 +23,12 @@ import {
   autoAction,
   autoChoice,
   catBlocker,
+  catAge,
+  catGrowth,
+  isKitten,
+  kittenGenes,
+  kittenPrice,
+  pairBlocker,
   catMood,
   litterDirty,
   comfort,
@@ -420,6 +426,67 @@ describe('дом и кошки', () => {
     expect(less.life.cats.length).toBe(MAX_CATS - 1);
     // Кошки сохраняются при миграции.
     expect(migrateLife(structuredClone(s.life)).cats.length).toBe(MAX_CATS);
+  });
+
+  it('кошки: возраст, знакомство кота и кошки, котята-метисы растут', () => {
+    let s = hero();
+    s.gold = 10000;
+    s.life.house = 2;
+    s = adoptCat(s, 'siamese', 'f');
+    expect(pairBlocker(s.life)).toBe('pair');
+    s = adoptCat(s, 'bengal', 'm');
+    const [queen, tom] = s.life.cats;
+    expect(queen!.sex).toBe('f');
+    expect(tom!.sex).toBe('m');
+    expect(catAge(queen!, s.life.day)).toBeGreaterThanOrEqual(8);
+    expect(isKitten(queen!, s.life.day)).toBe(false);
+    expect(hasObject(s, 'cat')).toBe(true);
+    expect(blocker(s, actionById('pair_cats')!)).toBe(null);
+    s = act(s, 'pair_cats').state;
+    expect(s.life.cats[0]!.pregnant?.father).toBe('bengal');
+    expect(blocker(s, actionById('pair_cats')!)).toBe('pregnant');
+    // Будущие котята занимают место: кошку больше не взять, пока свободно меньше.
+    const room = maxCats(s.life) - s.life.cats.length;
+    expect(room).toBeGreaterThan(0);
+    // Проходит пара дней — рождаются котята.
+    for (let i = 0; i < 6 && s.life.cats.length === 2; i += 1) {
+      s.life.event = null;
+      s.life.needs.energy = 20;
+      s = act(s, 'sleep').state;
+    }
+    const kittens = s.life.cats.filter((c) => c.mother === queen!.id);
+    expect(kittens.length).toBeGreaterThan(0);
+    expect(s.life.cats.length).toBeLessThanOrEqual(maxCats(s.life));
+    for (const k of kittens) {
+      expect(isKitten(k, s.life.day)).toBe(true);
+      expect(catGrowth(k, s.life.day)).toBeLessThan(0.6);
+      expect(['siamese', 'bengal']).toContain(k.breed);
+      expect(kittenPrice(k, s.life.day)).toBeGreaterThan(0);
+    }
+    expect(s.life.cats[0]!.pregnant === undefined).toBe(true);
+    // Котёнок растёт: через год — взрослый.
+    expect(catGrowth(kittens[0]!, s.life.day + 12)).toBe(1);
+    // За котёнка платят.
+    const gold = s.gold;
+    expect(rehomeCat(s, kittens[0]!.id).gold).toBeGreaterThan(gold);
+    // Пол, возраст, помесь и беременность переживают сохранение.
+    const m = migrateLife(structuredClone(s.life));
+    expect(m.cats.map((c) => [c.sex, c.born, c.mix])).toEqual(s.life.cats.map((c) => [c.sex, c.born, c.mix]));
+  });
+
+  it('кошки: гены котёнка от обоих родителей, старые сохранения получают пол и возраст', () => {
+    const always = (): number => 0.1;
+    expect(kittenGenes({ breed: 'siamese' }, { breed: 'siamese' }, always)).toEqual({ breed: 'siamese' });
+    expect(kittenGenes({ breed: 'siamese' }, { breed: 'bengal' }, always)).toEqual({ breed: 'siamese', mix: 'bengal' });
+    // Метис передаёт любую из своих пород.
+    expect(kittenGenes({ breed: 'ginger', mix: 'persian' }, { breed: 'black' }, always)).toEqual({ breed: 'persian', mix: 'black' });
+    const s = hero();
+    const raw = structuredClone(s.life) as unknown as { cats: unknown[]; day: number };
+    raw.day = 5;
+    raw.cats = [{ id: 'cat1', breed: 'ginger', name: 0, adopted: 3, fed: 50, play: 50, toilet: 50 }];
+    const m = migrateLife(raw as never);
+    expect(['f', 'm']).toContain(m.cats[0]!.sex);
+    expect(catAge(m.cats[0]!, 5)).toBeGreaterThanOrEqual(12);
   });
 });
 

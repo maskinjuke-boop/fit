@@ -88,6 +88,12 @@ function garmentMeshes(figure: Figure, outfit: Outfit, defaults: { top: Mat; bot
 
 // ─── Сборка ────────────────────────────────────────────────────────────
 
+/** Полнота лица: у полных учеников (heavy) и при большом весе на ползунке. */
+export function faceFatOf(a: Pick<Appearance, 'body' | 'heavy'>): number {
+  const w = bodyValues(a).weight;
+  return Math.max(0, Math.min(1, heavyValue(a) + Math.max(0, w - 0.3) * 0.6));
+}
+
 /** Особые настройки (монстры-гуманоиды): свой цвет кожи. */
 export interface CharacterOptions {
   skin?: { base: string; shade: string };
@@ -95,7 +101,7 @@ export interface CharacterOptions {
 
 export function buildCharacter(appearance: Appearance, color: string, equipped: Partial<Record<Slot, string>>, opts: CharacterOptions = {}): CharacterParts {
   const root = new THREE.Group();
-  setFace(appearance.face);
+  setFace(appearance.face, faceFatOf(appearance));
   const shape = bodyShape(appearance.figure);
   const figure = shape.figure;
   const female = figure === 'female';
@@ -180,7 +186,8 @@ export function buildCharacter(appearance: Appearance, color: string, equipped: 
   const headPivot = new THREE.Group();
   headPivot.position.y = NECK_WORLD;
   headPivot.userData.baseY = NECK_WORLD;
-  headPivot.scale.setScalar(HEAD_GROW);
+  // У полных голова крупнее — под стать телу.
+  headPivot.scale.setScalar(HEAD_GROW * (1 + 0.3 * faceFatOf(appearance)));
   headPivot.add(head);
   root.add(headPivot);
   setFace(undefined);

@@ -322,7 +322,7 @@ export function TrackingScreen({ exercise, engine, onBack, onRep, overlay }: Tra
   const hintText = hint ? t(`hint.${hint}` as I18nKey) : null;
 
   return (
-    <div className="tracking">
+    <div className={`tracking ${overlay ? 'with-crew' : ''}`}>
       <div className={`stage ${mirrored ? 'mirrored' : ''}`}>
         <video ref={videoRef} playsInline muted onEnded={onVideoEnded} />
         <canvas ref={canvasRef} />
