@@ -82,7 +82,9 @@ const blend = (a: string, b: string, k: number): string => '#' + new THREE.Color
  * проявляются, только если они у обоих (как рецессивные признаки).
  */
 function mixLook(a: Look, b: Look, seed: number): Look {
-  const k = 0.3 + hash(seed, 1) * 0.4;
+  // Окрас ближе к одному из родителей (с оттенком другого), а не «грязная» середина.
+  const h = hash(seed, 1);
+  const k = h < 0.5 ? 0.12 + h * 0.36 : 0.52 + h * 0.36;
   // Сиамские «отметины» проявляются, только если у обоих.
   const pattern = a.pattern === b.pattern ? a.pattern : a.pattern === 'points' ? b.pattern : b.pattern === 'points' ? a.pattern : hash(seed, 2) < 0.5 ? a.pattern : b.pattern;
   const ears = a.ears === b.ears ? a.ears : a.ears === 'fold' ? b.ears : b.ears === 'fold' ? a.ears : hash(seed, 3) < 0.5 ? a.ears : b.ears;
@@ -129,6 +131,8 @@ export interface Cat3D {
   legs: Leg[];
   tail: THREE.Group[];
   eyes: THREE.Object3D[];
+  /** Доля длины лап (у котёнка лапки короче — корпус ниже над полом). */
+  legLen: number;
   /** Текущие параметры позы (для плавных переходов). */
   pose: Pose;
 }
@@ -151,8 +155,15 @@ interface Pose {
 }
 
 const tmp = new THREE.Vector3();
+const sstep = (e0: number, e1: number, x: number): number => {
+  const t = Math.min(1, Math.max(0, (x - e0) / (e1 - e0)));
+  return t * t * (3 - 2 * t);
+};
 
-/** Окраска вершин по положению в теле кошки (координаты корня). */
+/**
+ * Окраска вершин по положению в теле кошки (координаты root — до масштаба размера и возраста,
+ * поэтому у котёнка и у крупной породы рисунок ложится так же). Переходы плавные — без «лесенки».
+ */
 function paint(root: THREE.Object3D, head: THREE.Object3D, look: Look, seed: number): void {
   const base = new THREE.Color(look.base);
   const dark = new THREE.Color(look.dark);
@@ -167,9 +178,12 @@ function paint(root: THREE.Object3D, head: THREE.Object3D, look: Look, seed: num
     if (!m.isMesh || m.userData.keepColor) return;
     const part = (m.userData.part as string | undefined) ?? 'body';
     const pos = m.geometry.getAttribute('position');
+    const nor = m.geometry.getAttribute('normal');
+    const nm = new THREE.Matrix3();
     const colors = new Float32Array(pos.count * 3);
     const toRoot = new THREE.Matrix4().multiplyMatrices(inv, m.matrixWorld);
     const toHead = new THREE.Matrix4().multiplyMatrices(headInv, m.matrixWorld);
+    nm.getNormalMatrix(toRoot);
     for (let i = 0; i < pos.count; i += 1) {
       tmp.fromBufferAttribute(pos, i).applyMatrix4(toRoot);
       hp.fromBufferAttribute(pos, i).applyMatrix4(toHead);
@@ -179,9 +193,9 @@ function paint(root: THREE.Object3D, head: THREE.Object3D, look: Look, seed: num
         // Поперечные полосы по спине и бокам, «М» на лбу, кольца на хвосте.
         let s = 0;
         if (part === 'tail') s = Math.sin((m.userData.seg as number) * 2.4) > 0.2 ? 1 : 0;
-        else if (part === 'head') s = hp.y > 0.085 && hp.z > 0.02 && Math.sin(hp.x * 140) > 0.35 ? 1 : 0;
-        else if (part === 'leg') s = Math.sin(y * 90) > 0.55 ? 0.8 : 0;
-        else s = Math.max(0, Math.sin(z * 52 + Math.sin(y * 30) * 1.5 + x * 8)) > 0.55 && y > 0.17 ? 1 : 0;
+        else if (part === 'head') s = sstep(0.08, 0.095, hp.y) * sstep(0.01, 0.03, hp.z) * sstep(0.15, 0.55, Math.sin(hp.x * 140));
+        else if (part === 'leg') s = 0.8 * sstep(0.35, 0.75, Math.sin(y * 90));
+        else s = sstep(0.3, 0.7, Math.sin(z * 52 + Math.sin(y * 30) * 1.5 + x * 8)) * sstep(0.15, 0.19, y);
         c.lerp(dark, s * 0.85);
       } else if (look.pattern === 'spots') {
         if (part === 'body' || part === 'leg') {
@@ -192,8 +206,7 @@ function paint(root: THREE.Object3D, head: THREE.Object3D, look: Look, seed: num
           const fx = z * 26 + 0.5 * Math.floor(y * 26) - cx - 0.5;
           const fy = y * 26 - cy - 0.5;
           const d = Math.hypot(fx, fy);
-          if (f > 0.35 && d < 0.32) c.lerp(dark, 0.85);
-          else if (f > 0.35 && d < 0.42) c.lerp(dark, 0.35);
+          if (f > 0.35) c.lerp(dark, 0.85 * sstep(0.44, 0.28, d));
         }
         if (part === 'tail') c.lerp(dark, Math.sin((m.userData.seg as number) * 2.4) > 0.3 ? 0.8 : 0);
       } else if (look.pattern === 'points') {
@@ -201,25 +214,30 @@ function paint(root: THREE.Object3D, head: THREE.Object3D, look: Look, seed: num
         let p = 0;
         if (part === 'ear') p = 1;
         if (part === 'tail') p = Math.min(1, 0.4 + (m.userData.seg as number) * 0.15);
-        if (part === 'leg') p = Math.min(1, Math.max(0, (0.16 - y) * 9));
-        if (part === 'head' || part === 'muzzle') p = Math.max(0, Math.min(1, (hp.z - 0.06) * 28 + (part === 'muzzle' ? 1 : 0)));
+        if (part === 'leg') p = sstep(0.17, 0.07, y);
+        if (part === 'head') p = sstep(0.035, 0.1, hp.z);
+        if (part === 'muzzle') p = 1;
         c.lerp(dark, p);
       } else {
-        c.lerp(dark, Math.max(0, Math.sin(x * 70 + z * 40) * 0.12));
+        c.lerp(dark, Math.max(0, Math.sin(x * 70 + z * 40) * 0.07));
       }
       // Белая грудка, живот и «носочки».
       if (look.white > 0) {
-        const chest = part === 'body' && z > 0.08 && y < 0.24 ? 1 : part === 'body' && y < 0.12 ? 1 : 0;
-        const socks = part === 'leg' && y < 0.06 ? 1 : 0;
-        const muzzle = part === 'muzzle' || (part === 'head' && hp.y < 0.035 && hp.z > 0.05) ? 1 : 0;
+        const chest = part === 'body' ? Math.max(sstep(0.05, 0.11, z) * sstep(0.26, 0.21, y), sstep(0.135, 0.105, y)) : 0;
+        const socks = part === 'leg' ? sstep(0.075, 0.045, y) : 0;
+        const muzzle = part === 'muzzle' ? 1 : part === 'head' ? sstep(0.045, 0.028, hp.y) * sstep(0.035, 0.065, hp.z) : 0;
         c.lerp(light, Math.max(chest, socks, muzzle) * look.white);
       }
       if (part === 'ear' && m.userData.inner) c.set('#e9a3a3');
       // Лёгкая неровность меха.
       const n = Math.sin(x * 431 + y * 173 + z * 289 + seed) * 0.035;
-      colors[i * 3] = Math.min(1, Math.max(0, c.r + n));
-      colors[i * 3 + 1] = Math.min(1, Math.max(0, c.g + n));
-      colors[i * 3 + 2] = Math.min(1, Math.max(0, c.b + n));
+      // Низ (подбородок, щёки снизу, живот) чуть светлее: мягкий мех рассеивает свет, и снизу
+      // нет резкой тёмной «каймы» (например, «ошейника» под головой).
+      const down = nor ? Math.max(0, -hp.copy(tmp.fromBufferAttribute(nor, i)).applyMatrix3(nm).normalize().y) : 0;
+      const lift = 1 + 0.3 * down;
+      colors[i * 3] = Math.min(1, Math.max(0, c.r * lift + n));
+      colors[i * 3 + 1] = Math.min(1, Math.max(0, c.g * lift + n));
+      colors[i * 3 + 2] = Math.min(1, Math.max(0, c.b * lift + n));
     }
     m.geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
   });
@@ -235,7 +253,7 @@ function blob(r: number, sx: number, sy: number, sz: number, m: THREE.Material, 
 }
 
 function stick(r0: number, r1: number, len: number, m: THREE.Material, part: string): THREE.Mesh {
-  const g = new THREE.CylinderGeometry(r1, r0, len, 12, 1);
+  const g = new THREE.CylinderGeometry(r1, r0, len, 12, 5);
   g.translate(0, -len / 2, 0);
   const me = new THREE.Mesh(g, m);
   me.userData.part = part;
@@ -269,26 +287,36 @@ export function buildCat(breed: CatBreed, seed = 1, opts: CatLookOpts = {}): Cat
   body.position.set(0, 0.175, -0.13);
   scaleRoot.add(body);
   // Корпус — одна гладкая капсула, грудь и бёдра чуть шире.
-  const torsoGeo = new THREE.CapsuleGeometry(0.095, 0.2, 10, 22);
+  // У котёнка корпус короче и круглее, лапки толще.
+  const len = 1 - 0.14 * young;
+  const chub = 1 + 0.08 * young;
+  // Средняя часть с рядами вершин вдоль корпуса — иначе полоски и пятна (окраска по вершинам) не видны.
+  const torsoGeo = new THREE.CapsuleGeometry(0.095, 0.2, 10, 22, 12);
   torsoGeo.rotateX(Math.PI / 2);
   const torso = new THREE.Mesh(torsoGeo, fur);
-  torso.scale.set(1.05 * F, 1.0 * F, 1);
-  torso.position.set(0, 0.01, 0.13);
+  torso.scale.set(1.05 * F * chub, 1.0 * F * chub, len);
+  torso.position.set(0, 0.01, 0.13 * len);
   torso.userData.part = 'body';
   torso.castShadow = true;
   body.add(torso);
-  body.add(blob(0.1, 1.0 * F, 1.06 * F, 0.95, fur, 'body', [0, 0.018, 0.25]));
-  if (look.fluff > 1.15) body.add(blob(0.1, 1.15 * F, 1.05 * F, 0.8, fur, 'body', [0, 0.04, 0.31]));
+  body.add(blob(0.1, 1.0 * F * chub, 1.06 * F * chub, 0.95, fur, 'body', [0, 0.018, 0.25 * len]));
+  if (look.fluff > 1.15) body.add(blob(0.1, 1.15 * F, 1.05 * F, 0.8, fur, 'body', [0, 0.04, 0.31 * len]));
+  // Шея: плавный переход от груди к голове (без тёмной «щели» под головой).
+  body.add(blob(0.058, 1.05 * F, 1.0 * F, 1.05, fur, 'body', [0, 0.07, 0.315 * len]));
 
   // Голова.
   const head = new THREE.Group();
-  head.position.set(0, 0.075, 0.34);
+  head.position.set(0, 0.075, 0.34 * len);
   body.add(head);
   const hs = ((HEAD[breed] ?? 1) + (HEAD[mix ?? breed] ?? 1)) / 2;
   head.scale.setScalar(1 + young * 0.42);
   head.add(blob(0.075, 1.08 * hs, 0.95 * hs, 1.0 * hs, fur, 'head', [0, 0.06, 0.03]));
   head.add(blob(0.04, 1.35 * hs, 0.9 * hs, 1, fur, 'head', [0.032, 0.035, 0.07]), blob(0.04, 1.35 * hs, 0.9 * hs, 1, fur, 'head', [-0.032, 0.035, 0.07]));
   head.add(blob(0.034, 1.25, 0.85, look.flat ? 0.55 : 1.0, fur, 'muzzle', [0, 0.032, look.flat ? 0.098 : 0.1]));
+  // Горло под головой (двигается с ней): закрывает тёмный низ шара головы — нет «ошейника».
+  head.add(blob(0.046, 1.2 * hs, 0.9, 1.0, fur, 'head', [0, 0.02, 0.0]));
+  // Нижняя челюсть и подбородок: сглаживают глубокую тёмную складку под щеками.
+  head.add(blob(0.042, 1.45 * hs, 0.72, 1.0, fur, 'muzzle', [0, 0.014, 0.06]));
   const nose = new THREE.Mesh(new THREE.SphereGeometry(0.011, 10, 8), new THREE.MeshStandardMaterial({ color: darkCoat ? '#2b2b2b' : '#d98a8a', roughness: 0.5 }));
   nose.position.set(0, 0.05, look.flat ? 0.118 : 0.132);
   nose.scale.set(1.2, 0.8, 0.8);
@@ -353,11 +381,12 @@ export function buildCat(breed: CatBreed, seed = 1, opts: CatLookOpts = {}): Cat
 
   // Лапы: у каждой бедро/плечо и нижнее звено с подушечкой.
   const legs: Leg[] = [];
-  const legR = 0.026 * (0.9 + 0.1 * F);
+  const legR = 0.026 * (0.9 + 0.1 * F) * (1 + 0.18 * young);
+  const legLen = 1 - 0.16 * young;
   for (const front of [true, false]) {
     for (const side of [-1, 1]) {
       const pivot = new THREE.Group();
-      pivot.position.set(side * 0.052 * F, -0.01, front ? 0.27 : 0.02);
+      pivot.position.set(side * 0.052 * F * chub, -0.01, front ? 0.27 * len : 0.02);
       const upLen = front ? 0.085 : 0.08;
       const up = stick(front ? legR * 1.15 : legR * 1.6, legR, upLen, fur, 'leg');
       pivot.add(up);
@@ -368,6 +397,7 @@ export function buildCat(breed: CatBreed, seed = 1, opts: CatLookOpts = {}): Cat
       const paw = blob(0.024, 1.0, 0.6, 1.25, fur, 'leg', [0, -0.075, 0.01]);
       lower.add(paw);
       pivot.add(lower);
+      pivot.scale.y = legLen;
       body.add(pivot);
       legs.push({ pivot, lower, front, side });
     }
@@ -400,8 +430,8 @@ export function buildCat(breed: CatBreed, seed = 1, opts: CatLookOpts = {}): Cat
   }
 
   if (young > 0) tail[0]!.scale.setScalar(1 - young * 0.35);
-  paint(root, head, look, seed);
-  const cat: Cat3D = { root, breed, key: catLookKey(breed, { mix, grow }), body, head, legs, tail, eyes, pose: restPose() };
+  paint(scaleRoot, head, look, seed);
+  const cat: Cat3D = { root, breed, key: catLookKey(breed, { mix, grow }), body, head, legs, tail, eyes, legLen, pose: restPose() };
   poseCat(cat, 'idle', 0, 0, 1);
   return cat;
 }
@@ -704,7 +734,9 @@ export function poseCat(cat: Cat3D, mode: CatMode, t: number, speed: number, ble
   }
   // На спине корпус опирается на спину: таз чуть приподнят, чтобы не уходить в пол.
   const buzz = p.purr * 0.006 * Math.sin(t * 90);
-  cat.body.position.set(0, p.hipY + Math.abs(Math.sin(p.roll)) * 0.0 + buzz * 0.3, p.hipZ);
+  // Короткие лапки котёнка: стоя корпус ниже (лёжа и сидя опора — живот и таз, высота та же).
+  const drop = (1 - cat.legLen) * 0.165 * Math.min(1, Math.max(0, (p.hipY - 0.09) / 0.085));
+  cat.body.position.set(0, p.hipY - drop + buzz * 0.3, p.hipZ);
   cat.body.rotation.set(p.pitch, 0, p.roll);
   cat.body.scale.set(1 + p.breath * 0.012 + buzz, 1 + p.breath * 0.02 + buzz, 1);
   cat.head.rotation.set(p.headX, p.headY, p.headZ);
