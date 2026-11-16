@@ -2322,3 +2322,28 @@ button {
     background: rgba(8, 10, 30, 0);
   }
 }
+
+/* Ремонт: образцы отделки. */
+.reno h3 {
+  margin: 14px 0 6px;
+}
+.reno-grid {
+  grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
+  gap: 8px;
+}
+.reno-card {
+  padding: 8px 6px;
+}
+.reno-card b {
+  font-size: 13px;
+  line-height: 1.2;
+}
+.reno-swatch {
+  display: block;
+  width: 72px;
+  height: 72px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  object-fit: cover;
+}

@@ -108,12 +108,13 @@ export interface HouseDef {
 }
 
 export const HOUSES: readonly HouseDef[] = [
-  { icon: '🏠', name: t('Квартира', 'Apartment'), desc: t('Одна большая комната с кухней.', 'One big room with a kitchen.'), w: 15, d: 11, slots: 12, wall: 5, floor: 5, comfort: 0, cats: 3, cost: 0, level: 1 },
+  { icon: '🏚️', name: t('Убитая однушка', 'Run-down studio'), desc: t('Тесная комната с облезлыми обоями и старой мебелью. Всё впереди!', 'A cramped room with peeling wallpaper and old furniture. Up from here!'), w: 9.5, d: 9, slots: 3, wall: 2, floor: 2, comfort: 0, cats: 2, cost: 0, level: 1 },
+  { icon: '🏠', name: t('Квартира', 'Apartment'), desc: t('Одна большая комната с кухней.', 'One big room with a kitchen.'), w: 15, d: 11, slots: 12, wall: 5, floor: 5, comfort: 1, cats: 3, cost: 400, level: 2 },
   { icon: '🏘️', name: t('Большая квартира', 'Large apartment'), desc: t('Шире и глубже: больше мест для мебели, уютнее, места для ещё одной кошки.', 'Wider and deeper: more room for furniture, cosier, space for one more cat.'), w: 18, d: 12, slots: 15, wall: 5, floor: 5, comfort: 2, cats: 4, cost: 1500, level: 4 },
   { icon: '🏡', name: t('Дом', 'House'), desc: t('Просторный дом: поместится вся мебель и техника.', 'A spacious house: room for every piece of furniture and tech.'), w: 21, d: 13, slots: 19, wall: 5, floor: 5, comfort: 4, cats: 5, cost: 4500, level: 8 },
   { icon: '🏰', name: t('Коттедж', 'Villa'), desc: t('Огромная гостиная: максимум уюта и до шести кошек.', 'A huge living room: maximum comfort and up to six cats.'), w: 24, d: 14, slots: 19, wall: 5, floor: 5, comfort: 7, cats: 6, cost: 10000, level: 12 },
 ];
-/** Места в начальной квартире (для совместимости). */
+/** Места в стартовой квартире. */
 export const HOUSE_SLOTS = HOUSES[0]!.slots;
 export const WALL_SLOTS = HOUSES[0]!.wall;
 export const FLOOR_SLOTS = HOUSES[0]!.floor;

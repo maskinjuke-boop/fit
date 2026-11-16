@@ -10,6 +10,11 @@ import {
   gymComfort,
   houseBlocker,
   maxCats,
+  applyFinish,
+  finishBlocker,
+  kitBlocker,
+  oldStuff,
+  upgradeKit,
   sellFurniture,
   sessionPay,
   upgradeHouse,
@@ -50,6 +55,7 @@ import { ACTIONS, GYM_EXTRAS, HOUSES, BOWL_MAX, CAT_BREEDS, LITTER_DIRTY, FURNIT
 import { RUN_SPEED, STICK_WALK, WALK_SPEED, blocked, bounds, clientSpot, detourPoint, freeSpot, gymGear, gymLayout, homeLayout, homeObstacles, resolve, spawn, stickSpeed, type Box, type P2 } from '../src/game/lifeMap';
 import type { Txt } from '../src/game/lifeTypes';
 import { itemById } from '../src/game/items';
+import { BASIC_DECOR, DECOR_KINDS, FINISHES, NEW_KIT, OLD_DECOR, OLD_KIT, finishById, kitById } from '../src/game/homeDecor';
 import * as THREE from 'three';
 import { bodyMorph } from '../src/ui/game/three/morph';
 import { bodyShape } from '../src/ui/game/three/body';
@@ -397,6 +403,9 @@ describe('дом и кошки', () => {
   it('кошки: не больше трёх, имена не повторяются, с ними можно играть', () => {
     let s = hero();
     s.gold = 10000;
+    // Три кошки — с обычной квартиры (в убитой однушке помещаются две).
+    expect(maxCats(s.life)).toBe(2);
+    s.life.house = 1;
     expect(hasObject(s, 'cat')).toBe(false);
     for (const b of ['ginger', 'sphynx', 'maine_coon', 'persian'] as const) s = adoptCat(s, b);
     expect(s.life.cats.length).toBe(MAX_CATS);
@@ -708,6 +717,8 @@ describe('жизнь кошек', () => {
 
   it('грязный лоток: хуже гигиена дома, уют и настроение кошки; уборка всё исправляет', () => {
     const clean = withCat();
+    // После ремонта уют есть — грязный лоток его портит.
+    clean.life.decor = { ...BASIC_DECOR };
     const dirty = structuredClone(clean);
     dirty.life.litter = LITTER_DIRTY + 20;
     expect(litterDirty(dirty.life)).toBe(true);
@@ -942,9 +953,83 @@ describe('деньги только с занятий, жильё и удобс�
       const sp = spawn('home', tier);
       expect(sp.x).toBeGreaterThanOrEqual(b.x0);
     }
-    // Старое сохранение — начальная квартира, без удобств зала.
+    // Старое сохранение (до ремонтов) — обычная квартира с простым ремонтом, без удобств зала.
     const m = migrateLife({ day: 3 } as never);
-    expect(m.house).toBe(0);
+    expect(m.house).toBe(1);
+    expect(m.kit).toEqual(NEW_KIT);
+    expect(m.decor).toEqual(BASIC_DECOR);
     expect(m.gymExtras).toEqual([]);
+    expect(migrateLife({ day: 3, house: 2 } as never).house).toBe(3);
+  });
+});
+
+describe('ремонт', () => {
+  it('игра начинается в убитой однушке со старой мебелью', () => {
+    const s = hero();
+    expect(s.life.house).toBe(0);
+    expect(s.life.decor).toEqual(OLD_DECOR);
+    expect(s.life.kit).toEqual(OLD_KIT);
+    expect(oldStuff(s.life)).toBe(10);
+    expect(HOUSES[0]!.w * HOUSES[0]!.d).toBeLessThan(HOUSES[1]!.w * HOUSES[1]!.d * 0.6);
+    expect(HOUSES[0]!.slots).toBeLessThan(HOUSES[1]!.slots);
+    // Новое сохранение после ремонта не теряет отделку.
+    const again = migrateLife(structuredClone(s.life));
+    expect(again.house).toBe(0);
+    expect(again.decor).toEqual(OLD_DECOR);
+  });
+
+  it('старая мебель даёт меньше пользы; новая — больше', () => {
+    const s = hero();
+    s.life.needs.hygiene = 0;
+    s.life.needs.energy = 10;
+    s.life.minute = 22 * 60;
+    const oldShower = act(s, 'shower').state.life.needs.hygiene;
+    const oldSleep = act(s, 'sleep').state.life.needs.energy;
+    const rich = structuredClone(s);
+    rich.gold = 1000;
+    expect(kitBlocker(s, 'bath')).toBe('money');
+    let up = upgradeKit(rich, 'bath');
+    up = upgradeKit(up, 'bed');
+    expect(up.gold).toBe(1000 - kitById('bath').price - kitById('bed').price);
+    expect(kitBlocker(up, 'bath')).toBe('owned');
+    expect(act(up, 'shower').state.life.needs.hygiene).toBeGreaterThan(oldShower);
+    expect(act(up, 'sleep').state.life.needs.energy).toBeGreaterThan(oldSleep);
+  });
+
+  it('отделку покупают и меняют: дороже — уютнее, купленную можно вернуть бесплатно, редкая — с уровнем', () => {
+    let s = hero();
+    s.gold = 5000;
+    const c0 = comfort(s.life);
+    s = applyFinish(s, 'wall_floral');
+    expect(s.life.decor.wall).toBe('wall_floral');
+    expect(s.gold).toBe(5000 - finishById('wall_floral')!.price);
+    s = applyFinish(s, 'floor_laminate');
+    expect(comfort(s.life)).toBeGreaterThan(c0);
+    // Вернуть старые обои и снова поставить купленные — бесплатно.
+    const gold = s.gold;
+    s = applyFinish(s, 'wall_peeling');
+    s = applyFinish(s, 'wall_floral');
+    expect(s.gold).toBe(gold);
+    expect(finishBlocker(s, 'wall_floral')).toBe('current');
+    expect(finishBlocker(s, 'floor_marble')).toBe('level');
+    expect(applyFinish(s, 'floor_marble')).toBe(s);
+    const poor = { ...s, gold: 0 };
+    expect(finishBlocker(poor, 'rug_red')).toBe('money');
+    // Все разделы, у каждой отделки свой вид.
+    for (const k of DECOR_KINDS) expect(FINISHES.filter((f) => f.kind === k).length).toBeGreaterThanOrEqual(5);
+  });
+
+  it('при переезде старьё из однушки меняется на простой ремонт, купленное остаётся', () => {
+    let s = withLevel(hero(), 3);
+    s.gold = 5000;
+    s = applyFinish(s, 'wall_stripes');
+    s = upgradeHouse(s);
+    expect(s.life.house).toBe(1);
+    expect(s.life.decor.wall).toBe('wall_stripes');
+    expect(s.life.decor.floor).toBe(BASIC_DECOR.floor);
+    expect(s.life.decor.light).toBe(BASIC_DECOR.light);
+    for (const k of DECOR_KINDS) expect(finishById(s.life.decor[k])!.old).toBeFalsy();
+    // Мебель-основа остаётся старой, пока её не заменить.
+    expect(s.life.kit.sofa).toBe(0);
   });
 });

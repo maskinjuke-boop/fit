@@ -2,13 +2,18 @@ import { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { actionsAt } from '../../../game/life';
 import { BOWL_MAX, GYMS } from '../../../game/lifeContent';
-import { REACH, gymRect, houseRect, STICK_WALK, WALK_SPEED, bounds as sceneBounds, blocked, clientSpot, detourPoint, dist, freeSpot, gymGear, gymLayout, homeLayout, homeObstacles, resolve, spawn, stickSpeed, type Box, type GearKind, type P2, type Placed } from '../../../game/lifeMap';
+import { REACH, gymRect, houseRect, STICK_WALK, WALK_SPEED, bounds as sceneBounds, blocked, clientSpot, detourPoint, dist, freeSpot, gymGear, gymLayout, homeLayout, homeObstacles, petsAt, resolve, spawn, stickSpeed, type Box, type GearKind, type P2, type Placed } from '../../../game/lifeMap';
 import type { CatBreed, ObjectId, SceneId } from '../../../game/lifeTypes';
 import { animFor } from './actionAnims';
 import { disposeObject, type CharacterParts } from './buildCharacter';
 import { createCatLife, perchSpots, type CatAI, type CatHeroAct, type CatWorld, type Perch } from './catLife';
 import { buildBowls, buildLitter } from './cats3d';
-import { contactShadow, objectModel, parquetTexture, plasterTexture, ticksOf, type HomeAnim } from './homeModels';
+import { BASIC_DECOR, NEW_KIT, kitOf, type HomeLook } from '../../../game/homeDecor';
+import { contactShadow, objectModel, plasterTexture, ticksOf, type HomeAnim } from './homeModels';
+import { curtains, floorMesh, roomLights, roomWalls, rugMesh } from './interior';
+
+/** Дом без данных о ремонте — простой новый ремонт и новая мебель. */
+const DEFAULT_LOOK: HomeLook = { decor: BASIC_DECOR, kit: NEW_KIT };
 import { M, mat, mesh } from './kit';
 import { blobShadow, loadCharacter, lookKey, type Look, type Member } from './people';
 import { prepareFists, showProps, tickProps, type PropKind } from './props3d';
@@ -33,6 +38,8 @@ export interface LifeScene3DProps {
   gymExtras: string[];
   /** Ступень жилья. */
   house: number;
+  /** Ремонт: отделка и базовая мебель (без него — простой новый ремонт). */
+  home?: HomeLook;
   minute: number;
   hero: Look;
   /** Ученики в зале (пусто, если зал закрыт или герой дома). */
@@ -264,10 +271,10 @@ function walls(w: number, d: number, tone: string, H = 3, wainscot?: string): TH
   return g;
 }
 
-/** Окно в боковой стене со светлым проёмом и пятном света на полу. */
-function sideWindow(x: number, z: number, side: number, night: boolean): THREE.Group {
+/** Окно в боковой стене со светлым проёмом и пятном света на полу; old — старая облезлая рама. */
+function sideWindow(x: number, z: number, side: number, night: boolean, look: HomeLook = DEFAULT_LOOK, old = false): THREE.Group {
   const g = new THREE.Group();
-  const frame = mat('#ffffff', 0.45);
+  const frame = old ? M.wood('#d8d0bc', 2, 1) : mat('#ffffff', 0.45);
   const glass = night ? M.glow('#1d2b55', 0.45) : M.glow('#cfe9ff', 0.9);
   const w = 1.7;
   const h = 1.4;
@@ -275,9 +282,14 @@ function sideWindow(x: number, z: number, side: number, night: boolean): THREE.G
   g.add(mesh(new THREE.BoxGeometry(w + 0.12, 0.08, 0.1), frame, [0, h / 2 + 0.04, 0.03]), mesh(new THREE.BoxGeometry(w + 0.2, 0.07, 0.2), frame, [0, -h / 2 - 0.03, 0.08]));
   for (const dx of [-w / 2 - 0.04, 0, w / 2 + 0.04]) g.add(mesh(new THREE.BoxGeometry(0.06, h, 0.08), frame, [dx, 0, 0.03]));
   g.add(mesh(new THREE.BoxGeometry(w, 0.04, 0.05), frame, [0, 0.15, 0.03]));
-  // Шторы.
-  const curtain = M.cloth('#e9dcc7', 3);
-  for (const dx of [-w / 2 - 0.25, w / 2 + 0.25]) g.add(mesh(new THREE.BoxGeometry(0.32, h + 0.5, 0.06), curtain, [dx, -0.1, 0.1]));
+  if (old) {
+    // Облупившаяся краска на раме и трещина на стекле.
+    const chip = mat('#8d7f66', 0.9);
+    for (const [dx, dy] of [[-0.6, h / 2 + 0.04], [0.5, -h / 2 - 0.03], [w / 2 + 0.04, 0.3]] as const) g.add(mesh(new THREE.BoxGeometry(0.1, 0.03, 0.11), chip, [dx, dy, 0.05]));
+    const crack = mat('#ffffff', 0.2, 0, { transparent: true, opacity: 0.6 });
+    g.add(mesh(new THREE.BoxGeometry(0.4, 0.008, 0.002), crack, [0.35, 0.35, 0.008]).rotateZ(0.7), mesh(new THREE.BoxGeometry(0.25, 0.008, 0.002), crack, [0.5, 0.42, 0.008]).rotateZ(-0.4));
+  }
+  g.add(curtains(look, w, h, night));
   g.position.set(x, 1.75, z);
   g.rotation.y = side > 0 ? -Math.PI / 2 : Math.PI / 2;
   if (!night) {
@@ -306,7 +318,7 @@ interface PetModels {
   surface: number;
 }
 
-function addPlaced(g: THREE.Group, placed: ReadonlyArray<Placed & { y?: number }>, pets?: { current: PetModels | null }): void {
+function addPlaced(g: THREE.Group, placed: ReadonlyArray<Placed & { y?: number }>, pets?: { current: PetModels | null }, look?: HomeLook, tier = 1): void {
   for (const p of placed) {
     if (p.id === 'cat_bowl' || p.id === 'litter') {
       // Кошачье хозяйство — свои модели (миски, лоток с наполнителем).
@@ -325,7 +337,10 @@ function addPlaced(g: THREE.Group, placed: ReadonlyArray<Placed & { y?: number }
       }
       continue;
     }
-    const m = objectModel(p.id);
+    // Старая базовая мебель; дверь и зеркало в убитой однушке тоже старые.
+    const kit = kitOf(p.id);
+    const old = look ? (kit ? !look.kit[kit] : tier <= 0 && (p.id === 'door' || p.id === 'mirror')) : false;
+    const m = objectModel(p.id, old);
     m.position.set(p.pos.x, p.y ?? 0, p.pos.z);
     m.rotation.y = p.rot;
     g.add(m);
@@ -338,53 +353,44 @@ function addPlaced(g: THREE.Group, placed: ReadonlyArray<Placed & { y?: number }
   }
 }
 
-function house(placed: Array<Placed & { y?: number }>, night: boolean, pets: { current: PetModels | null }, tier: number): THREE.Group {
+function house(placed: Array<Placed & { y?: number }>, night: boolean, pets: { current: PetModels | null }, tier: number, look: HomeLook = DEFAULT_LOOK): THREE.Group {
   const g = new THREE.Group();
   // Дом растёт влево и к зрителю — комната не по центру координат.
-  const { w, d, L, R, B, cx, cz } = houseRect(tier);
-  const pq = parquetTexture();
-  const floorMat = mat('#ffffff', 0.62);
-  if (pq) {
-    const t = pq.clone();
-    t.repeat.set(w / 1.2, d / 1.2);
-    t.needsUpdate = true;
-    floorMat.map = t;
-  } else floorMat.color.set('#b88a5e');
-  const floor = mesh(new THREE.PlaneGeometry(w, d), floorMat, [cx, 0, cz]);
-  floor.rotation.x = -Math.PI / 2;
-  floor.name = 'ground';
-  floor.receiveShadow = true;
-  const wallsG = walls(w, d, '#ece4d6', 3, '#d8cbb6');
+  const { w, d, L, R, B, F, cx, cz } = houseRect(tier);
+  const room = { w, d, cx, cz };
+  const wallsG = roomWalls(look, room);
   wallsG.position.set(cx, 0, cz);
-  g.add(floor, wallsG);
-  // Кухонная зона: плитка на полу и фартук на стене.
-  const tiles = mesh(new THREE.PlaneGeometry(3.4, 2.6), mat('#d9d4cc', 0.35), [R - 1.7, 0.004, B + 1.3]);
+  g.add(floorMesh(look, room), wallsG);
+  // Кухонная зона: плитка на полу и фартук на стене (на старой кухне — битая плитка).
+  const oldKitchen = !look.kit.kitchen;
+  const tiles = mesh(new THREE.PlaneGeometry(3.4, 2.6), mat(oldKitchen ? '#c8bfa9' : '#d9d4cc', oldKitchen ? 0.6 : 0.35), [R - 1.7, 0.004, B + 1.3]);
   tiles.rotation.x = -Math.PI / 2;
   tiles.receiveShadow = true;
   g.add(tiles);
-  g.add(mesh(new THREE.PlaneGeometry(3.3, 0.7), mat('#a7c7d9', 0.25), [R - 1.7, 1.25, B + 0.02]));
-  // Окна на левой стене (в большом доме — больше окон).
-  const winZ = tier >= 2 ? [-3.6, 2.2, 6.4] : [-3.6, 2.2];
-  for (const z of winZ) g.add(sideWindow(L + 0.01, z, -1, night));
-  // Ковёр у дивана: овал с каймой.
-  const rug = mesh(new THREE.CircleGeometry(1.4, 48), M.cloth('#a24b45', 3), [0.4, 0.008, -0.2]);
-  rug.rotation.x = -Math.PI / 2;
-  rug.scale.set(1.5, 1.05, 1);
-  rug.receiveShadow = true;
-  const rim = mesh(new THREE.RingGeometry(1.25, 1.4, 48), M.cloth('#e3c7a0', 3), [0.4, 0.01, -0.2]);
-  rim.rotation.x = -Math.PI / 2;
-  rim.scale.set(1.5, 1.05, 1);
-  g.add(rug, rim);
-  addPlaced(g, placed, pets);
+  if (oldKitchen) {
+    const grout = mat('#8f8676', 0.9);
+    for (let i = 1; i < 6; i += 1) {
+      g.add(mesh(new THREE.BoxGeometry(3.4, 0.002, 0.02), grout, [R - 1.7, 0.006, B + i * 0.43]));
+      g.add(mesh(new THREE.BoxGeometry(0.02, 0.002, 2.6), grout, [R - 3.4 + i * 0.57, 0.006, B + 1.3]));
+    }
+    // Сколы и трещины на плитке.
+    for (const [x, z, r] of [[R - 2.6, B + 1.9, 0.5], [R - 1.1, B + 2.2, -0.3]] as const) g.add(mesh(new THREE.BoxGeometry(0.35, 0.003, 0.012), mat('#5e574b', 0.9), [x, 0.007, z]).rotateY(r));
+    g.add(mesh(new THREE.PlaneGeometry(3.3, 0.7), mat('#b5b19a', 0.6), [R - 1.7, 1.25, B + 0.02]));
+    // Отвалившаяся плитка фартука.
+    g.add(mesh(new THREE.PlaneGeometry(0.3, 0.2), mat('#8f8a7c', 0.95), [R - 2.9, 1.42, B + 0.025]), mesh(new THREE.PlaneGeometry(0.15, 0.2), mat('#8f8a7c', 0.95), [R - 0.6, 1.05, B + 0.025]));
+  } else g.add(mesh(new THREE.PlaneGeometry(3.3, 0.7), mat('#a7c7d9', 0.25), [R - 1.7, 1.25, B + 0.02]));
+  // Окна на левой стене (в большом доме — больше окон, в однушке — одно).
+  const winZ = tier >= 3 ? [-3.6, 2.2, 6.4] : tier >= 1 ? [-3.6, 2.2] : [-3.2];
+  for (const z of winZ) g.add(sideWindow(L + 0.01, z, -1, night, look, tier <= 0));
+  // Ковёр у дивана.
+  const rug = rugMesh(look, 0.4, -0.2);
+  if (rug) g.add(rug);
+  addPlaced(g, placed, pets, look, tier);
   // Потолочные светильники: днём слабее, вечером теплее и ярче.
-  const lamps: Array<[number, number]> = [[-3.5, -1], [3.5, -1], [0, 2.8]];
-  if (tier >= 1) lamps.push([L + 3.5, 1.5]);
-  if (tier >= 3) lamps.push([L + 3.5, 6]);
-  for (const [x, z] of lamps) {
-    const lamp = new THREE.PointLight('#ffd9a0', night ? 9 : 2.5, 11, 1.7);
-    lamp.position.set(x, 2.85, z);
-    g.add(lamp);
-  }
+  const lamps: Array<[number, number]> = tier <= 0 ? [[1.6, (B + F) / 2 + 0.3]] : [[-3.5, -1], [3.5, -1], [0, 2.8]];
+  if (tier >= 2) lamps.push([L + 3.5, 1.5]);
+  if (tier >= 4) lamps.push([L + 3.5, 6]);
+  g.add(roomLights(look, lamps, night));
   return g;
 }
 
@@ -513,7 +519,7 @@ export default function LifeScene3D(props: LifeScene3DProps) {
       petModels.current = null;
       if (p.scene === 'home') {
         const placed = homeLayout(p.furniture, p.cats.length > 0, p.house);
-        world.add(house(placed, night, petModels, p.house));
+        world.add(house(placed, night, petModels, p.house, p.home ?? DEFAULT_LOOK));
         boxes = [...placed.map((x) => x.box).filter((b): b is Box => b !== null), ...homeObstacles()];
         // Кошки подходят к мискам и лотку вплотную — для них это не препятствия.
         catBoxes = [...placed.filter((x) => x.id !== 'cat_bowl' && x.id !== 'litter').map((x) => x.box).filter((b): b is Box => b !== null), ...homeObstacles()];
@@ -583,6 +589,7 @@ export default function LifeScene3D(props: LifeScene3DProps) {
       world0.boxes = catBoxes;
       world0.perches = perches;
       world0.litterSurface = petModels.current?.surface ?? 0.07;
+      world0.litter = petsAt(p.house).litter.pos;
       world0.pets = p.pets ?? world0.pets;
       if (act) {
         catAct.key = act.key;
@@ -1283,7 +1290,7 @@ export default function LifeScene3D(props: LifeScene3DProps) {
 
   // Перестройка сцены: другое место, мебель, уровень зала, смена дня и ночи.
   const night = isNight(props.minute);
-  const sceneKey = JSON.stringify([props.scene, props.furniture, props.gym, props.gymExtras, props.house, night, props.cats.length > 0]);
+  const sceneKey = JSON.stringify([props.scene, props.furniture, props.gym, props.gymExtras, props.house, props.home, night, props.cats.length > 0]);
   const firstScene = useRef(sceneKey);
   useEffect(() => {
     if (sceneKey === firstScene.current) return;

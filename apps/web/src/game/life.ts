@@ -5,6 +5,7 @@ import type { GameEvent } from './engine';
 import type { Slot } from './items';
 import { levelOf } from './levels';
 import { ACTIONS, GYM_EXTRAS, HOUSES, gymExtraById, type GymExtraId, BOWL_MAX, CAT_BREEDS, CAT_RATES, LITTER_DIRTY, WATER_RATE, CAT_NAMES, CLIENT_NAMES, FURNITURE, GYMS, GYM_HOURS, HOME_OBJECTS, LIFE_EVENTS, MAX_CATS, OBJECTS, SESSION_EXERCISES, actionById, catBreedById, lifeEventById, mountOf, slotsFor } from './lifeContent';
+import { BASIC_DECOR, DECOR_KINDS, KITS, NEW_KIT, OLD_DECOR, OLD_KIT, OLD_KIT_COMFORT, OLD_KIT_FACTOR, finishById, kitById, kitOf, type KitId } from './homeDecor';
 import { rng } from './random';
 import type { Appearance, BodyPart, GameState, HairStyle } from './state';
 import { NEEDS, SKILLS, type ActionDef, type Cat, type CatBreed, type Client, type LifeEffect, type LifeResult, type LifeState, type NeedId, type ObjectId, type SkillId, type Txt } from './lifeTypes';
@@ -42,6 +43,9 @@ export function newLife(): LifeState {
     gym: 0,
     gymExtras: [],
     house: 0,
+    decor: { ...OLD_DECOR },
+    finishes: [...START_FINISHES],
+    kit: { ...OLD_KIT },
     clients: [firstClient()],
     nextClient: 2,
     session: null,
@@ -51,6 +55,29 @@ export function newLife(): LifeState {
     quota: 20,
     stats: { sessions: 0, earned: 0, meals: 0, workouts: 0, fines: 0, graduated: 0 },
   };
+}
+
+/** Отделка, которая есть с самого начала: старьё стартовой квартиры и «без ковра». */
+const START_FINISHES: readonly string[] = [...Object.values(OLD_DECOR), 'rug_none'];
+
+/**
+ * Отделка и мебель из сохранения. Сохранения до ремонтов (без decor) жили в обычной
+ * квартире — для них ступень жилья сдвигается на одну вверх (внизу появилась убитая
+ * однушка), а дом получает простой новый ремонт и новую мебель.
+ */
+function migrateHome(r: Partial<LifeState>): Pick<LifeState, 'house' | 'decor' | 'finishes' | 'kit'> {
+  const legacy = !r.decor || typeof r.decor !== 'object';
+  const house = Math.max(0, Math.min(HOUSES.length - 1, (typeof r.house === 'number' ? r.house : 0) + (legacy ? 1 : 0)));
+  if (legacy) return { house, decor: { ...BASIC_DECOR }, finishes: [...new Set([...START_FINISHES, ...Object.values(BASIC_DECOR)])], kit: { ...NEW_KIT } };
+  const finishes = [...new Set([...START_FINISHES, ...(Array.isArray(r.finishes) ? r.finishes.filter((id) => finishById(id)) : [])])];
+  const decor = { ...OLD_DECOR };
+  for (const k of DECOR_KINDS) {
+    const id = r.decor![k];
+    if (typeof id === 'string' && finishById(id)?.kind === k && finishes.includes(id)) decor[k] = id;
+  }
+  const kit = { ...OLD_KIT };
+  for (const k of KITS) kit[k.id] = r.kit?.[k.id] === 1 ? 1 : 0;
+  return { house, decor, finishes, kit };
 }
 
 const num = (v: unknown, d: number): number => (typeof v === 'number' && Number.isFinite(v) ? v : d);
@@ -81,7 +108,7 @@ export function migrateLife(raw: Partial<LifeState> | undefined): LifeState {
     fat: typeof r.fat === 'number' ? r.fat : 0,
     gym: typeof r.gym === 'number' ? r.gym : 0,
     gymExtras: Array.isArray(r.gymExtras) ? r.gymExtras.filter((x) => GYM_EXTRAS.some((g) => g.id === x)) : [],
-    house: typeof r.house === 'number' ? Math.max(0, Math.min(HOUSES.length - 1, r.house)) : 0,
+    ...migrateHome(r),
     clients: Array.isArray(r.clients) && r.clients.length ? r.clients : base.clients,
     nextClient: typeof r.nextClient === 'number' ? r.nextClient : base.nextClient,
     session: r.session ?? null,
@@ -269,11 +296,24 @@ const startTally = (): Tally => ({ needs: {}, money: 0, notes: [], skills: {} })
 /** Лоток грязный: дома пахнет, уют и гигиена падают, кошкам неуютно. */
 export const litterDirty = (life: LifeState): boolean => life.cats.length > 0 && life.litter >= LITTER_DIRTY;
 
-/** Уют дома: декор, мебель и кошки (до 15); грязный лоток его портит. */
+/** Уют от ремонта: отделка и базовая мебель (старьё — в минус). */
+export function decorComfort(life: LifeState): number {
+  const finish = DECOR_KINDS.reduce((a, k) => a + (finishById(life.decor[k])?.comfort ?? 0), 0);
+  const kit = KITS.reduce((a, k) => a + (life.kit[k.id] ? 0 : OLD_KIT_COMFORT), 0);
+  return finish + kit;
+}
+
+/** Уют дома: ремонт, декор, мебель и кошки (до 30); грязный лоток его портит. */
 export function comfort(life: LifeState): number {
   const items = life.furniture.reduce((a, id) => a + (OBJECTS[id].comfort ?? 0), 0);
   const space = HOUSES[life.house]?.comfort ?? 0;
-  return Math.max(0, Math.min(22, items + life.cats.length * 2 + space) - (litterDirty(life) ? 4 : 0));
+  return Math.max(0, Math.min(30, items + life.cats.length * 2 + space + decorComfort(life)) - (litterDirty(life) ? 4 : 0));
+}
+
+/** Польза от базовой мебели у предмета: старьё даёт меньше. */
+export function kitFactor(life: LifeState, object: ObjectId): number {
+  const k = kitOf(object);
+  return k && !life.kit[k] ? OLD_KIT_FACTOR : 1;
 }
 
 /** Настроение кошки 0…100: сытость, игра, туалет; грязный лоток, пустые миски с кормом и водой — хуже. */
@@ -318,13 +358,15 @@ export function homeSlowdown(life: LifeState, need: NeedId): number {
   return Math.min(0.4, k);
 }
 
-function passTime(s: GameState, minutes: number, asleep: boolean, tally: Tally): void {
+function passTime(s: GameState, minutes: number, asleep: boolean, tally: Tally, sleepK = 1): void {
   const life = s.life;
   let left = minutes;
   while (left > 0) {
     const step = Math.min(left, DAY - life.minute, 60);
     for (const n of NEEDS) {
       let rate = (asleep ? ASLEEP : AWAKE)[n];
+      // На старой раскладушке сон восстанавливает меньше сил.
+      if (asleep && rate > 0) rate *= sleepK;
       const k = rate < 0 ? 1 - homeSlowdown(life, n) : 1;
       // Грязный лоток: дома гигиена падает быстрее.
       if (n === 'hygiene' && life.scene === 'home' && litterDirty(life)) rate -= 1.5;
@@ -480,12 +522,15 @@ export function act(state: GameState, actionId: string): LifeOutcome {
     tally.money -= a.cost;
   }
   let minutes = a.minutes;
+  const k = kitFactor(life, a.at);
   if (a.sleep) {
     if (a.id === 'sleep') minutes = sleepMinutes(life.minute);
-    passTime(s, minutes, true, tally);
+    passTime(s, minutes, true, tally, k);
   } else {
     passTime(s, minutes, false, tally);
-    applyEffect(s, a.effect, tally);
+    // Старая мебель: от действия меньше пользы (потребности растут слабее).
+    const needs = k < 1 && a.effect.needs ? Object.fromEntries(Object.entries(a.effect.needs).map(([n, d]) => [n, d > 0 ? Math.round(d * k) : d])) : a.effect.needs;
+    applyEffect(s, needs === a.effect.needs ? a.effect : { ...a.effect, needs }, tally);
   }
   if (a.id === 'cook' || a.id === 'cook_fit') life.stats.meals += 1;
   if (a.go) life.scene = a.go;
@@ -741,7 +786,10 @@ export function houseBlocker(s: GameState): HouseBlocker {
   return null;
 }
 
-/** Расширить жильё: комната больше, мест для мебели и декора больше; вещи переезжают с вами. */
+/**
+ * Расширить жильё: комната больше, мест для мебели и декора больше; вещи переезжают с вами.
+ * Старьё из убитой однушки (облезлые обои, линолеум, лампочка) в новом жилье заменяет простой ремонт.
+ */
 export function upgradeHouse(state: GameState): GameState {
   if (houseBlocker(state)) return state;
   const s = structuredClone(state);
@@ -749,9 +797,66 @@ export function upgradeHouse(state: GameState): GameState {
   const h = HOUSES[s.life.house]!;
   s.gold -= h.cost;
   const tally = startTally();
+  for (const k of DECOR_KINDS) {
+    if (!finishById(s.life.decor[k])?.old) continue;
+    s.life.decor[k] = BASIC_DECOR[k];
+    if (!s.life.finishes.includes(BASIC_DECOR[k])) s.life.finishes.push(BASIC_DECOR[k]);
+    tally.notes.push(t(`Новое жильё: ${finishById(BASIC_DECOR[k])!.name.ru.toLowerCase()}`, `New home: ${finishById(BASIC_DECOR[k])!.name.en.toLowerCase()}`));
+  }
   finish(s, h.icon, h.name, true, 0, tally);
   return s;
 }
+
+// ─── Ремонт ────────────────────────────────────────────────────────────
+
+export type FinishBlocker = 'current' | 'level' | 'money' | null;
+
+/** Можно ли выбрать отделку: уже стоит, рано по уровню, не хватает денег (купленную — бесплатно). */
+export function finishBlocker(s: GameState, id: string): FinishBlocker {
+  const def = finishById(id);
+  if (!def || s.life.decor[def.kind] === id) return 'current';
+  if (s.life.finishes.includes(id)) return null;
+  if (def.old) return 'current';
+  if (trainerLevel(s) < (def.level ?? 1)) return 'level';
+  if (s.gold < def.price) return 'money';
+  return null;
+}
+
+/** Сделать отделку: купить (если ещё нет) и сразу поставить; старая остаётся в запасе. */
+export function applyFinish(state: GameState, id: string): GameState {
+  if (finishBlocker(state, id)) return state;
+  const def = finishById(id)!;
+  const s = structuredClone(state);
+  if (!s.life.finishes.includes(id)) {
+    s.gold -= def.price;
+    s.life.finishes.push(id);
+  }
+  s.life.decor[def.kind] = id;
+  return s;
+}
+
+export type KitBlocker = 'owned' | 'money' | null;
+
+export function kitBlocker(s: GameState, id: KitId): KitBlocker {
+  if (s.life.kit[id]) return 'owned';
+  if (s.gold < kitById(id).price) return 'money';
+  return null;
+}
+
+/** Заменить старую базовую мебель новой. */
+export function upgradeKit(state: GameState, id: KitId): GameState {
+  if (kitBlocker(state, id)) return state;
+  const s = structuredClone(state);
+  s.gold -= kitById(id).price;
+  s.life.kit[id] = 1;
+  return s;
+}
+
+/** Сколько всего ещё можно улучшить (для подсказки): старьё в доме. */
+export function oldStuff(life: LifeState): number {
+  return DECOR_KINDS.filter((k) => finishById(life.decor[k])?.old).length + KITS.filter((k) => !life.kit[k.id]).length;
+}
+
 
 export function dismissResult(state: GameState): GameState {
   if (!state.life.last) return state;

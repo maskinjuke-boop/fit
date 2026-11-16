@@ -17,6 +17,7 @@ import {
   extraBlocker,
   gymComfort,
   houseBlocker,
+  oldStuff,
   payFactors,
   sessionPay,
   fitness,
@@ -36,6 +37,7 @@ import {
   SKILL_NAME,
   type Blocker,
 } from '../../game/life';
+import { Renovation } from './Renovation';
 import { BOWL_MAX, GYMS, GYM_EXTRAS, GYM_HOURS, HOUSES, OBJECTS, SESSION_EXERCISES, actionById, catBreedById, lifeEventById } from '../../game/lifeContent';
 import { gymLayout, homeLayout, type P2 } from '../../game/lifeMap';
 import { NEEDS, SKILLS, type ActionDef, type Client, type NeedId, type ObjectId } from '../../game/lifeTypes';
@@ -447,9 +449,14 @@ function FurnitureList({ state }: { state: GameState }) {
   const { t, tf, lang } = useI18n();
   const { life } = useGame();
   const owned = state.life.furniture;
+  const [reno, setReno] = useState(false);
   return (
     <>
       <HouseCard state={state} />
+      <button className={`btn small ${oldStuff(state.life) > 0 ? 'primary' : ''}`} onClick={() => setReno((v) => !v)}>
+        {reno ? t('life.renovateHide') : t('life.renovate')}
+      </button>
+      {reno && <Renovation state={state} />}
       <p className="small">
         {t('life.comfort')}: <b>{comfort(state.life)}</b>
       </p>
@@ -874,6 +881,7 @@ export function LifeTab({ state, onTrain, onSession }: { state: GameState; onTra
               gym={L.gym}
               gymExtras={L.gymExtras}
               house={L.house}
+              home={{ decor: L.decor, kit: L.kit }}
               minute={L.minute}
               hero={heroLook}
               clients={clients}

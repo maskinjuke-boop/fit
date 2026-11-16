@@ -10,6 +10,7 @@ import type { GameState } from '../../game/state';
 import { useI18n, type I18nKey } from '../../i18n';
 import { Hero3D } from './Hero3D';
 import { CatImage, HomeImage, ItemImage } from './Renders';
+import { Renovation } from './Renovation';
 
 const itemName = (t: (k: I18nKey) => string, id: string): string => t(`item.${id}` as I18nKey);
 
@@ -103,7 +104,7 @@ function ItemCard({ state, item, onOpen }: { state: GameState; item: ItemDef; on
   );
 }
 
-type ShopSection = 'clothes' | 'home' | 'cats';
+type ShopSection = 'clothes' | 'home' | 'renovation' | 'cats';
 type HomeFilter = HomeKind | 'all';
 
 const NEED_ICON: Record<string, string> = { food: '🍔', energy: '⚡', hygiene: '🚿', fun: '🎉', social: '💬' };
@@ -276,7 +277,7 @@ export function ShopTab({ state }: { state: GameState }) {
         <span className="gold-pill">◈ {state.gold}</span>
       </div>
       <div className="segmented shop-sections">
-        {(['clothes', 'home', 'cats'] as const).map((x) => (
+        {(['clothes', 'home', 'renovation', 'cats'] as const).map((x) => (
           <button key={x} className={section === x ? 'on' : ''} onClick={() => setSection(x)}>
             {t(`shop.${x}` as I18nKey)}
           </button>
@@ -284,6 +285,7 @@ export function ShopTab({ state }: { state: GameState }) {
       </div>
       {section === 'home' && <HomeShop state={state} />}
       {section === 'cats' && <CatShop state={state} />}
+      {section === 'renovation' && <Renovation state={state} />}
       {section === 'clothes' && (
         <>
           <div className="chips">

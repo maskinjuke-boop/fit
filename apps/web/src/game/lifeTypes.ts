@@ -1,4 +1,5 @@
 import type { ExerciseId } from '../tracking/exercise';
+import type { Decor, Kit } from './homeDecor';
 import type { GymExtraId } from './lifeContent';
 import type { StatId } from './config';
 import type { Figure, HairStyle } from './state';
@@ -205,8 +206,14 @@ export interface LifeState {
   gym: number;
   /** Купленные удобства зала. */
   gymExtras: GymExtraId[];
-  /** Ступень жилья 0…3. */
+  /** Ступень жилья 0…4 (0 — убитая однушка в начале игры). */
   house: number;
+  /** Отделка дома: что выбрано в каждом разделе. */
+  decor: Decor;
+  /** Купленная отделка (её можно вернуть бесплатно). */
+  finishes: string[];
+  /** Базовая мебель: 0 — старьё, 1 — новая. */
+  kit: Kit;
   clients: Client[];
   /** Счётчик для id новых учеников. */
   nextClient: number;

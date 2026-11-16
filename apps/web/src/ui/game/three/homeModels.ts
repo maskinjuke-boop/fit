@@ -202,8 +202,139 @@ function neonTexture(text: string): THREE.CanvasTexture | null {
 const wood = (c = '#8a5a30'): THREE.Material => M.wood(c, 1, 2);
 const paint = (c: string, r = 0.8): THREE.Material => mat(c, r);
 
-/** Модель предмета (лицевая сторона — к +Z). */
-export function objectModel(id: ObjectId): THREE.Group {
+/**
+ * Старьё из убитой однушки: те же размеры и места для действий, что у новой мебели
+ * (на раскладушке лежат, на диване сидят так же), но облезлое и потёртое.
+ */
+function oldModel(id: ObjectId): THREE.Group | null {
+  const g = new THREE.Group();
+  g.userData.tick = [] as HomeAnim[];
+  switch (id) {
+    case 'bed': {
+      // Железная раскладушка: трубы, провисший полосатый матрас, мятое одеяло.
+      const tube = mat('#5d6166', 0.55, 0.6);
+      for (const x of [-0.92, 0.92]) g.add(mesh(new THREE.BoxGeometry(0.05, 0.05, 2.5), tube, [x, 0.38, 0]));
+      for (const z of [-1.22, 1.22]) g.add(mesh(new THREE.BoxGeometry(1.88, 0.05, 0.05), tube, [0, 0.38, z]));
+      for (const x of [-0.9, 0.9]) for (const z of [-1.18, 1.18]) g.add(mesh(new THREE.CylinderGeometry(0.025, 0.025, 0.38, 8), tube, [x, 0.19, z]));
+      // Спинка из труб в изголовье.
+      for (const x of [-0.92, 0.92]) g.add(mesh(new THREE.CylinderGeometry(0.025, 0.025, 0.9, 8), tube, [x, 0.75, -1.24]));
+      g.add(mesh(new THREE.CylinderGeometry(0.025, 0.025, 1.86, 8), tube, [0, 1.18, -1.24]).rotateZ(Math.PI / 2));
+      for (let i = -3; i <= 3; i += 1) g.add(mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.75, 6), tube, [i * 0.26, 0.78, -1.24]));
+      // Матрас провисает к середине.
+      const tick = M.cloth('#d8cfb6', 6);
+      g.add(mesh(new THREE.BoxGeometry(1.8, 0.14, 2.35), tick, [0, 0.47, 0.03]));
+      g.add(mesh(new THREE.BoxGeometry(1.5, 0.05, 1.4), M.cloth('#c9bea1', 6), [0, 0.53, 0.05]));
+      for (let i = 0; i < 6; i += 1) g.add(mesh(new THREE.BoxGeometry(0.03, 0.002, 2.3), mat('#8094a8', 0.9), [-0.75 + i * 0.3, 0.542, 0.03]));
+      // Пятно на матрасе и мятое серое одеяло.
+      g.add(mesh(new THREE.CircleGeometry(0.16, 16), mat('#b49a6a', 0.95), [0.5, 0.545, 0.7]).rotateX(-Math.PI / 2));
+      const blanket = M.cloth('#6e675c', 4);
+      g.add(mesh(new THREE.BoxGeometry(1.6, 0.1, 1.2), blanket, [-0.05, 0.6, 0.55]).rotateZ(0.04));
+      g.add(mesh(new THREE.BoxGeometry(0.7, 0.14, 0.5), blanket, [0.55, 0.64, 0.9]).rotateY(0.5));
+      g.add(mesh(new THREE.BoxGeometry(0.7, 0.1, 0.42), M.cloth('#e3dccb', 5), [-0.3, 0.6, -0.9]).rotateY(0.12));
+      return g;
+    }
+    case 'sofa': {
+      // Продавленный выцветший диван с заплаткой и пледом.
+      const c = M.cloth('#8a6b4e', 5, 0.98);
+      g.add(mesh(new THREE.BoxGeometry(2.4, 0.3, 0.95), c, [0, 0.17, 0]));
+      g.add(mesh(new THREE.BoxGeometry(1.15, 0.13, 0.85), c, [-0.58, 0.385, 0.03]));
+      g.add(mesh(new THREE.BoxGeometry(1.15, 0.1, 0.85), c, [0.58, 0.36, 0.03]).rotateZ(-0.04));
+      g.add(mesh(new THREE.BoxGeometry(2.4, 0.6, 0.25), c, [0, 0.62, -0.38]).rotateX(-0.06));
+      for (const x of [-1.15, 1.15]) g.add(mesh(new THREE.BoxGeometry(0.22, 0.48, 0.95), c, [x, 0.48, 0]));
+      g.add(mesh(new THREE.PlaneGeometry(0.28, 0.24), M.cloth('#5d6e7e', 4), [-0.4, 0.68, -0.24]).rotateX(-0.06));
+      g.add(mesh(new THREE.BoxGeometry(0.06, 0.06, 0.06), mat('#d6c7a8', 0.95), [1.1, 0.75, 0.3]));
+      g.add(mesh(new THREE.BoxGeometry(0.9, 0.04, 0.8), M.cloth('#9b3d35', 4), [0.75, 0.62, -0.1]).rotateZ(0.5));
+      // Вместо столика — деревянный ящик.
+      const crate = wood('#a08455');
+      g.add(mesh(new THREE.BoxGeometry(0.7, 0.36, 0.55), crate, [0, 0.18, 1.15]));
+      for (const y of [0.1, 0.24]) g.add(mesh(new THREE.BoxGeometry(0.72, 0.03, 0.57), wood('#7a6038'), [0, y, 1.15]));
+      g.add(mesh(new THREE.CylinderGeometry(0.04, 0.035, 0.1, 12), mat('#e9e4d8', 0.4), [0.15, 0.41, 1.1]));
+      // Старый пузатый телевизор на тумбочке с антенной.
+      const tv = new THREE.Group();
+      tv.add(mesh(new THREE.BoxGeometry(1.0, 0.5, 0.45), wood('#5a4632'), [0, 0.25, 0]));
+      tv.add(mesh(new THREE.BoxGeometry(0.75, 0.6, 0.55), mat('#4a4a4a', 0.5), [0, 0.8, -0.03]));
+      tv.add(mesh(new THREE.BoxGeometry(0.62, 0.48, 0.02), mat('#2b2e2c', 0.2), [0, 0.82, 0.25]));
+      tv.add(mesh(new THREE.PlaneGeometry(0.56, 0.42), M.glow('#6f8a7a', 0.35), [0, 0.82, 0.262]));
+      for (const a of [-0.5, 0.45]) tv.add(mesh(new THREE.CylinderGeometry(0.006, 0.006, 0.5, 4), M.chrome(), [Math.sin(a) * 0.25, 1.32, -0.05]).rotateZ(a));
+      tv.position.z = 2.9;
+      tv.rotation.y = Math.PI;
+      g.add(tv);
+      return g;
+    }
+    case 'fridge': {
+      // Пожелтевший низкий холодильник с ржавчиной и магнитами.
+      const body = mat('#e6dcc0', 0.5);
+      g.add(mesh(new THREE.BoxGeometry(0.75, 1.45, 0.7), body, [0, 0.725, 0]));
+      g.add(mesh(new THREE.CylinderGeometry(0.35, 0.35, 0.75, 16, 1, false, 0, Math.PI), body, [0, 1.45, 0], [1, 0.15, 1]).rotateZ(Math.PI / 2).rotateX(Math.PI / 2));
+      g.add(mesh(new THREE.BoxGeometry(0.3, 0.05, 0.05), M.chrome(), [0.15, 1.15, 0.37]));
+      g.add(mesh(new THREE.BoxGeometry(0.76, 0.02, 0.02), mat('#a59a7e'), [0, 1.0, 0.355]));
+      g.add(mesh(new THREE.PlaneGeometry(0.5, 0.12), mat('#8a5a2e', 0.95), [-0.05, 0.08, 0.352]));
+      g.add(mesh(new THREE.PlaneGeometry(0.14, 0.2), mat('#9a6a3a', 0.95), [0.25, 0.3, 0.352]));
+      for (const [x, y, c] of [[-0.2, 1.25, '#e74c3c'], [0.1, 1.3, '#3498db'], [-0.1, 0.75, '#f1c40f']] as const) g.add(mesh(new THREE.BoxGeometry(0.06, 0.06, 0.02), mat(c, 0.6), [x, y, 0.36]));
+      g.add(mesh(new THREE.PlaneGeometry(0.16, 0.22), mat('#f5f0e1', 0.9), [-0.15, 1.2, 0.356]).rotateZ(0.08));
+      return g;
+    }
+    case 'stove': {
+      // Старая эмалированная плита: сколы, пригоревшие пятна, кастрюля; вместо вытяжки — полка.
+      const enamel = mat('#e8e1cf', 0.45);
+      g.add(mesh(new THREE.BoxGeometry(1.0, 0.88, 0.68), enamel, [0, 0.44, 0]));
+      g.add(mesh(new THREE.BoxGeometry(1.0, 0.03, 0.68), mat('#d7cfb9', 0.4), [0, 0.895, 0]));
+      for (const [x, z] of [[-0.25, -0.15], [0.25, -0.15], [-0.25, 0.15], [0.25, 0.15]] as const) {
+        g.add(mesh(new THREE.CylinderGeometry(0.11, 0.11, 0.02, 20), mat('#2a2a2a', 0.6), [x, 0.92, z]));
+        g.add(mesh(new THREE.CircleGeometry(0.16, 20), mat('#6b5a3c', 0.95, 0, { transparent: true, opacity: 0.5 }), [x + 0.03, 0.912, z + 0.02]).rotateX(-Math.PI / 2));
+      }
+      g.add(mesh(new THREE.BoxGeometry(0.75, 0.42, 0.02), mat('#2f2c26', 0.3), [0, 0.42, 0.345]));
+      g.add(mesh(new THREE.BoxGeometry(0.6, 0.03, 0.04), M.chrome(), [0, 0.7, 0.36]));
+      for (const [x, y] of [[-0.42, 0.75], [0.38, 0.15], [0.45, 0.6]] as const) g.add(mesh(new THREE.CircleGeometry(0.035, 10), mat('#2b2b2b', 0.8), [x, y, 0.342]));
+      g.add(mesh(new THREE.CylinderGeometry(0.15, 0.13, 0.14, 16), mat('#9aa0a6', 0.5, 0.5), [0.25, 1.0, -0.15]));
+      g.add(mesh(new THREE.BoxGeometry(1.0, 0.04, 0.28), wood('#8a6a44'), [0, 1.75, -0.2]));
+      for (let i = 0; i < 4; i += 1) g.add(mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.18, 12), mat(['#c9a35a', '#e9e4d8', '#a54b3c', '#7a9a5a'][i]!, 0.5), [-0.35 + i * 0.23, 1.86, -0.2]));
+      return g;
+    }
+    case 'shower': {
+      // Ржавый поддон, шторка на штанге, голая труба с лейкой.
+      g.add(mesh(new THREE.BoxGeometry(1.3, 0.12, 1.3), mat('#ddd5c2', 0.55), [0, 0.06, 0]));
+      g.add(mesh(new THREE.CircleGeometry(0.22, 16), mat('#9a6a3a', 0.9, 0, { transparent: true, opacity: 0.7 }), [0.1, 0.122, 0.05]).rotateX(-Math.PI / 2));
+      const rod = mat('#9aa0a6', 0.5, 0.6);
+      g.add(mesh(new THREE.CylinderGeometry(0.012, 0.012, 1.3, 6), rod, [0, 2.05, 0.63]).rotateZ(Math.PI / 2));
+      g.add(mesh(new THREE.CylinderGeometry(0.012, 0.012, 1.3, 6), rod, [-0.63, 2.05, 0]).rotateX(Math.PI / 2));
+      const curtain = M.cloth('#b9c9b4', 4, 0.95);
+      for (let i = 0; i < 4; i += 1) g.add(mesh(new THREE.BoxGeometry(0.16, 1.75, 0.02), curtain, [0.15 + i * 0.15, 1.15, 0.63 + (i % 2) * 0.03]));
+      for (let i = 0; i < 6; i += 1) g.add(mesh(new THREE.BoxGeometry(0.02, 1.75, 0.2), curtain, [-0.63 + (i % 2) * 0.03, 1.15, -0.55 + i * 0.2]));
+      g.add(mesh(new THREE.PlaneGeometry(0.2, 0.35), mat('#8c9b6e', 0.95), [0.4, 0.5, 0.66]));
+      g.add(mesh(new THREE.CylinderGeometry(0.02, 0.02, 1.9, 8), mat('#8a7a62', 0.6, 0.5), [0.55, 1.1, -0.55]));
+      g.add(mesh(new THREE.CylinderGeometry(0.08, 0.06, 0.05, 12), mat('#9a8f7a', 0.5, 0.5), [0.47, 2.0, -0.47]));
+      g.add(mesh(new THREE.CircleGeometry(0.08, 12), mat('#7a4a22', 0.9), [0.55, 0.4, -0.62]));
+      return g;
+    }
+    case 'door': {
+      // Обшарпанная дверь: облезлая краска, обивка, старая ручка.
+      g.add(mesh(new THREE.BoxGeometry(1.1, 2.2, 0.08), mat('#6b5440', 0.9), [0, 1.1, 0]));
+      for (const [y, h] of [[1.55, 0.7], [0.6, 0.7]] as const) g.add(mesh(new THREE.BoxGeometry(0.8, h, 0.02), M.leather('#4a3a2c', 2), [0, y, 0.05]));
+      for (const [x, y] of [[-0.3, 1.9], [0.35, 0.3], [-0.42, 0.9]] as const) g.add(mesh(new THREE.PlaneGeometry(0.12, 0.16), mat('#a59478', 0.95), [x, y, 0.062]));
+      g.add(mesh(new THREE.BoxGeometry(0.04, 0.12, 0.04), mat('#8a8a80', 0.5, 0.6), [0.4, 1.05, 0.08]));
+      g.add(mesh(new THREE.BoxGeometry(1.3, 0.08, 0.12), mat('#8a7a64', 0.9), [0, 2.24, 0]));
+      return g;
+    }
+    case 'mirror': {
+      // Треснувшее зеркало в простой раме.
+      g.add(mesh(new THREE.BoxGeometry(0.7, 1.2, 0.05), mat('#8f8a80', 0.7), [0, 1.3, 0]));
+      g.add(mesh(new THREE.PlaneGeometry(0.6, 1.1), mat('#b9c7cf', 0.08, 1), [0, 1.3, 0.03]));
+      const crack = mat('#f4f7fa', 0.3);
+      g.add(mesh(new THREE.BoxGeometry(0.5, 0.006, 0.002), crack, [0.08, 1.5, 0.033]).rotateZ(0.9), mesh(new THREE.BoxGeometry(0.3, 0.006, 0.002), crack, [0.12, 1.42, 0.033]).rotateZ(-0.5), mesh(new THREE.BoxGeometry(0.25, 0.006, 0.002), crack, [0.02, 1.62, 0.033]).rotateZ(0.2));
+      return g;
+    }
+    default:
+      return null;
+  }
+}
+
+/** Модель предмета (лицевая сторона — к +Z); old — старьё из стартовой квартиры. */
+export function objectModel(id: ObjectId, old = false): THREE.Group {
+  if (old) {
+    const o = oldModel(id);
+    if (o) return o;
+  }
   const g = new THREE.Group();
   const tick: HomeAnim[] = [];
   g.userData.tick = tick;

@@ -42,6 +42,8 @@ export interface CatWorld {
   perches: readonly Perch[];
   /** Высота наполнителя в лотке. */
   litterSurface: number;
+  /** Где стоит лоток (по умолчанию — как в обычной квартире). */
+  litter?: P2;
   hero: P2;
   act: CatHeroAct | null;
   pets: { bowl: number; water: number; litter: number };
@@ -163,8 +165,9 @@ export function createCatLife(parent: THREE.Object3D, shadow: () => THREE.Object
   const restDur = (mode: CatMode): number => ({ sit: 4 + rand() * 5, groom: 3 + rand() * 3, idle: 1.5 + rand() * 2.5, lie: 6 + rand() * 7, sleep: 12 + rand() * 14 } as Partial<Record<CatMode, number>>)[mode] ?? 3;
   /** Точка перед миской (кошка стоит мордой к ней, на +x). */
   const bowlFront = (bowl: P2, c: CatAI): P2 => ({ x: bowl.x - 0.3 * c.size, z: bowl.z });
-  const litterIn = (): P2 => ({ x: PETS.litter.pos.x, z: PETS.litter.pos.z + 0.02 });
-  const litterOut = (): P2 => ({ x: PETS.litter.pos.x, z: PETS.litter.pos.z - 0.6 });
+  let litterAt: P2 = PETS.litter.pos;
+  const litterIn = (): P2 => ({ x: litterAt.x, z: litterAt.z + 0.02 });
+  const litterOut = (): P2 => ({ x: litterAt.x, z: litterAt.z - 0.6 });
 
   const planNext = (c: CatAI, t: number, w: CatWorld): void => {
     const need = w.need(c.id);
@@ -486,6 +489,7 @@ export function createCatLife(parent: THREE.Object3D, shadow: () => THREE.Object
     toys,
     /** Кошки и игрушки по списку (новые появляются в случайном месте, лишние убираются). */
     sync(want: ReadonlyArray<{ id: string; breed: CatBreed }>, w: CatWorld): void {
+      litterAt = w.litter ?? PETS.litter.pos;
       for (const [id, c] of cats) {
         if (!want.some((x) => x.id === id && x.breed === c.cat.breed)) {
           parent.remove(c.cat.root, c.shadow);
@@ -537,6 +541,7 @@ export function createCatLife(parent: THREE.Object3D, shadow: () => THREE.Object
     },
     /** Кадр: поведение, позы, тени; игрушки катятся и отскакивают. */
     update(t: number, dt: number, w: CatWorld, render = true): void {
+      litterAt = w.litter ?? PETS.litter.pos;
       const blend = 1 - Math.exp(-dt * 7);
       for (const c of cats.values()) {
         updateCat(c, t, dt, w);

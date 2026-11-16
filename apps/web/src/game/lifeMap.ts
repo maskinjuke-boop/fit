@@ -62,16 +62,21 @@ interface Slot {
   y?: number;
 }
 
+/** Передняя стена прежней квартиры (у маленькой однушки — её собственная): у неё душ, дверь и лоток. */
+export const frontOf = (tier = 0): number => Math.min(HOUSE.d / 2, houseRect(tier).F);
+
 /** Места у стен для мебели и техники (в большом доме — ещё и «островки» посреди новой части). */
 function furnitureSlots(tier: number): Slot[] {
   const { L, R, B, F } = houseRect(tier);
+  // Убитая однушка: два места у задней стены между кроватью и кухней и одно у правой стены.
+  if (tier <= 0) return [1.0, 2.9].map((x) => ({ pos: { x, z: B + 0.5 }, rot: 0, use: { x, z: B + 1.75 } })).concat([{ pos: { x: R - 0.7, z: -0.7 }, rot: -Math.PI / 2, use: { x: R - 2, z: -0.7 } }]);
   const back = [-3.9, -2.2, -0.5, 1.2, 2.9, 4.4].map((x) => ({ pos: { x, z: B + 0.5 }, rot: 0, use: { x, z: B + 1.75 } }));
   // Место у левой стены — сразу за изножьем кровати, не заходя на неё.
   const left = [-2.05, 1.9].map((z) => ({ pos: { x: L + 0.7, z }, rot: Math.PI / 2, use: { x: L + 2, z } }));
   const right = [-2.4, -0.7, 1.0, 2.7].map((z) => ({ pos: { x: R - 0.7, z }, rot: -Math.PI / 2, use: { x: R - 2, z } }));
   // Порядок заполнения: сначала задняя стена (лучше видна), потом боковые.
   const out: Slot[] = [back[1]!, back[3]!, right[1]!, left[0]!, back[0]!, back[4]!, right[2]!, back[2]!, left[1]!, right[0]!, back[5]!, right[3]!];
-  if (tier <= 0) return out;
+  if (tier <= 1) return out;
   // Новая часть дома: задняя стена левее, левая стена ближе к зрителю, островки лицом к зрителю.
   for (let x = -5.6; x - 0.55 > L + 2.45; x -= 1.7) out.push({ pos: { x, z: B + 0.5 }, rot: 0, use: { x, z: B + 1.75 } });
   for (const z of [5.8, 7.5]) if (z + 0.55 < F - 0.5) out.push({ pos: { x: L + 0.7, z }, rot: Math.PI / 2, use: { x: L + 2, z } });
@@ -85,6 +90,12 @@ function furnitureSlots(tier: number): Slot[] {
 /** Места на стенах (картины, часы, неон, кондиционер). */
 function wallSlots(tier: number): Slot[] {
   const { L, R, B } = houseRect(tier);
+  if (tier <= 0) {
+    return [
+      { pos: { x: 2.0, z: B + 0.04 }, rot: 0, use: { x: 2.0, z: B + 1.9 }, y: 2.35 },
+      { pos: { x: L + 0.04, z: -0.9 }, rot: Math.PI / 2, use: { x: L + 1.6, z: -0.9 }, y: 2.1 },
+    ];
+  }
   const out: Slot[] = [
     { pos: { x: L + 1.2, z: B + 0.04 }, rot: 0, use: { x: L + 2.9, z: B + 1.9 }, y: 2.05 },
     { pos: { x: -1.3, z: B + 0.04 }, rot: 0, use: { x: -1.3, z: B + 1.9 }, y: 2.35 },
@@ -92,7 +103,7 @@ function wallSlots(tier: number): Slot[] {
     { pos: { x: 5.6, z: B + 0.04 }, rot: 0, use: { x: 4.4, z: B + 1.9 }, y: 2.45 },
     { pos: { x: L + 0.04, z: -0.9 }, rot: Math.PI / 2, use: { x: L + 1.6, z: -0.9 }, y: 2.1 },
   ];
-  if (tier <= 0) return out;
+  if (tier <= 1) return out;
   for (let x = -3.9; x > L + 2.6; x -= 2.6) out.push({ pos: { x, z: B + 0.04 }, rot: 0, use: { x, z: B + 1.9 }, y: 2.4 });
   for (const z of [-1.55, 1.85]) out.push({ pos: { x: R - 0.04, z }, rot: -Math.PI / 2, use: { x: R - 1.8, z }, y: 2.45 });
   return out;
@@ -102,6 +113,12 @@ function wallSlots(tier: number): Slot[] {
 function floorSlots(tier: number): Slot[] {
   const { L, R, F } = houseRect(tier);
   const F0 = HOUSE.d / 2;
+  if (tier <= 0) {
+    return [
+      { pos: { x: L + 0.45, z: -2.3 }, rot: 0, use: { x: L + 1.5, z: -2.3 } },
+      { pos: { x: R - 0.45, z: 0.15 }, rot: 0, use: { x: R - 1.5, z: 0.15 } },
+    ];
+  }
   const out: Slot[] = [
     { pos: { x: L + 0.45, z: -1.1 }, rot: 0, use: { x: L + 1.5, z: -1.1 } },
     // На кухне у правой стены стоят кошачьи миски — декор между местами для мебели.
@@ -110,7 +127,7 @@ function floorSlots(tier: number): Slot[] {
     { pos: { x: -2.6, z: F0 - 0.45 }, rot: 0, use: { x: -2.6, z: F0 - 1.4 } },
     { pos: { x: 3.0, z: F0 - 0.45 }, rot: 0, use: { x: 3.0, z: F0 - 1.4 } },
   ];
-  if (tier <= 0) return out;
+  if (tier <= 1) return out;
   for (const x of [-5.2, 0.2, -7.8, 5.6, -10.4, -13.0, -15.6]) if (x - 0.3 > L + 0.8) out.push({ pos: { x, z: F - 0.45 }, rot: 0, use: { x, z: F - 1.4 } });
   return out;
 }
@@ -129,19 +146,24 @@ export interface PlacedHome extends Placed {
  * Кошачье хозяйство: миски с кормом и водой на кухне у правой стены (между холодильником
  * и местом для мебели) и лоток в углу у душа. Не занимают платных мест.
  */
-export const PETS = {
-  bowls: { pos: { x: HOUSE.w / 2 - 0.35, z: -3.65 }, rot: -Math.PI / 2, use: { x: HOUSE.w / 2 - 1.05, z: -3.65 } },
-  /** Миска с кормом и миска с водой (мировые координаты). */
-  food: { x: HOUSE.w / 2 - 0.35, z: -3.85 },
-  water: { x: HOUSE.w / 2 - 0.35, z: -3.45 },
-  litter: { pos: { x: 4.55, z: 4.85 }, rot: Math.PI, use: { x: 4.55, z: 4.2 } },
-} as const;
+export const petsAt = (tier = 1) => {
+  const F0 = frontOf(tier);
+  return {
+    bowls: { pos: { x: HOUSE.w / 2 - 0.35, z: -3.65 }, rot: -Math.PI / 2, use: { x: HOUSE.w / 2 - 1.05, z: -3.65 } },
+    /** Миска с кормом и миска с водой (мировые координаты). */
+    food: { x: HOUSE.w / 2 - 0.35, z: -3.85 },
+    water: { x: HOUSE.w / 2 - 0.35, z: -3.45 },
+    litter: { pos: { x: 4.55, z: F0 - 0.65 }, rot: Math.PI, use: { x: 4.55, z: F0 - 1.3 } },
+  } as const;
+};
+/** Кошачье хозяйство в квартире и домах побольше (у однушки лоток ближе: см. petsAt). */
+export const PETS = petsAt(1);
 
 /** Предметы дома: базовые на своих местах, купленные — по свободным местам своего вида; pets — есть кошки (миски и лоток). */
 export function homeLayout(furniture: readonly ObjectId[], pets = false, tier = 0): PlacedHome[] {
   const { L, R, B } = houseRect(tier);
   // Душ и дверь остаются у прежней передней части дома (рядом с лотком).
-  const F = HOUSE.d / 2;
+  const F = frontOf(tier);
   const base: Placed[] = [
     { id: 'bed', pos: { x: L + 1.3, z: B + 1.4 }, rot: 0, use: { x: L + 2.9, z: B + 1.6 }, box: box(L + 1.3, B + 1.4, 1.05, 1.35) },
     // Перед диваном — столик: подходят к дивану сбоку от него.
@@ -163,7 +185,8 @@ export function homeLayout(furniture: readonly ObjectId[], pets = false, tier = 
     const mount = mountOf(id);
     if (mount === 'free') {
       // Робот-пылесос: станция у стены возле двери, сам ездит по дому.
-      out.push({ id, pos: { x: L + 0.35, z: 2.75 }, rot: Math.PI / 2, use: { x: L + 1.3, z: 2.75 }, box: null, y: 0 });
+      const z = tier <= 0 ? F - 0.4 : 2.75;
+      out.push({ id, pos: { x: L + 0.35, z }, rot: Math.PI / 2, use: { x: L + 1.3, z }, box: null, y: 0 });
       continue;
     }
     const sl = pools[mount][used[mount]];
@@ -173,9 +196,10 @@ export function homeLayout(furniture: readonly ObjectId[], pets = false, tier = 
     out.push({ id, pos: sl.pos, rot: sl.rot, use: sl.use, box: mount === 'wall' ? null : box(sl.pos.x, sl.pos.z, hw, hw), y: sl.y ?? 0 });
   }
   if (pets) {
-    const b = PETS.bowls;
+    const P = petsAt(tier);
+    const b = P.bowls;
     out.push({ id: 'cat_bowl', pos: { ...b.pos }, rot: b.rot, use: { ...b.use }, box: box(b.pos.x, b.pos.z, 0.18, 0.4), y: 0 });
-    const l = PETS.litter;
+    const l = P.litter;
     out.push({ id: 'litter', pos: { ...l.pos }, rot: l.rot, use: { ...l.use }, box: box(l.pos.x, l.pos.z, 0.3, 0.24), y: 0 });
   }
   return out;
