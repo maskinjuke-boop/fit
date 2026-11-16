@@ -50,7 +50,10 @@ import { ACTIONS, GYM_EXTRAS, HOUSES, BOWL_MAX, CAT_BREEDS, LITTER_DIRTY, FURNIT
 import { RUN_SPEED, STICK_WALK, WALK_SPEED, blocked, bounds, clientSpot, detourPoint, freeSpot, gymGear, gymLayout, homeLayout, homeObstacles, resolve, spawn, stickSpeed, type Box, type P2 } from '../src/game/lifeMap';
 import type { Txt } from '../src/game/lifeTypes';
 import { itemById } from '../src/game/items';
-import { bodyValues } from '../src/ui/game/three/morph';
+import * as THREE from 'three';
+import { bodyMorph } from '../src/ui/game/three/morph';
+import { bodyShape } from '../src/ui/game/three/body';
+import { landmarks } from '../src/ui/game/three/bodyMesh';
 import { createState, DEFAULT_APPEARANCE, migrate, type GameState } from '../src/game/state';
 
 const now = new Date(2026, 10, 5, 10, 0, 0);
@@ -879,11 +882,21 @@ describe('деньги только с занятий, жильё и удобс�
     const first = makeClient(1, 1, 1);
     expect(clientHeavy(first)).toBe(1);
     expect(clientAppearance(first).heavy).toBe(1);
-    const thin = bodyValues({});
-    const fat = bodyValues(clientAppearance(first));
-    // Талия и живот — в несколько раз больше, чем даёт ползунок «вес» на максимуме.
-    expect(fat.waist).toBeGreaterThan(bodyValues({ body: { weight: 1 } }).waist * 3);
-    expect(fat.belly).toBeGreaterThan(thin.belly + 3);
+    // Корпус — в разы шире: точка бока на талии уходит вдвое дальше от оси, живот — вперёд.
+    for (const figure of ['female', 'male'] as const) {
+      const L = landmarks(figure);
+      const morph = bodyMorph(bodyShape(figure), clientAppearance(first))!;
+      const side = new THREE.Vector3(L.waistW * 0.9, L.waist - 0.05, -0.04);
+      morph(side);
+      expect(side.x).toBeGreaterThan(L.waistW * 0.9 * 2.2);
+      const belly = new THREE.Vector3(0, L.waist - 0.08, 0.1);
+      morph(belly);
+      expect(belly.z).toBeGreaterThan(0.3);
+      // Ползунок «вес» на максимуме даёт намного меньше.
+      const mild = new THREE.Vector3(L.waistW * 0.9, L.waist - 0.05, -0.04);
+      bodyMorph(bodyShape(figure), { body: { weight: 1 } })!(mild);
+      expect(side.x - L.waistW * 0.9).toBeGreaterThan((mild.x - L.waistW * 0.9) * 3);
+    }
     expect(clientHeavy(makeClient(1, 7, 1))).toBeLessThan(0.5);
     expect(clientHeavy(makeClient(1, 13, 1))).toBe(0);
     expect(clientHeavy({ ...first, fat: 0.6 })).toBeLessThan(clientHeavy(first));

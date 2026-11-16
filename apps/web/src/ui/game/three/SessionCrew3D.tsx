@@ -75,10 +75,10 @@ export default function SessionCrew3D({ clients, exercise, reps }: SessionCrew3D
     const perRow = n > 5 ? Math.ceil(n / 2) : n;
     // Полные ученики шире — стоят свободнее.
     const heavy = Math.max(0, ...shown.map((c) => c.appearance.heavy ?? 0));
-    const gap = 0.95 + 0.4 * heavy;
+    const gap = 0.95 + 0.75 * heavy;
     // Лёжа — уступом (тело вдоль x), чтобы все были видны сбоку; стоя — в один-два ряда.
     const STEP_X = 0.5;
-    const STEP_Z = 0.85 + 0.35 * heavy;
+    const STEP_Z = 0.85 + 0.5 * heavy;
     const shiftX = exercise === 'pushup' ? 0.8 : -1.1;
     let disposed = false;
     const list: Follower[] = shown.map((c, i) => {

@@ -333,6 +333,10 @@ export interface Rig {
   head: THREE.Object3D;
   /** Точка хвата сжатого кулака в осях кости кисти (для предметов на время действия). */
   grip: { l: THREE.Vector3; r: THREE.Vector3 };
+  /** Руки отведены от боков (рад; у очень полных — чтобы не входили в корпус). */
+  armOut?: number;
+  /** Сильная полнота 0 … 1: лёжа на спине таз выше (толстая спина не уходит в пол). */
+  bulk?: number;
 }
 
 /**
@@ -1400,6 +1404,7 @@ function ankleAt(rig: Rig, side: 'l' | 'r', out: THREE.Vector3): THREE.Vector3 {
  */
 export function animate(rig: Rig, motion: Motion, t: number, phase = 0, blend = 1, opts?: AnimOpts): void {
   const k = Math.min(1, Math.max(0, blend));
+  if (rig.armOut) unspreadArms(rig);
   if (k < 1) {
     for (let i = 0; i < BONES.length; i += 1) rig.bones[BONES[i]!].quaternion.toArray(prevQ, i * 4);
     prevRoot.copy(rig.bones.root.position);
@@ -1449,7 +1454,7 @@ export function animate(rig: Rig, motion: Motion, t: number, phase = 0, blend = 
       planted = true;
     }
     pitch = p.pitch ?? 0;
-    lift = p.lift ?? 0;
+    lift = (p.lift ?? 0) + (motion === 'situp' ? 0.16 * (rig.bulk ?? 0) : 0);
   }
   if (k < 1) {
     if (planted) {
@@ -1470,6 +1475,32 @@ export function animate(rig: Rig, motion: Motion, t: number, phase = 0, blend = 
   rig.root.rotation.x = k >= 1 ? pitch : rig.root.rotation.x + (pitch - rig.root.rotation.x) * k;
   rig.root.rotation.z = k >= 1 ? roll : rig.root.rotation.z + (roll - rig.root.rotation.z) * k;
   rig.root.position.y = k >= 1 ? lift : rig.root.position.y + (lift - rig.root.position.y) * k;
+  if (rig.armOut) spreadArms(rig, rig.armOut);
   const busy = motion !== 'idle' && motion !== 'walk';
   for (const h of rig.held) h.visible = !busy;
+}
+
+const ZAX = new THREE.Vector3(0, 0, 1);
+const DOWN = new THREE.Vector3(0, -1, 0);
+const qOut = new THREE.Quaternion();
+/** Отводит опущенные руки в стороны на out рад (поднятые — меньше, вытянутые вверх — не трогает). */
+function spreadArms(rig: Rig, out: number): void {
+  for (const side of SIDES) {
+    const bone = rig.bones[`${side}_upper`];
+    const hang = Math.max(0, -tv.copy(DOWN).applyQuaternion(bone.quaternion).y);
+    const ang = (side === 'l' ? 1 : -1) * out * hang;
+    spread.set(bone, ang);
+    if (ang) bone.quaternion.premultiply(qOut.setFromAxisAngle(ZAX, ang));
+  }
+}
+
+/** Отведение рук прошлого кадра: перед новой позой снимается (смесь поз — без него). */
+const spread = new WeakMap<THREE.Bone, number>();
+function unspreadArms(rig: Rig): void {
+  for (const side of SIDES) {
+    const bone = rig.bones[`${side}_upper`];
+    const ang = spread.get(bone);
+    if (ang) bone.quaternion.premultiply(qOut.setFromAxisAngle(ZAX, -ang));
+    spread.delete(bone);
+  }
 }

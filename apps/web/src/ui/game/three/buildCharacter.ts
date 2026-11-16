@@ -7,7 +7,7 @@ import { buildBack, buildHands, buildNeck, buildShoes, composeOutfit, garmentsFo
 import { HEAD_GROW, NECK_WORLD, NECK_Y, TORSO_Y, bodyShape } from './body';
 import { buildHair, type Cover } from './hair';
 import { buildHead, setFace, type Lid } from './head';
-import { applyMorph, bodyMorph, bodyValues, heightScale } from './morph';
+import { applyMorph, bodyMorph, bodyValues, HEAVY_ARM_OUT, heavyValue, heightScale } from './morph';
 import { ICON_TILT, defaultPlan, heldModel, holdPose, holdQuaternion, type ItemCtx, type Outfit } from './items3d';
 import { M, mesh, retile, shade, texKind, v, type Anim, type Mat } from './kit';
 import { buildRig, prepareSkin, type Rig } from './rig';
@@ -159,7 +159,10 @@ export function buildCharacter(appearance: Appearance, color: string, equipped: 
   prepareSkin(torso, figure, rigidSet);
   // Ползунки тела: деформация тела вместе с одеждой; рост — масштаб от земли.
   const morph = bodyMorph(shape, appearance);
-  if (morph) applyMorph(torso, morph, rigid);
+  if (morph) {
+    const under = heavyValue(appearance) > 0 ? bodyMorph(shape, appearance, true) : null;
+    applyMorph(torso, morph, rigid, under ? new Map([[bodyMesh, under]]) : undefined);
+  }
   root.scale.setScalar(heightScale(appearance));
 
   // Голова с лицом, причёска и головной убор (в собственных координатах головы).
@@ -183,6 +186,12 @@ export function buildCharacter(appearance: Appearance, color: string, equipped: 
   setFace(undefined);
   // Скелет: сетки тела и одежды — со скиннингом, голова и предметы — на костях.
   const rig = buildRig(root, torso, headPivot, figure, morph, rigidSet);
+  // Очень полные держат руки в стороны — иначе руки входят в корпус.
+  const heavy = heavyValue(appearance);
+  if (heavy > 0) {
+    rig.armOut = heavy * HEAVY_ARM_OUT;
+    rig.bulk = heavy;
+  }
 
   return { root, torso, head: headPivot, lids: face.lids, anim, rig };
 }
