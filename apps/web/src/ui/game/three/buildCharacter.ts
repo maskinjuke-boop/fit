@@ -2,12 +2,12 @@ import * as THREE from 'three';
 import type { Slot } from '../../../game/items';
 import type { Appearance, Figure } from '../../../game/state';
 import { EYE_COLORS, HAIR_COLORS, SKIN_TONES } from '../palette';
-import { band, bodyGeometry, frontZ, garmentGeometry, garmentOffset, landmarks, type GarmentId } from './anatomy';
+import { band, bodyGeometry, coverDepth, frontZ, garmentGeometry, garmentOffset, landmarks, type GarmentId } from './anatomy';
 import { buildBack, buildHands, buildNeck, buildShoes, composeOutfit, garmentsFor, headCover, headModel, iconFigure } from './wardrobe';
 import { HEAD_GROW, NECK_WORLD, NECK_Y, TORSO_Y, bodyShape } from './body';
 import { buildHair, type Cover } from './hair';
 import { buildHead, setFace, type Lid } from './head';
-import { applyMorph, bodyMorph, bodyValues, HEAVY_ARM_OUT, heavyValue, heightScale } from './morph';
+import { applyMorph, bodyMorph, bodyValues, faceFat, headFatScale, HEAVY_ARM_OUT, heavyValue, heightScale } from './morph';
 import { ICON_TILT, defaultPlan, heldModel, holdPose, holdQuaternion, type ItemCtx, type Outfit } from './items3d';
 import { M, mesh, retile, shade, texKind, v, type Anim, type Mat } from './kit';
 import { buildRig, prepareSkin, type Rig } from './rig';
@@ -75,7 +75,9 @@ function garmentMeshes(figure: Figure, outfit: Outfit, defaults: { top: Mat; bot
       const k = GARMENT_TILE[texKind(t) ?? ''];
       if (t && k) gm[slot] = retile(t, k);
     }
-    out.push(new THREE.Mesh(garmentGeometry(figure, id), gm));
+    const me = new THREE.Mesh(garmentGeometry(figure, id), gm);
+    me.userData.garment = id;
+    out.push(me);
   };
   const fallback = (): Mat => M.cloth('#8a8f98', 8);
   if (plan.top) add(plan.top, outfit.top ?? defaults?.top ?? fallback());
@@ -86,13 +88,31 @@ function garmentMeshes(figure: Figure, outfit: Outfit, defaults: { top: Mat; bot
   return out;
 }
 
+/**
+ * У очень полных тело под одеждой чуть утоплено (по нормали, вдали от краёв одежды): раздувание
+ * и сгибы растягивают зазор неравномерно, и без этого кожа местами проступает сквозь ткань.
+ */
+function sinkUnderClothes(body: THREE.Mesh, figure: Figure, ids: GarmentId[], depth: number): void {
+  if (!ids.length) return;
+  const geo = body.geometry.clone();
+  // Сетка та же (сдвиг по нормали): сглаженные доли рук в morph берутся от исходной.
+  geo.userData = { morphSrc: body.geometry };
+  if (!geo.getAttribute('normal')) geo.computeVertexNormals();
+  const cov = coverDepth(figure, ids, geo);
+  const pos = geo.getAttribute('position');
+  const nor = geo.getAttribute('normal');
+  for (let i = 0; i < pos.count; i += 1) {
+    const k = cov[i]! * depth;
+    if (k <= 0) continue;
+    pos.setXYZ(i, pos.getX(i) - nor.getX(i) * k, pos.getY(i) - nor.getY(i) * k, pos.getZ(i) - nor.getZ(i) * k);
+  }
+  body.geometry = geo;
+}
+
 // ─── Сборка ────────────────────────────────────────────────────────────
 
 /** Полнота лица: у полных учеников (heavy) и при большом весе на ползунке. */
-export function faceFatOf(a: Pick<Appearance, 'body' | 'heavy'>): number {
-  const w = bodyValues(a).weight;
-  return Math.max(0, Math.min(1, heavyValue(a) + Math.max(0, w - 0.3) * 0.6));
-}
+export const faceFatOf = faceFat;
 
 /** Особые настройки (монстры-гуманоиды): свой цвет кожи. */
 export interface CharacterOptions {
@@ -128,7 +148,8 @@ export function buildCharacter(appearance: Appearance, color: string, equipped: 
   torso.add(bodyMesh);
   const shirt = M.cloth(shade(color, 0.62), 8);
   const pants = M.cloth(female ? '#2f3646' : '#2d3440', 8);
-  for (const g of garmentMeshes(figure, outfit, { top: shirt, bottom: pants })) torso.add(g);
+  const clothes = garmentMeshes(figure, outfit, { top: shirt, bottom: pants });
+  for (const g of clothes) torso.add(g);
   // Ремень на брюках по умолчанию.
   if (!female && !equipped.body && !equipped.legs) {
     torso.add(band(shape, TORSO_Y + 0.02, 0.026, M.leather('#3b2a1e', 4), 0.03));
@@ -165,6 +186,8 @@ export function buildCharacter(appearance: Appearance, color: string, equipped: 
   prepareSkin(torso, figure, rigidSet);
   // Ползунки тела: деформация тела вместе с одеждой; рост — масштаб от земли.
   const morph = bodyMorph(shape, appearance);
+  const heavyK = heavyValue(appearance);
+  if (morph && heavyK > 0) sinkUnderClothes(bodyMesh, figure, clothes.map((g) => g.userData.garment as GarmentId), 0.016 * heavyK);
   if (morph) {
     const under = heavyValue(appearance) > 0 ? bodyMorph(shape, appearance, true) : null;
     applyMorph(torso, morph, rigid, under ? new Map([[bodyMesh, under]]) : undefined);
@@ -187,7 +210,7 @@ export function buildCharacter(appearance: Appearance, color: string, equipped: 
   headPivot.position.y = NECK_WORLD;
   headPivot.userData.baseY = NECK_WORLD;
   // У полных голова крупнее — под стать телу.
-  headPivot.scale.setScalar(HEAD_GROW * (1 + 0.3 * faceFatOf(appearance)));
+  headPivot.scale.setScalar(HEAD_GROW * headFatScale(faceFat(appearance)));
   headPivot.add(head);
   root.add(headPivot);
   setFace(undefined);

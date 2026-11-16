@@ -44,7 +44,10 @@ function nearest(p: THREE.Vector3, pts: THREE.Vector3[], out: THREE.Vector3): { 
 }
 
 /** Деформация точки; arm — доля веса костей рук у вершины сетки со скиннингом (если известна). */
-export type Morph = (p: THREE.Vector3, arm?: number) => void;
+export type Morph = ((p: THREE.Vector3, arm?: number) => void) & {
+  /** Сколько раз сглаживать долю руки по соседям в сетке (плавный стык рукава и корпуса). */
+  armSmooth?: number;
+};
 
 /** Значения ползунков (общие «вес» и «мышцы» раскладываются по группам). */
 export function bodyValues(a: Pick<Appearance, 'body' | 'heavy'>): Record<BodyPart, number> {
@@ -70,6 +73,15 @@ export function bodyValues(a: Pick<Appearance, 'body' | 'heavy'>): Record<BodyPa
   };
 }
 
+/** Полнота лица 0 … 1: у полных учеников (heavy) и при большом весе на ползунке. */
+export function faceFat(a: Pick<Appearance, 'body' | 'heavy'>): number {
+  const w = sliderValue(a.body?.weight);
+  return Math.max(0, Math.min(1, heavyValue(a) + Math.max(0, w - 0.3) * 0.6));
+}
+
+/** Во сколько раз крупнее голова у полного (fat — полнота лица): голова под стать телу. */
+export const headFatScale = (fat: number): number => 1 + 0.42 * Math.max(0, Math.min(1, fat));
+
 /** Сильная полнота 0 … 1. */
 export const heavyValue = (a: Pick<Appearance, 'heavy'>): number => (typeof a.heavy === 'number' && Number.isFinite(a.heavy) ? Math.max(0, Math.min(1, a.heavy)) : 0);
 
@@ -82,7 +94,9 @@ export function bodyMorph(shape: BodyShape, a: Pick<Appearance, 'body' | 'heavy'
   const m = bodyValues(a);
   const parts: BodyPart[] = ['shoulders', 'chest', 'arms', 'neck', 'waist', 'belly', 'hips', 'glutes', 'legs'];
   const H = heavyValue(a);
-  if (H <= 0 && parts.every((k) => Math.abs(m[k]) < 1e-3)) return null;
+  // Голова у полных крупнее (масштаб вокруг шарнира шеи) — верх шеи расширяется так же.
+  const seamK = headFatScale(faceFat(a)) - 1;
+  if (H <= 0 && seamK <= 0 && parts.every((k) => Math.abs(m[k]) < 1e-3)) return null;
   const L = landmarks(shape.figure);
   const female = shape.figure === 'female';
   // Рука до кончиков пальцев: кисть — часть сетки тела и движется вместе с рукой.
@@ -100,7 +114,11 @@ export function bodyMorph(shape: BodyShape, a: Pick<Appearance, 'body' | 'heavy'
   const ql = new THREE.Vector3();
   const loc = new THREE.Vector3();
   const d = new THREE.Vector3();
-  return (p, armShare) => {
+  const dir = new THREE.Vector3();
+  const armDir = new THREE.Vector3().subVectors(shape.elbow, shape.shoulder).normalize();
+  const shoulderC = new THREE.Vector3(shape.shoulder.x - 0.015, shape.shoulder.y + 0.02, shape.shoulder.z);
+  const pivot = new THREE.Vector3(0, NECK_WORLD, 0);
+  const f: Morph = (p, armShare) => {
     const sx = p.x < 0 ? -1 : 1;
     // Работаем в правой половине (тело симметрично), сдвиг затем отражаем.
     loc.set(Math.abs(p.x), p.y, p.z);
@@ -142,9 +160,13 @@ export function bodyMorph(shape: BodyShape, a: Pick<Appearance, 'body' | 'heavy'
     // Шея.
     if (m.neck) {
       // К шву с головой (верх шеи) утолщение сходит на нет — шея и голова стыкуются без ступеньки.
-      const g = smooth(cy - 0.04, cy + 0.06, loc.y) * smooth(NECK_WORLD, NECK_WORLD - 0.07, loc.y) * smooth(0.13, 0.08, Math.hypot(loc.x, loc.z + 0.01)) * torsoW;
-      d.x += loc.x * 0.28 * m.neck * g;
-      d.z += (loc.z + 0.01) * 0.28 * m.neck * g;
+      // Сдвиг пропорционален радиусу только в пределах самой шеи (r ≤ 0.07), дальше (трапеции,
+      // ключицы) — постоянный и плавно сходит на нет: иначе сетка складывается в «ожерелье».
+      const r = Math.hypot(loc.x, loc.z + 0.01) || 1;
+      const g = smooth(cy - 0.04, cy + 0.06, loc.y) * smooth(NECK_WORLD, NECK_WORLD - 0.07, loc.y) * smooth(0.2, 0.07, r) * torsoW;
+      const k = 0.28 * m.neck * g * Math.min(r, 0.07);
+      d.x += (loc.x / r) * k;
+      d.z += ((loc.z + 0.01) / r) * k;
     }
     // Талия.
     if (m.waist) {
@@ -215,17 +237,87 @@ export function bodyMorph(shape: BodyShape, a: Pick<Appearance, 'body' | 'heavy'
         d.x += dx < 0 ? dx * 0.25 : dx;
         d.z += (loc.z - ql.z) * kl;
       }
+      // Плечо: общий «валик» вокруг плечевого сустава — одинаковый для корпуса и руки (по месту, а не
+      // по весам костей), поэтому на стыке рукава и футболки нет разрывов и складок.
+      const sd = loc.distanceToSquared(shoulderC);
+      const pad = 0.055 * H * Math.exp(-sd / 0.011);
+      if (pad > 1e-4) {
+        dir.set(loc.x, loc.y - (sy - 0.12), loc.z - TORSO_Z).normalize();
+        d.addScaledVector(dir, pad);
+      }
       if (aw > 0) {
-        const ka = H * aw * (0.55 + 0.85 * smooth(shape.wrist.y, shape.shoulder.y - 0.1, y)) * smooth(shape.wrist.y + 0.01, shape.wrist.y + 0.12, y);
+        // Раздувание руки от оси сходит на нет к плечевому суставу (дальше — «валик»).
+        const along = armDir.dot(dir.subVectors(loc, shape.shoulder));
+        const ka = H * aw * smooth(-0.02, 0.13, along) * (0.55 + 0.85 * smooth(shape.wrist.y, shape.shoulder.y - 0.1, y)) * smooth(shape.wrist.y + 0.01, shape.wrist.y + 0.12, y);
         d.x += (loc.x - qa.x) * ka;
         d.y += (loc.y - qa.y) * ka;
         d.z += (loc.z - qa.z) * ka;
+      }
+    }
+    if (seamK > 0) {
+      // Верх шеи и полоса под кожей головы масштабируются вокруг шарнира, как голова: шов без ступеньки.
+      // Плавно по радиусу и почти без вертикального сжатия: иначе зазор между кожей и воротом
+      // на трапециях уменьшается и кожа проступает сквозь футболку.
+      const r = Math.hypot(loc.x, loc.z + 0.02);
+      const w = smooth(NECK_WORLD - 0.14, NECK_WORLD - 0.012, loc.y) * smooth(0.26, 0.09, r) * torsoW;
+      if (w > 0) {
+        dir.subVectors(loc, pivot);
+        dir.y *= smooth(NECK_WORLD - 0.06, NECK_WORLD - 0.015, loc.y);
+        d.addScaledVector(dir, seamK * w);
       }
     }
     p.x += d.x * sx;
     p.y += d.y;
     p.z += d.z;
   };
+  if (H > 0) f.armSmooth = 28;
+  return f;
+}
+
+const shareCache = new WeakMap<THREE.BufferGeometry, Float32Array>();
+
+/** Сглаживание величины на вершинах по соседям (по треугольникам сетки), iter проходов. */
+function smoothOnMesh(geo: THREE.BufferGeometry, val: Float32Array, iter: number): void {
+  const idx = geo.index;
+  if (!idx || iter <= 0) return;
+  const n = val.length;
+  // Соседи — по совпадающим позициям (у сеток бывают дубли вершин на швах развёртки).
+  const pos = geo.getAttribute('position');
+  const weld = new Int32Array(n);
+  const seen = new Map<string, number>();
+  for (let i = 0; i < n; i += 1) {
+    const k = `${Math.round(pos.getX(i) * 2e4)},${Math.round(pos.getY(i) * 2e4)},${Math.round(pos.getZ(i) * 2e4)}`;
+    const j = seen.get(k);
+    if (j === undefined) {
+      seen.set(k, i);
+      weld[i] = i;
+    } else weld[i] = j;
+  }
+  const a: number[] = [];
+  for (let t = 0; t < idx.count; t += 3) {
+    const v0 = weld[idx.getX(t)]!;
+    const v1 = weld[idx.getX(t + 1)]!;
+    const v2 = weld[idx.getX(t + 2)]!;
+    a.push(v0, v1, v1, v2, v2, v0);
+  }
+  const sum = new Float32Array(n);
+  const cnt = new Float32Array(n);
+  const cur = new Float32Array(n);
+  for (let i = 0; i < n; i += 1) cur[weld[i]!] = val[i]!;
+  for (let it = 0; it < iter; it += 1) {
+    sum.fill(0);
+    cnt.fill(0);
+    for (let e = 0; e < a.length; e += 2) {
+      const u = a[e]!;
+      const w = a[e + 1]!;
+      sum[u] = sum[u]! + cur[w]!;
+      cnt[u] = cnt[u]! + 1;
+      sum[w] = sum[w]! + cur[u]!;
+      cnt[w] = cnt[w]! + 1;
+    }
+    for (let i = 0; i < n; i += 1) if (cnt[i]) cur[i] = 0.5 * cur[i]! + (0.5 * sum[i]!) / cnt[i]!;
+  }
+  for (let i = 0; i < n; i += 1) val[i] = cur[weld[i]!]!;
 }
 
 /** Ось корпуса по глубине (z) — от неё раздувается живот и спина. */
@@ -260,14 +352,28 @@ export function applyMorph(group: THREE.Object3D, morph: Morph, rigid: Array<{ o
     const f = special?.get(me) ?? morph;
     const si = geo.getAttribute('skinIndex');
     const sw = geo.getAttribute('skinWeight');
+    let share: Float32Array | null = null;
+    if (si && sw) {
+      // Доля руки зависит только от весов костей и сетки — сглаженную храним для общей сетки.
+      const src = (me.geometry.userData.morphSrc as THREE.BufferGeometry | undefined) ?? me.geometry;
+      const cached = f.armSmooth ? shareCache.get(src) : undefined;
+      if (cached && cached.length === pos.count) share = cached;
+      else {
+        share = new Float32Array(pos.count);
+        for (let i = 0; i < pos.count; i += 1) {
+          let arm = 0;
+          for (let k = 0; k < 4; k += 1) if (ARM_BONES.has(si.getComponent(i, k))) arm += sw.getComponent(i, k);
+          share[i] = arm;
+        }
+        if (f.armSmooth) {
+          smoothOnMesh(geo, share, f.armSmooth);
+          if (src.userData.shared === true) shareCache.set(src, share);
+        }
+      }
+    }
     for (let i = 0; i < pos.count; i += 1) {
       p.fromBufferAttribute(pos, i).applyMatrix4(m);
-      let arm: number | undefined;
-      if (si && sw) {
-        arm = 0;
-        for (let k = 0; k < 4; k += 1) if (ARM_BONES.has(si.getComponent(i, k))) arm += sw.getComponent(i, k);
-      }
-      f(p, arm);
+      f(p, share ? share[i] : undefined);
       p.applyMatrix4(inv);
       pos.setXYZ(i, p.x, p.y, p.z);
     }

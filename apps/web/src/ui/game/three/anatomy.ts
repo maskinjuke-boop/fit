@@ -83,6 +83,8 @@ function meshSync(key: string, job: () => Job): THREE.BufferGeometry {
 
 /** Версия построителя сеток: менять, если меняется сам алгоритм (развёртка, затенение складок). */
 const MESHER_VERSION = 'mh1';
+/** Версия масок одежды: менять, если меняется форма одежды в месте, которое отпечаток может не заметить. */
+const GARMENT_REV = 'g3';
 
 /**
  * «Отпечаток» задания: значения поля в контрольных точках и параметры сетки.
@@ -118,7 +120,7 @@ function meshAsync(key: string, job: () => Job): Promise<THREE.BufferGeometry> {
     p = (async () => {
       try {
         const j = job();
-        const storeKey = `${key}|${fingerprint(j)}`;
+        const storeKey = `${key}|${fingerprint(j)}${key.endsWith('|body') ? '' : GARMENT_REV}`;
         const stored = await loadMesh(storeKey);
         const g = stored ?? (await runSliced(netsGen(j.field, j.opts)));
         if (!stored) saveMesh(storeKey, `${key}|`, g);
@@ -336,9 +338,13 @@ function specs(figure: Figure): Record<GarmentId, GarmentSpec> {
   ]);
   const halter = polyline([onSkin([0.045, nip[1] + 0.12, nip[2]]), onSkin([0.05, nip[1] + 0.24, nip[2] - 0.03]), shoulderTop(0.1), onSkin([0, neckY - 0.03, -0.2])]);
   const top = (lo: number, sleeve: number | null, neckHole: (x: number, y: number, z: number) => number) => (x: number, y: number, z: number, p: Parts) => {
-    const body = Math.max(slab(y, lo, NECK_WORLD), notArm(p), -neckHole(Math.abs(x), y, z));
+    // Выше подмышки корпус и рукав заходят друг на друга (на их стыке у плеча нет бороздки), а ниже —
+    // между ними узкий разрез: ткань не перетягивается «перепонкой» от бока к руке, которая рвётся
+    // в лоскуты, когда рука отходит от тела.
+    const lap = sleeve === null ? 0 : -0.006 + 0.016 * Math.min(1, Math.max(0, (y - (L.armpit - 0.04)) / 0.05));
+    const body = Math.max(slab(y, lo, NECK_WORLD), notArm(p) - lap, -neckHole(Math.abs(x), y, z));
     if (sleeve === null) return body;
-    const arm = Math.max(armOnly(p), sleeve <= 1 ? (tUp(x, y, z) - sleeve) * upLen : (tFore(x, y, z) - (sleeve - 1)) * foreLen);
+    const arm = Math.max(armOnly(p) - lap, sleeve <= 1 ? (tUp(x, y, z) - sleeve) * upLen : (tFore(x, y, z) - (sleeve - 1)) * foreLen);
     return Math.min(body, arm);
   };
   const ankle = L.ankle[1];
@@ -543,6 +549,97 @@ export function garmentOffset(figure: Figure, id: GarmentId): number {
 
 export function garmentGeometry(figure: Figure, id: GarmentId): THREE.BufferGeometry {
   return meshSync(`${figure}|${id}`, () => garmentJob(figure, id));
+}
+
+const coverCache = new Map<string, Float32Array>();
+
+/**
+ * Сетка-хэш точек: ближайшая точка в пределах radius (номер точки или −1; расстояние — в .d).
+ * radius не больше cell — просматриваются только соседние ячейки.
+ */
+function pointGrid(pts: ArrayLike<number>, cell: number): { near(x: number, y: number, z: number, radius: number): number; d: number } {
+  const grid = new Map<number, number[]>();
+  const key = (i: number, j: number, k: number): number => ((i + 512) * 1024 + (j + 512)) * 1024 + (k + 512);
+  for (let p = 0; p < pts.length; p += 3) {
+    const kk = key(Math.floor(pts[p]! / cell), Math.floor(pts[p + 1]! / cell), Math.floor(pts[p + 2]! / cell));
+    const list = grid.get(kk);
+    if (list) list.push(p);
+    else grid.set(kk, [p]);
+  }
+  const out = {
+    d: 0,
+    near(x: number, y: number, z: number, radius: number): number {
+      const ci = Math.floor(x / cell);
+      const cj = Math.floor(y / cell);
+      const ck = Math.floor(z / cell);
+      let best = radius * radius;
+      let hit = -1;
+      for (let i = ci - 1; i <= ci + 1; i += 1)
+        for (let j = cj - 1; j <= cj + 1; j += 1)
+          for (let k = ck - 1; k <= ck + 1; k += 1) {
+            const list = grid.get(key(i, j, k));
+            if (!list) continue;
+            for (const p of list) {
+              const d = (pts[p]! - x) ** 2 + (pts[p + 1]! - y) ** 2 + (pts[p + 2]! - z) ** 2;
+              if (d < best) {
+                best = d;
+                hit = p / 3;
+              }
+            }
+          }
+      out.d = Math.sqrt(best);
+      return hit;
+    },
+  };
+  return out;
+}
+
+/**
+ * Насколько глубоко под одеждой ids каждая вершина тела geo: 1 — под тканью и далеко от её краёв
+ * (выреза, рукава, низа), 0 — открыта или у самого края. По ней тело полных чуть утапливается под
+ * одежду, чтобы при раздувании и сгибах кожа не проступала сквозь ткань.
+ */
+export function coverDepth(figure: Figure, ids: readonly GarmentId[], geo: THREE.BufferGeometry): Float32Array {
+  const pos = geo.getAttribute('position');
+  const key = `${figure}|${ids.join(',')}|${pos.count}`;
+  let out = coverCache.get(key);
+  if (out) return out;
+  out = new Float32Array(pos.count);
+  const a = anatomy(figure);
+  const EDGE0 = 0.04;
+  const EDGE1 = 0.09;
+  for (const id of ids) {
+    const g = garmentGeometry(figure, id);
+    const gp = g.getAttribute('position');
+    const off = garmentOffset(figure, id);
+    // Оболочка одежды — замкнутое тело: «тело + отступ» в пределах маски. Её края (вырез, подол,
+    // край рукава) — срезы маски: они проходят ближе к коже, чем внешняя оболочка, и сквозь тело.
+    const shell: number[] = [];
+    const edge: number[] = [];
+    for (let i = 0; i < gp.count; i += 1) {
+      const x = gp.getX(i);
+      const y = gp.getY(i);
+      const z = gp.getZ(i);
+      if (a.eval(x, y, z) < off - 0.005) edge.push(x, y, z);
+      else shell.push(x, y, z);
+    }
+    // Глубина — у вершин оболочки (их меньше), вершине тела — от ближайшей из них.
+    const edges = pointGrid(edge, EDGE1);
+    const depth = new Float32Array(shell.length / 3);
+    for (let i = 0; i < depth.length; i += 1) {
+      edges.near(shell[i * 3]!, shell[i * 3 + 1]!, shell[i * 3 + 2]!, EDGE1);
+      const t = Math.min(1, Math.max(0, (edges.d - EDGE0) / (EDGE1 - EDGE0)));
+      depth[i] = t * t * (3 - 2 * t);
+    }
+    const under = off + STEP;
+    const cloth = pointGrid(shell, under);
+    for (let i = 0; i < pos.count; i += 1) {
+      const j = cloth.near(pos.getX(i), pos.getY(i), pos.getZ(i), under);
+      if (j >= 0) out[i] = Math.max(out[i]!, depth[j]!);
+    }
+  }
+  coverCache.set(key, out);
+  return out;
 }
 
 /** Есть ли уже готовые сетки тела и одежды (тогда героя можно собрать сразу). */

@@ -72,9 +72,9 @@ const smoothstep = (e0: number, e1: number, x: number): number => {
 };
 
 /**
- * Полное лицо (fat 0…1): круглые щёки, шире нижняя часть лица, брыли у челюсти и второй
- * подбородок. Кольцо шеи (шов с телом) не двигается — сдвиг плавно сходит к нему на нет;
- * уши отодвигаются вместе со щеками.
+ * Полное лицо (fat 0…1): круглые щёки, шире нижняя часть лица, мягкие брыли у челюсти и второй
+ * подбородок (провисает под челюстью — виден сбоку). Кольцо шеи (шов с телом) не двигается — сдвиг
+ * плавно сходит к нему на нет; уши отодвигаются вместе со щеками рядом с ними.
  */
 function fatten(p: Float32Array, female: boolean, fat: number): void {
   const ring = headRing(female).idx;
@@ -84,6 +84,16 @@ function fatten(p: Float32Array, female: boolean, fat: number): void {
   const fixed = new Uint8Array(p.length / 3);
   for (const i of ring) fixed[i] = 1;
   const k = female ? 0.9 : 1;
+  // Линия под подбородком (по модели): у женской головы — чуть выше.
+  const chinY = female ? -0.264 : -0.27;
+  /** Профиль расширения по высоте сбоку головы: от висков (0) к щекам и челюсти (1). */
+  const side = (y: number): number => smoothstep(0.12, -0.12, y) * (1 - 0.2 * smoothstep(-0.22, -0.3, y));
+  /** Боковое расширение: растёт от средней линии и выходит на насыщение у щёк (без «шишек» у ушей). */
+  const lateral = (ax: number, y: number, z: number): number => {
+    // У глаз и век (внутри |x| < 0.09) выше скул лицо не трогаем.
+    const eyeSafe = smoothstep(0.01, -0.06, y) + (1 - smoothstep(0.01, -0.06, y)) * smoothstep(0.09, 0.13, ax);
+    return 0.042 * Math.tanh(ax / 0.1) * side(y) * eyeSafe * smoothstep(-0.14, 0.04, z) * k;
+  };
   for (let i = 0; i < p.length / 3; i += 1) {
     if (fixed[i]) continue;
     const x = p[i * 3]!;
@@ -98,24 +108,24 @@ function fatten(p: Float32Array, female: boolean, fat: number): void {
       near = smoothstep(0.0, 0.05, d);
     }
     if (ears[i]) {
-      // Уши — целиком наружу, как щёки под ними.
-      p[i * 3] = x + s * fat * 0.032 * k;
+      // Уши — наружу вместе со щекой у их основания (без перекоса мочки).
+      p[i * 3] = x + s * fat * lateral(0.155, Math.min(-0.02, Math.max(-0.08, y)), Math.min(0.02, z));
       continue;
     }
-    const front = smoothstep(-0.16, 0.06, z);
-    // Нижняя половина лица шире — растяжение от средней линии (гладко, без складок у рта),
-    // сильнее всего на уровне щёк и челюсти; глазницы и веки не трогаем.
-    const band = gauss(y, -0.15, 0.13) * smoothstep(0.01, -0.06, y);
-    let dx = x * fat * 0.42 * band * front * k;
-    // Брыли у углов челюсти.
-    dx += s * fat * 0.018 * gauss(y, -0.24, 0.045) * smoothstep(-0.02, 0.14, z) * smoothstep(0.06, 0.13, ax) * k;
+    let dx = s * fat * lateral(ax, y, z);
+    // Мягкие брыли у углов челюсти.
+    dx += s * fat * 0.012 * gauss(y, -0.24, 0.06) * smoothstep(-0.02, 0.14, z) * smoothstep(0.05, 0.13, ax) * k;
     // Круглые щёки выдаются вперёд.
-    let dz = fat * 0.03 * gauss(ax, 0.1, 0.055) * gauss(y, -0.11, 0.07) * smoothstep(0.08, 0.2, z);
+    let dz = fat * 0.026 * gauss(ax, 0.1, 0.06) * gauss(y, -0.12, 0.075) * smoothstep(0.08, 0.2, z);
     let dy = 0;
-    // Второй подбородок: под челюстью вперёд и вниз.
-    const chin = gauss(y, -0.285, 0.04) * smoothstep(0.04, 0.2, z) * gauss(x, 0, 0.11);
-    dz += fat * 0.07 * chin;
-    dy -= fat * 0.022 * chin;
+    // Второй подбородок: плоскость под челюстью провисает вниз, горло — вперёд.
+    const wide = gauss(x, 0, 0.09);
+    const under = gauss(y, chinY, 0.028) * smoothstep(0.07, 0.115, z) * (1 - smoothstep(0.19, 0.228, z)) * wide;
+    dy -= fat * 0.04 * under;
+    dz += fat * 0.01 * under;
+    const throat = gauss(y, chinY - 0.03, 0.025) * smoothstep(0.02, 0.08, z) * wide;
+    dz += fat * 0.03 * throat;
+    dy -= fat * 0.008 * throat;
     // Вся голова чуть полнее и круглее сзади и сверху.
     const round = fat * 0.012 * smoothstep(-0.2, 0.05, y) * (1 - smoothstep(0.06, 0.16, z));
     const r = Math.hypot(x, z) || 1;
