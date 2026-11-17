@@ -645,6 +645,8 @@ const Z = new THREE.Vector3(0, 0, 1);
 const qa = new THREE.Quaternion();
 const qb = new THREE.Quaternion();
 const va = new THREE.Vector3();
+/** Масштаб кости (отдельно от va: va занят пересчётом осей в turn). */
+const vs = new THREE.Vector3();
 
 /**
  * Строит кошку из модели: grow — рост котёнка (0.42…1), young — 0…1 (котёнок).
@@ -708,7 +710,7 @@ export function buildGlbCat(look: CoatLook, lookKey: string, seed: number, grow:
   // Большие уши — чуть увеличиваем голову сверху не трогаем; признак показывается окрасом и силуэтом.
   // Усы: тонкие изогнутые волоски от подушечек морды (в координатах кости головы).
   if (t.whiskers && headBone !== model) {
-    const ws = new THREE.LineSegments(t.whiskers, new THREE.LineBasicMaterial({ color: look.base === '#1d1d21' ? '#9a9a9a' : '#f4f1ea', transparent: true, opacity: 0.85 }));
+    const ws = new THREE.LineSegments(t.whiskers, new THREE.LineBasicMaterial({ color: look.base === '#1d1d21' ? '#9a9a9a' : '#f4f1ea', transparent: true, opacity: 0.3 }));
     headBone.add(ws);
   }
   // Закрытые глаза (моргание, сон): на месте радужек — сомкнутые веки (своя текстура окраса).
@@ -831,7 +833,14 @@ export function buildGlbCat(look: CoatLook, lookKey: string, seed: number, grow:
   };
   const neck = [B(/Neck_01/), B(/Neck_02/), B(/Neck_Top/)];
   const tails = [B(/Tail_01_02/), B(/Tail_01_03/), B(/Tail_01_04/), B(/Tail_01_05/)];
-  const spine = [B(/Spine_02/), B(/Spine_03/)];
+  const spine = [B(/Spine_01/), B(/Spine_02/), B(/Spine_03/), B(/Spine_04/)];
+  // Хвост с инерцией (пружина на каждом звене) и изгиб спины во сне (клубком).
+  const tailX = [0, 0, 0, 0];
+  const tailY = [0, 0, 0, 0];
+  const tailVX = [0, 0, 0, 0];
+  const tailVY = [0, 0, 0, 0];
+  let curl = 0;
+  let lastT = -1;
   /** Поворот кости вокруг осей модели (в покое) на углы ax, ay, az. */
   const turn = (b: THREE.Bone | undefined, ax: number, ay = 0, az = 0, sc?: THREE.Vector3): void => {
     if (!b) return;
@@ -852,7 +861,16 @@ export function buildGlbCat(look: CoatLook, lookKey: string, seed: number, grow:
   };
   const H0 = t.hipH;
   const unit = H0 / 0.175;
-  const apply = (p: CatPoseParams, time: number, mode = 'idle'): void => {
+  let side = 0;
+  let sideT = -1;
+  const apply = (p0: CatPoseParams, time: number, mode = 'idle'): void => {
+    let p = p0;
+    // Сон — на боку, клубком (как спят настоящие кошки); переход на бок и обратно — плавный.
+    const sdt = sideT < 0 || time < sideT ? 1 : Math.min(0.1, time - sideT);
+    sideT = time;
+    const sideWant = mode === 'sleep' ? 1 : 0;
+    side = sdt >= 1 ? sideWant : side + (sideWant - side) * Math.min(1, sdt * 2);
+    if (side > 0.01) p = { ...p, roll: p.roll + 1.35 * side, hipY: p.hipY + (0.062 - p.hipY) * side, pitch: p.pitch * (1 - side) };
     const buzz = p.purr * 0.006 * Math.sin(time * 90);
     body.position.set(0, p.hipY * unit + buzz * 0.3 * unit, p.hipZ * unit);
     // Передние лапы модели короче прежних относительно корпуса: если опорной лапе не достать
@@ -908,18 +926,47 @@ export function buildGlbCat(look: CoatLook, lookKey: string, seed: number, grow:
     // У модели длинная шея: сильный кивок прежней головы (умывание) — мягче, иначе голова уходит в грудь.
     const hx = p.headX > 0.6 ? 0.6 + (p.headX - 0.6) * 0.4 : p.headX;
     // Сильный поворот шеи растягивает кожу у плеч модели — ограничиваем.
-    const hy = Math.max(-0.55, Math.min(0.55, p.headY));
+    // Во сне голова повёрнута внутрь клубка (туда же, куда изгибается спина).
+    const hy = mode === 'sleep' ? -Math.min(0.55, Math.abs(p.headY)) : Math.max(-0.55, Math.min(0.55, p.headY));
     const hz = Math.max(-0.3, Math.min(0.3, p.headZ));
-    neck.forEach((b, i) => turn(b, hx * parts[i]!, hy * parts[i]!, i === 2 ? hz : 0));
+    // Кивок — шеей (у головы модели кожа на затылке рвётся при сильном наклоне в суставе головы).
+    const nod = [0.4, 0.4, 0.2];
+    neck.forEach((b, i) => turn(b, hx * nod[i]!, hy * parts[i]!, i === 2 ? hz : 0));
     // Хвост: 8 звеньев прежней модели → 4 кости.
+    const dt = lastT < 0 || time < lastT ? 1 : Math.min(0.1, time - lastT);
+    lastT = time;
+    const settle = dt >= 1;
+    // Сон — клубком: спина изгибается в сторону, хвост обвивает, голова — к хвосту.
+    const curlWant = mode === 'sleep' ? -0.28 : 0;
+    curl = settle ? curlWant : curl + (curlWant - curl) * Math.min(1, dt * 1.5);
     tails.forEach((b, i) => {
       const a = p.tail[i * 2] ?? [0, 0];
       const c = p.tail[i * 2 + 1] ?? [0, 0];
-      turn(b, a[0] + c[0], a[1] + c[1]);
+      let wx = a[0] + c[0];
+      let wy = a[1] + c[1] + (mode === 'sleep' ? 0.25 : 0);
+      // Кончик хвоста живёт своей жизнью: медленно покачивается (кроме сна).
+      if (i === 3 && mode !== 'sleep') {
+        wx += 0.12 * Math.sin(time * 1.3 + seed);
+        wy += 0.22 * Math.sin(time * 0.9 + seed * 2);
+      }
+      if (settle) {
+        tailX[i] = wx;
+        tailY[i] = wy;
+        tailVX[i] = tailVY[i] = 0;
+      } else {
+        // Звено догоняет цель с запаздыванием и лёгким перехлёстом (к концу — мягче).
+        const k = 70 - i * 12;
+        const d = 9 - i;
+        tailVX[i] = tailVX[i]! + (k * (wx - tailX[i]!) - d * tailVX[i]!) * dt;
+        tailVY[i] = tailVY[i]! + (k * (wy - tailY[i]!) - d * tailVY[i]!) * dt;
+        tailX[i] = tailX[i]! + tailVX[i]! * dt;
+        tailY[i] = tailY[i]! + tailVY[i]! * dt;
+      }
+      turn(b, tailX[i]!, tailY[i]!);
     });
-    // Дыхание — грудь чуть расширяется.
+    // Дыхание — грудь чуть расширяется; изгиб спины распределён по позвонкам.
     const br = 1 + p.breath * 0.012;
-    spine.forEach((b) => turn(b, 0, 0, 0, va.set(br, 1, br)));
+    spine.forEach((b, i) => turn(b, 0, curl, 0, i === 1 || i === 2 ? vs.set(br, 1, br) : vs.set(1, 1, 1)));
     // Веки: сомкнуты при моргании и во сне.
     const closed = p.eye < 0.45;
     const em = eyeMat as THREE.MeshStandardMaterial | null;

@@ -3,7 +3,7 @@ import * as THREE from 'three';
 import type { ExerciseId } from '../../../tracking/exercise';
 import { disposeObject, type CharacterParts } from './buildCharacter';
 import { blobShadow, loadCharacter, type Member } from './people';
-import { animate } from './rig';
+import { animate, breathe } from './rig';
 import { createStudio, enableShadows, setupRenderer } from './studio';
 import { gymBackdrop } from './gymBackdrop';
 
@@ -31,6 +31,8 @@ interface Follower {
 }
 
 const LYING: readonly ExerciseId[] = ['pushup', 'situp'];
+/** Длительность одного повтора у ученика (с). */
+const REP_TIME: Partial<Record<ExerciseId, number>> = { squat: 1.5, jumping_jack: 0.95, lunge: 1.4, pushup: 1.3, situp: 1.3, high_knees: 0.7 };
 
 export default function SessionCrew3D({ clients, exercise, reps }: SessionCrew3DProps) {
   const host = useRef<HTMLDivElement | null>(null);
@@ -117,7 +119,9 @@ export default function SessionCrew3D({ clients, exercise, reps }: SessionCrew3D
       sh.position.set(root.position.x - (lying ? shiftX : 0), 0.01, root.position.z);
       scene.add(root, sh);
       const fat = Math.max(0, c.appearance.body?.weight ?? 0) + (c.appearance.heavy ?? 0) * 0.6;
-      return { parts: null, root, delay: 0.12 + ((i * 37) % 7) * 0.04 + fat * 0.2, dur: 0.9 + fat * 0.6, queue: [] };
+      // Длительность повтора — как у записи движения (приседание медленнее «джампинг-джека»), у полных — дольше.
+      const base = REP_TIME[exercise] ?? 1.1;
+      return { parts: null, root, delay: 0.12 + ((i * 37) % 7) * 0.04 + fat * 0.2, dur: base * (1 + fat * 0.45) * (0.94 + ((i * 13) % 5) * 0.03), queue: [] };
     });
     followers.current = list;
     let chain: Promise<void> = Promise.resolve();
@@ -168,17 +172,25 @@ export default function SessionCrew3D({ clients, exercise, reps }: SessionCrew3D
     fit();
 
     let raf = 0;
+    let prev = 0;
     const tick = (ms: number): void => {
       raf = requestAnimationFrame(tick);
       const t = ms / 1000;
-      for (const f of list) {
-        if (!f.parts) continue;
+      const dt = prev ? Math.min(0.1, t - prev) : 0.016;
+      prev = t;
+      list.forEach((f, i) => {
+        if (!f.parts) return;
         while (f.queue.length > 0 && t - f.queue[0]! > f.dur) f.queue.shift();
         const start = f.queue[0];
-        const phase = start !== undefined && t >= start ? Math.min(1, (t - start) / f.dur) : 0;
-        animate(f.parts.rig, exercise, t, phase);
+        const active = start !== undefined && t >= start;
+        const phase = active ? Math.min(1, (t - start) / f.dur) : 0;
+        // Между повторами стоящие ученики переминаются (запись стойки), лежащие держат исходную позу;
+        // переходы — плавные. Поверх — дыхание и взгляд, у каждого свой ритм.
+        if (!active && !lying) animate(f.parts.rig, 'idle', t + i * 1.7, 0, 1 - Math.exp(-dt * 6));
+        else animate(f.parts.rig, exercise, t, phase, active ? 1 - Math.exp(-dt * 30) : 1 - Math.exp(-dt * 8));
+        breathe(f.parts.rig, t, i * 1.37, active ? 0.35 : 1);
         for (const a of f.parts.anim) a(t);
-      }
+      });
       // Пока ученики собираются, кадры реже: камере и подсчёту повторов нужен процессор.
       if (loading > 0 && ms - lastRender < 250) return;
       lastRender = ms;

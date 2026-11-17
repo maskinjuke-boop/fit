@@ -18,7 +18,7 @@ const DEFAULT_LOOK: HomeLook = { decor: BASIC_DECOR, kit: NEW_KIT };
 import { M, mat, mesh } from './kit';
 import { blobShadow, loadCharacter, lookKey, type Look, type Member } from './people';
 import { prepareFists, showProps, tickProps, type PropKind } from './props3d';
-import { animate, gaitFreq, seatOffsets, type Motion } from './rig';
+import { animate, gaitFreq, seatOffsets, type Motion, breathe } from './rig';
 import { createStudio, setupRenderer } from './studio';
 
 /**
@@ -1211,6 +1211,7 @@ export default function LifeScene3D(props: LifeScene3DProps) {
         }
         if (e.parts) {
           animate(e.parts.rig, set.motion, t + e.seed * 3, set.phase, 1 - Math.exp(-dt * 7));
+          breathe(e.parts.rig, t, e.seed * 2.3, set.motion === 'idle' ? 0.8 : 0.3);
           for (const f of e.parts.anim) f(t + e.seed);
         }
       }

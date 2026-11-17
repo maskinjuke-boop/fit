@@ -227,7 +227,9 @@ pnpm build          # production-сборка в apps/web/dist
   скелет, удаление поступательного движения, зацикливание по постановкам стоп, чистка стоп, упаковка
   кватернионов в int16, 30 к/с) в `src/ui/game/three/mocapClips.ts` (~57 КБ, грузится с 3D-сценой):
   `cd apps/web && npx tsx tools/mocap/build.ts <папка data клона cmu-mocap>` (нужны файлы 002/02_03,
-  007/07_01, 007/07_04, 007/07_12, 139/139_02 конвертации cgspeed/B. Hahne).
+  007/07_01, 007/07_04, 007/07_12, 139/139_02, 022/22_14, 022/22_16 конвертации cgspeed/B. Hahne). Приседания и
+  «джампинг-джек» учеников — записи повторов (22_14, 22_16): один повтор от исходной позы до неё же, без дрейфа.
+  Поверх движений — дыхание, покачивание и взгляд (`breathe` в rig.ts); между повторами стоящие ученики переминаются.
   Motion capture data: CMU Graphics Lab Motion Capture Database (mocap.cs.cmu.edu), created with funding from NSF EIA-0196217.
 - Код: `src/game/life.ts` (логика, в том числе выбор действий сима — `autoAction`), `src/game/lifeContent.ts` (предметы, залы, упражнения, действия,
   события), `src/game/lifeMap.ts` (раскладка сцен), `src/ui/game/three/LifeScene3D.tsx` (3D дом и зал),

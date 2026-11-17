@@ -1428,6 +1428,9 @@ export function animate(rig: Rig, motion: Motion, t: number, phase = 0, blend = 
   } else if (motion === 'idle') {
     const c = clipSet().idle;
     applyClip(rig, sampleClip(c, t / c.duration, poseA));
+  } else if (motion === 'squat' || motion === 'jumping_jack') {
+    // Приседания и «джампинг-джек» — записи захвата движения (один повтор, фаза 0 — исходная поза).
+    applyClip(rig, sampleClip(clipSet()[motion === 'squat' ? 'squat' : 'jack'], phase, poseA));
   } else {
     const p = poseFor(motion, t, phase);
     for (const b of BONES) {
@@ -1478,6 +1481,28 @@ export function animate(rig: Rig, motion: Motion, t: number, phase = 0, blend = 
   if (rig.armOut) spreadArms(rig, rig.armOut);
   const busy = motion !== 'idle' && motion !== 'walk';
   for (const h of rig.held) h.visible = !busy;
+}
+
+const qBr = new THREE.Quaternion();
+const eBr = new THREE.Euler();
+const addRot = (bone: THREE.Object3D, x: number, y: number, z: number): void => {
+  bone.quaternion.multiply(qBr.setFromEuler(eBr.set(x, y, z)));
+};
+
+/**
+ * «Жизнь» поверх позы (вызывать после animate): дыхание грудью и плечами, лёгкое покачивание
+ * корпуса и взгляд по сторонам. seed — у каждого свой ритм; k — сила (0 … 1).
+ */
+export function breathe(rig: Rig, t: number, seed = 0, k = 1): void {
+  const rate = 1.7 + 0.25 * Math.sin(seed * 3.1);
+  const b = Math.sin(t * rate + seed);
+  const sway = Math.sin(t * 0.43 + seed * 1.7);
+  addRot(rig.bones.spine, 0.012 * b * k, 0.02 * sway * k, 0.012 * sway * k);
+  addRot(rig.bones.chest, -0.022 * b * k, 0, 0);
+  addRot(rig.bones.l_clav, 0, 0, 0.018 * b * k);
+  addRot(rig.bones.r_clav, 0, 0, -0.018 * b * k);
+  // Взгляд: медленно переводит голову и иногда чуть кивает.
+  addRot(rig.bones.neck, 0.04 * Math.sin(t * 0.61 + seed * 2.3) * k, 0.16 * Math.sin(t * 0.29 + seed) * k, 0.03 * sway * k);
 }
 
 const ZAX = new THREE.Vector3(0, 0, 1);

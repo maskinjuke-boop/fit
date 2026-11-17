@@ -25,12 +25,15 @@ import { averageQuat, bvhLeg, makeRetarget, ourWorld, targetLeg, toLocal, worldF
 interface Spec {
   name: string;
   file: string;
-  kind: 'gait' | 'idle';
+  /** gait — ходьба/бег, idle — стойка, rep — один повтор упражнения от исходной позы до неё же. */
+  kind: 'gait' | 'idle' | 'rep';
   /** Стойка: где искать отрезок (с) и его длительность (с). */
   search?: [number, number];
   length?: [number, number];
   /** Ходьба и бег: отведение рук в стороны (рад), по умолчанию ARM_OUT. */
   armOut?: number;
+  /** Повтор: длительность сглаживания шва (с). */
+  fade?: number;
   note: string;
 }
 
@@ -41,6 +44,9 @@ export const SPECS: Spec[] = [
   // У актёра на бегу кисти заходят к середине груди (левая — почти к правому плечу): руки — шире.
   { name: 'jog', file: '002/02_03.bvh', kind: 'gait', armOut: 0.24, note: '02_03 run/jog' },
   { name: 'idle', file: '139/139_02.bvh', kind: 'idle', search: [0.3, 7.7], length: [4, 7], note: '139_02 shifting weight' },
+  // Упражнения: один повтор из середины записи (начало и конец — в исходной позе).
+  { name: 'squat', file: '022/22_14.bvh', kind: 'rep', search: [0.85, 1.15], length: [1.55, 1.85], fade: 0.12, note: '22_14 squats' },
+  { name: 'jack', file: '022/22_16.bvh', kind: 'rep', search: [0.9, 1.1], length: [0.9, 1.1], fade: 0.08, note: '22_16 jumping jacks' },
 ];
 
 const FPS = 30;
@@ -400,7 +406,7 @@ function gait(bvh: Bvh, target: Target, armOut?: number): Built {
   return { frames, stride: stride.length() * S, events, info: `cycle ${s0}-${s1} (${T.toFixed(2)} s), ${v.toFixed(2)} m/s, stride ${stride.length().toFixed(2)} m, S ${S.toFixed(3)}` };
 }
 
-function idle(bvh: Bvh, target: Target, search: [number, number], length: [number, number]): Built {
+function idle(bvh: Bvh, target: Target, search: [number, number], length: [number, number], fade = 0.6, drift = false): Built {
   const W = worldFrames(bvh);
   const f0 = W[0]!;
   const J: Joints = {
@@ -453,8 +459,16 @@ function idle(bvh: Bvh, target: Target, search: [number, number], length: [numbe
   const N = Math.round((s1 - s0) * bvh.dt * FPS);
   const raw: ClipFrame[] = [];
   const at = (k: number): number => s0 + ((s1 - s0) * k) / N;
-  for (let k = 0; k < N; k += 1) raw.push(local(rt, target, makeFrame(rt, target, frameAt(W, at(k)), J, yaw, origin, S, floor)));
-  const frames = finish(crossfadeLoop(raw, Math.round(FPS * 0.6)), rt, target, [sampleFlags(cl, at, N), sampleFlags(cr, at, N)], 0);
+  // Повтор: актёр за повтор немного смещается — точка отсчёта едет от начала к концу (без проскальзывания).
+  const mid = (i: number): THREE.Vector3 => horiz(W[i]!.pos[J.lf]!.clone().add(W[i]!.pos[J.rf]!).multiplyScalar(0.5));
+  const o0 = mid(s0);
+  const o1 = mid(s1);
+  const og = new THREE.Vector3();
+  for (let k = 0; k < N; k += 1) {
+    const o = drift ? og.lerpVectors(o0, o1, k / N) : origin;
+    raw.push(local(rt, target, makeFrame(rt, target, frameAt(W, at(k)), J, yaw, o, S, floor)));
+  }
+  const frames = finish(crossfadeLoop(raw, Math.max(2, Math.round(FPS * fade))), rt, target, [sampleFlags(cl, at, N), sampleFlags(cr, at, N)], 0);
   return { frames, stride: 0, info: `segment ${(s0 * bvh.dt).toFixed(2)}-${(s1 * bvh.dt).toFixed(2)} s, d ${best[2].toFixed(3)}, S ${S.toFixed(3)}` };
 }
 
@@ -480,7 +494,12 @@ export function levelHead(frames: ClipFrame[], want: number): number {
 
 export function buildClip(spec: Spec, text: string, target: Target): Built {
   const bvh = parseBvh(text);
-  const built = spec.kind === 'gait' ? gait(bvh, target, spec.armOut) : idle(bvh, target, spec.search ?? [0, 10], spec.length ?? [3, 6]);
+  const built =
+    spec.kind === 'gait'
+      ? gait(bvh, target, spec.armOut)
+      : spec.kind === 'rep'
+        ? idle(bvh, target, spec.search ?? [0, 10], spec.length ?? [1, 2], spec.fade ?? 0.1, true)
+        : idle(bvh, target, spec.search ?? [0, 10], spec.length ?? [3, 6]);
   const was = levelHead(built.frames, 0.06);
   built.info += `, взгляд был ${((was * 180) / Math.PI).toFixed(0)}°`;
   if (spec.kind === 'idle') built.info += `, таз выше на ${(straightenLegs(built.frames, target) * 100).toFixed(1)} см`;

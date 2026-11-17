@@ -142,11 +142,16 @@ describe('клипы: упаковка, выборка, цикл', () => {
     expect(kj).toEqual([0, 0.5, 1]);
   });
 
-  it('клипы игры: порядок костей скелета, циклы ходьбы с длиной шага и событиями', () => {
+  it('клипы игры: порядок костей скелета, циклы ходьбы с длиной шага и событиями, повторы упражнений', () => {
     for (const [name, c] of Object.entries(CLIPS)) {
       const clip = decodeClip(c, BONES.length);
       expect(clip.frames).toBeGreaterThan(10);
-      if (name !== 'idle') {
+      if (name === 'squat' || name === 'jack') {
+        // Повтор упражнения — на месте; начало и конец совпадают (исходная поза).
+        expect(clip.stride).toBe(0);
+        expect(clip.duration).toBeGreaterThan(0.7);
+        expect(clip.duration).toBeLessThan(2.2);
+      } else if (name !== 'idle') {
         expect(clip.stride).toBeGreaterThan(1);
         expect(clip.events).toBeTruthy();
       }
