@@ -1,8 +1,8 @@
 """Извлекает голову и тело из базовой модели MakeHuman (CC0) для игры.
 Обе части берутся из одной и той же модели, поэтому стыкуются по шее без шва.
 Тело ставится в игровую позу (руки опущены) по скелету MakeHuman (веса — тоже CC0).
-Ещё пишет fatData.ts и (если задан BROWS_SRC — папка base/eyebrows ассетов MakeHuman) browData.ts;
-fatData.ts — сдвиги вершин тела к полной фигуре (MakeHuman maxweight).
+Ещё пишет fatData.ts, (если задан BROWS_SRC — папка base/eyebrows ассетов MakeHuman) browData.ts с бровями и ресницами
+и (если заданы POSEUNITS и EXPRESSIONS) faceData.ts — мимику; fatData.ts — сдвиги тела к полной фигуре (MakeHuman maxweight).
 Запуск: MH_DATA=<makehuman/data> python3 extract-mh.py <dir with headData.ts/bodyData.ts>"""
 import numpy as np, base64, json, sys, collections, os
 D = os.environ.get('MH_DATA', '/home/claude/makehumancommunity/makehuman/makehuman/data')
@@ -308,8 +308,9 @@ print('sizes',os.path.getsize(f'{OUT}/headData.ts'),os.path.getsize(f'{OUT}/body
 BROWS_SRC = os.environ.get('BROWS_SRC')   # папка makehuman assets base/eyebrows
 if BROWS_SRC:
     brows = {}
-    for name in ('eyebrow001', 'eyebrow006', 'eyebrow010', 'eyebrow011'):
-        d = f'{BROWS_SRC}/{name}'
+    LASH_SRC = os.path.join(os.path.dirname(BROWS_SRC), 'eyelashes')
+    for name in ('eyebrow001', 'eyebrow006', 'eyebrow010', 'eyebrow011', 'eyelashes01', 'eyelashes02'):
+        d = f'{LASH_SRC if name.startswith("eyelashes") else BROWS_SRC}/{name}'
         ov = []; ovt = []; ofc = []
         for line in open(f'{d}/{name}.obj'):
             if line.startswith('v '): ov.append([float(x) for x in line.split()[1:4]])
@@ -352,6 +353,108 @@ if BROWS_SRC:
         print('brows', name, 'verts', len(vi), 'tris', len(nt))
     with open(f'{OUT}/browData.ts', 'w') as fo:
         fo.write(HDR.replace('базовой модели MakeHuman', 'системных бровей MakeHuman') + 'export const BROW_DATA = ' + json.dumps(brows, separators=(',', ':')) + ' as const;\n')
+
+
+# ── Мимика ── (выражения лица MakeHuman, CC0: смесь «единиц позы» лицевых костей → сдвиги вершин головы)
+PU_DIR = os.environ.get('POSEUNITS')   # makehuman/data/poseunits
+EXPR_DIR = os.environ.get('EXPRESSIONS')   # assets base/expressions
+if PU_DIR and EXPR_DIR:
+    def parse_bvh(path):
+        names = []; parent = []; chans = []; stack = []; lines = open(path).read().split('\n'); i = 0; frames = []
+        while i < len(lines):
+            t = lines[i].split()
+            if not t: i += 1; continue
+            if t[0] in ('ROOT', 'JOINT'):
+                names.append(t[1]); parent.append(stack[-1] if stack else -1); chans.append([])
+            elif t[0] == 'End':
+                names.append(None); parent.append(stack[-1]); chans.append([])
+            elif t[0] == '{': stack.append(len(names) - 1)
+            elif t[0] == '}': stack.pop()
+            elif t[0] == 'CHANNELS': chans[-1] = t[2:]
+            elif t[0] == 'MOTION':
+                i += 3
+                while i < len(lines) and lines[i].strip():
+                    frames.append([float(x) for x in lines[i].split()]); i += 1
+                break
+            i += 1
+        return names, parent, chans, np.array(frames)
+    def axis_rot(ax, deg):
+        a = np.radians(deg); c, s = np.cos(a), np.sin(a)
+        if ax == 'X': return np.array([[1, 0, 0], [0, c, -s], [0, s, c]])
+        if ax == 'Y': return np.array([[c, 0, s], [0, 1, 0], [-s, 0, c]])
+        return np.array([[c, -s, 0], [s, c, 0], [0, 0, 1]])
+    pnames, ppar, pch, pfr = parse_bvh(f'{PU_DIR}/face-poseunits.bvh')
+    fmap = json.load(open(f'{PU_DIR}/face-poseunits.json'))['framemapping']
+    # Локальные повороты каждого сустава в каждом кадре.
+    # Файл единиц позы — в системе «Z вверх» (как его читает MakeHuman: смещения спины идут по Z):
+    # поворот вокруг Y файла — это поворот вокруг Z модели с обратным знаком, вокруг Z файла — вокруг Y.
+    def unit_rots(frame):
+        out = {}; c = 0
+        for j, nm in enumerate(pnames):
+            ang = {}
+            for ch in pch[j]:
+                ang[ch] = frame[c]; c += 1
+            R = axis_rot('X', ang.get('Xrotation', 0)) @ axis_rot('Z', -ang.get('Yrotation', 0)) @ axis_rot('Y', ang.get('Zrotation', 0))
+            if nm: out[nm] = R
+        return out
+    UNITS = {fmap[k]: unit_rots(pfr[k]) for k in range(len(fmap))}
+    def rot_to_quat(R):
+        w = np.sqrt(max(0, 1 + R[0, 0] + R[1, 1] + R[2, 2])) / 2
+        x = np.copysign(np.sqrt(max(0, 1 + R[0, 0] - R[1, 1] - R[2, 2])) / 2, R[2, 1] - R[1, 2])
+        y = np.copysign(np.sqrt(max(0, 1 - R[0, 0] + R[1, 1] - R[2, 2])) / 2, R[0, 2] - R[2, 0])
+        z = np.copysign(np.sqrt(max(0, 1 - R[0, 0] - R[1, 1] + R[2, 2])) / 2, R[1, 0] - R[0, 1])
+        return np.array([w, x, y, z])
+    def quat_pow(q, t):
+        q = q / np.linalg.norm(q)
+        if q[0] < 0: q = -q
+        ang = 2 * np.arccos(min(1, q[0])); s = np.sqrt(max(1e-12, 1 - q[0] ** 2))
+        if ang < 1e-9: return np.array([1, 0, 0, 0.])
+        ax = q[1:] / s; a = ang * t
+        return np.concatenate([[np.cos(a / 2)], ax * np.sin(a / 2)])
+    def qmul(a, b):
+        w1, x1, y1, z1 = a; w2, x2, y2, z2 = b
+        return np.array([w1*w2 - x1*x2 - y1*y2 - z1*z2, w1*x2 + x1*w2 + y1*z2 - z1*y2, w1*y2 - x1*z2 + y1*w2 + z1*x2, w1*z2 + x1*y2 - y1*x2 + z1*w2])
+    def quat_to_rot(q):
+        w, x, y, z = q
+        return np.array([[1 - 2*(y*y + z*z), 2*(x*y - z*w), 2*(x*z + y*w)], [2*(x*y + z*w), 1 - 2*(x*x + z*z), 2*(y*z - x*w)], [2*(x*z - y*w), 2*(y*z + x*w), 1 - 2*(x*x + y*y)]])
+    EXPRS = {'smile': 'smile02', 'effort': 'effort01', 'strain': 'effort03', 'sleep': 'sleep01', 'tired': 'boring01', 'focus': 'determination01'}
+    face = {}
+    for key, fname in EXPRS.items():
+        units = json.load(open(f'{EXPR_DIR}/{fname}.mhpose'))['unit_poses']
+        local = {}
+        for nm in pnames:
+            if not nm: continue
+            q = np.array([1, 0, 0, 0.])
+            for u, w in units.items():
+                if u in UNITS and nm in UNITS[u]: q = qmul(quat_pow(rot_to_quat(UNITS[u][nm]), w), q)
+            local[nm] = quat_to_rot(q)
+        face[key] = {}
+        for g in ('female', 'male'):
+            v = V[g]; J = joints(v)
+            head = {}; glob = {}; pos = {}
+            for j, nm in enumerate(pnames):
+                if not nm or nm not in SK['bones']: continue
+                p = ppar[j]; pn = pnames[p] if p >= 0 else None
+                Jb = J[SK['bones'][nm]['head']]
+                Rp = glob.get(pn, np.eye(3)); Pp = pos.get(pn); Jp = J[SK['bones'][pn]['head']] if pn in SK['bones'] else Jb
+                glob[nm] = Rp @ local[nm]
+                pos[nm] = Jb if Pp is None else Pp + Rp @ (Jb - Jp)
+            acc = np.zeros((len(V0), 3)); ws = np.zeros(len(V0))
+            hset = np.zeros(len(V0), bool); hset[hUsed] = True
+            for nm in glob:
+                for i, w in WT.get(nm, []):
+                    if not hset[i]: continue
+                    acc[i] += w * (pos[nm] + glob[nm] @ (v[i] - J[SK['bones'][nm]['head']])); ws[i] += w
+            vp = v.copy(); m = ws > 0
+            vp[m] = acc[m] + v[m] * (1 - ws[m])[:, None]
+            Dh = (headTf(g, vp[hUsed]) - headTf(g, v[hUsed]))
+            moved = np.nonzero(np.abs(Dh).max(1) > 2e-5)[0]
+            sc = float(np.abs(Dh).max()) or 1e-6
+            face[key][g] = {'idx': b64(moved.astype('<u2')), 'd': b64(np.clip(np.round(Dh[moved] / sc * 127), -127, 127).astype('i1')), 'sc': round(sc, 6)}
+            print('expr', key, g, 'moved', len(moved), 'max', round(sc, 4))
+    with open(f'{OUT}/faceData.ts', 'w') as fo:
+        fo.write(HDR.replace('базовой модели MakeHuman', 'выражений лица MakeHuman') + 'export const FACE_DATA = ' + json.dumps(face, separators=(',', ':')) + ' as const;\n')
+    print('face size', os.path.getsize(f'{OUT}/faceData.ts'))
 
 # ── Полная фигура: та же модель MakeHuman с максимальным весом (macrodetails maxweight) ──
 def fatV(g):

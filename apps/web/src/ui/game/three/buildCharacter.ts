@@ -12,6 +12,7 @@ import { ICON_TILT, defaultPlan, heldModel, holdPose, holdQuaternion, type ItemC
 import { M, mesh, retile, shade, texKind, v, type Anim, type Mat } from './kit';
 import { buildRig, prepareSkin, type Rig } from './rig';
 import { applySkinTexture } from './skinTex';
+import type { FaceCtl } from './face';
 
 export { disposeObject } from './kit';
 
@@ -31,6 +32,8 @@ export interface CharacterParts {
   anim: Anim[];
   /** Скелет: ходьба и упражнения (см. rig.ts). */
   rig: Rig;
+  /** Мимика. */
+  face: FaceCtl;
 }
 
 // ─── Кисти ─────────────────────────────────────────────────────────────
@@ -226,7 +229,7 @@ export function buildCharacter(appearance: Appearance, color: string, equipped: 
     rig.bulk = heavy;
   }
 
-  return { root, torso, head: headPivot, lids: face.lids, anim, rig };
+  return { root, torso, head: headPivot, lids: face.lids, anim, rig, face: face.face };
 }
 
 /** Отдельная модель предмета для иконки магазина (без персонажа). */

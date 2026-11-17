@@ -163,6 +163,17 @@ export function loadSkinTextures(): Promise<void> {
   const loader = new THREE.TextureLoader();
   loading = Promise.all([
     loadBrowTextures(),
+    ...EYE_NAMES.map((name) =>
+      loader
+        .loadAsync(`${base}eyes/${name}.png`)
+        .then((t) => {
+          t.colorSpace = THREE.SRGBColorSpace;
+          t.anisotropy = 4;
+          t.userData.shared = true;
+          eyeTextures.set(name, t);
+        })
+        .catch(() => undefined),
+    ),
     ...(['light', 'dark'] as const).flatMap((tone) =>
       (['female', 'male'] as const).map((fig) =>
         loader
@@ -205,4 +216,17 @@ export function applySkinTexture(mat: THREE.MeshStandardMaterial, figure: Figure
   mat.bumpScale = 0.35;
   mat.needsUpdate = true;
   return true;
+}
+
+// ─── Глаза ─────────────────────────────────────────────────────────────
+
+/** Текстуры глаз MakeHuman (CC0) по цветам палитры (palette.ts EYE_COLORS, в том же порядке). */
+const EYE_NAMES = ['brown', 'blue', 'green', 'grey', 'hazel', 'dark'] as const;
+const EYE_HEX = ['#6b4228', '#4f86c6', '#4f8a4a', '#8a97a5', '#a07a34', '#2e1d14'];
+const eyeTextures = new Map<string, THREE.Texture>();
+
+/** Текстура глаза для цвета палитры (null — не загружена или цвет не из палитры). */
+export function eyeTexture(color: string): THREE.Texture | null {
+  const i = EYE_HEX.indexOf(color.toLowerCase());
+  return i < 0 ? null : (eyeTextures.get(EYE_NAMES[i]!) ?? null);
 }

@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { FACE_PARTS, type FacePart } from '../../../game/state';
 import { BROW_DATA } from './browData';
 import { headPositions } from './headMesh';
+import { EXPRESSIONS, expressionBase } from './face';
 
 /**
  * Брови — системные брови MakeHuman (CC0): карточки с текстурой волосков, привязанные к той же
@@ -84,6 +85,20 @@ export function browMesh(name: BrowName, female: boolean, face: Record<FacePart,
   geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
   geo.setIndex(new THREE.BufferAttribute(tris, 1));
   geo.computeVertexNormals();
+  // Мимика: брови идут за кожей лба (сдвиг ближайшей вершины головы).
+  const nHead = base.length / 3;
+  geo.morphAttributes.position = EXPRESSIONS.map((e) => {
+    const d = expressionBase(e, female, nHead);
+    const out = new Float32Array(n * 3);
+    for (let i = 0; i < n; i += 1) {
+      const j = near[i]!;
+      out[i * 3] = d[j * 3]!;
+      out[i * 3 + 1] = d[j * 3 + 1]!;
+      out[i * 3 + 2] = d[j * 3 + 2]!;
+    }
+    return new THREE.BufferAttribute(out, 3);
+  });
+  geo.morphTargetsRelative = true;
   const mat = new THREE.MeshStandardMaterial({
     map: tex,
     color: new THREE.Color(color).multiplyScalar(0.75),

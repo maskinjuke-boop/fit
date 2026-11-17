@@ -6,7 +6,8 @@ import { mergeGeometries } from './sdf';
 import { applyRingNormals, eyeAnchor, eyeScale, headRing, headPositions, headTris, lipWeights, loopSubdivide, mouthAnchor, rayRadiusTable } from './headMesh';
 import { strands } from './strands';
 import { browFor, browMesh } from './brows';
-import { applySkinTexture, baseCornerUv, skinTexturesReady, splitByUv, subdivCornerUv } from './skinTex';
+import { addExpressionMorphs, faceController, type FaceCtl } from './face';
+import { applySkinTexture, baseCornerUv, eyeTexture, skinTexturesReady, splitByUv, subdivCornerUv } from './skinTex';
 
 /**
  * Голова — готовая модель MakeHuman (CC0, см. headMesh): форма черепа, лицо, нос, губы и уши.
@@ -23,6 +24,8 @@ export interface Lid {
 export interface HeadParts {
   group: THREE.Group;
   lids: Lid[];
+  /** Мимика (выражения лица MakeHuman). */
+  face: FaceCtl;
 }
 
 const smooth = (e0: number, e1: number, x: number): number => {
@@ -239,6 +242,18 @@ function lashes(margin: THREE.Vector3[], c: THREE.Vector3, female: boolean, sx: 
 
 function eye(iris: THREE.ColorRepresentation, skin: THREE.Material, lids: Lid[], er: number): THREE.Group {
   const g = new THREE.Group();
+  // Глаз MakeHuman (CC0): белок с сосудами и радужка — одна текстура в проекции спереди.
+  const real = eyeTexture(String(iris));
+  if (real) {
+    const geo = new THREE.SphereGeometry(er, 40, 28);
+    const p = geo.getAttribute('position');
+    const uv = geo.getAttribute('uv');
+    for (let i = 0; i < p.count; i += 1) uv.setXY(i, 0.5 + (0.5 * p.getX(i)) / er, 0.5 + (0.5 * p.getY(i)) / er);
+    g.add(new THREE.Mesh(geo, new THREE.MeshPhysicalMaterial({ map: real, roughness: 0.22, clearcoat: 1, clearcoatRoughness: 0.03, envMapIntensity: 1.1 })));
+    g.add(mesh(new THREE.SphereGeometry(er * 0.1, 8, 6), new THREE.MeshBasicMaterial({ color: '#ffffff' }), [er * 0.3, er * 0.32, er * 0.94]));
+    addLid(g, skin, lids, er);
+    return g;
+  }
   g.add(new THREE.Mesh(new THREE.SphereGeometry(er, 32, 24), mat('#f2ede6', 0.18)));
   const irisGeo = new THREE.SphereGeometry(er * 1.004, 40, 12, 0, Math.PI * 2, 0, 0.56);
   irisGeo.rotateX(Math.PI / 2);
@@ -250,8 +265,12 @@ function eye(iris: THREE.ColorRepresentation, skin: THREE.Material, lids: Lid[],
   if (!t) g.add(mesh(new THREE.SphereGeometry(er * 0.3, 12, 8), mat('#0c0907', 0.2), [0, 0, er * 0.93], [1, 1, 0.3]));
   g.add(mesh(new THREE.SphereGeometry(er * 0.11, 8, 6), new THREE.MeshBasicMaterial({ color: '#ffffff' }), [er * 0.3, er * 0.32, er * 0.94]));
 
-  // Верхнее веко для моргания: полусфера по глазу, открытая — прячется под веко модели,
-  // её край совпадает с краем века.
+  addLid(g, skin, lids, er);
+  return g;
+}
+
+/** Верхнее веко для моргания: полусфера по глазу, открытая — прячется под веко модели, её край совпадает с краем века. */
+function addLid(g: THREE.Group, skin: THREE.Material, lids: Lid[], er: number): void {
   const R = er * LID_R;
   const upper = new THREE.Group();
   upper.add(new THREE.Mesh(new THREE.SphereGeometry(R, 32, 12, 0, Math.PI * 2, 0, Math.PI / 2), skin));
@@ -259,7 +278,6 @@ function eye(iris: THREE.ColorRepresentation, skin: THREE.Material, lids: Lid[],
   upper.rotation.x = open;
   g.add(upper);
   lids.push({ obj: upper, open, closed: 0.5 });
-  return g;
 }
 
 /** Направление от центра головы: th — от макушки, phi — от лица (+Z) вокруг вертикали. */
@@ -342,17 +360,26 @@ export function buildHead(figure: Figure, skinBase: string, _skinShade: string, 
   headMat.vertexColors = true;
   applySkinTexture(headMat, figure, skinBase);
   const skull = skullGeometry(female, female ? 1 : 0.35);
-  group.add(mesh(skull, headMat, [0, HEAD_Y, 0]));
+  const nHead = headPositions(female, F, FAT).length / 3;
+  addExpressionMorphs(skull, female, nHead);
+  const skullMesh = mesh(skull, headMat, [0, HEAD_Y, 0]);
+  group.add(skullMesh);
 
   // Глаза — на месте глазных яблок модели; веки модели ложатся поверх.
   const anchor = eyeAnchor(female);
   const margin = lidMargin(skull.getAttribute('position').array, anchor.c, anchor.r * eyeScale(F.eyes));
   const lashM = mat('#160f0d', 0.55);
+  // Ресницы: готовые ресницы MakeHuman (карточки), без текстуры — трубки по краю века.
+  const mhLash = browMesh(female ? 'eyelashes02' : 'eyelashes01', female, F, FAT, '#2a1d18');
+  if (mhLash) {
+    mhLash.position.y = HEAD_Y;
+    group.add(mhLash);
+  }
   for (const sx of [-1, 1]) {
     const e = eye(eyeColor, lidSkin, lids, anchor.r * eyeScale(F.eyes));
     e.position.set(anchor.c.x * sx, anchor.c.y + HEAD_Y, anchor.c.z);
     group.add(e);
-    const lg = lashes(margin, anchor.c, female, sx);
+    const lg = mhLash ? null : lashes(margin, anchor.c, female, sx);
     if (lg) group.add(mesh(lg, lashM, [0, HEAD_Y, 0]));
   }
 
@@ -391,5 +418,5 @@ export function buildHead(figure: Figure, skinBase: string, _skinShade: string, 
     const stache = [-0.055, -0.028, 0, 0.028, 0.055].map((x) => at(x, my + 0.024 - Math.abs(x) * 0.3, 0.008, false));
     group.add(new THREE.Mesh(taperTube(new THREE.CatmullRomCurve3(stache), 0.011, 0.011, 20, 8), bm));
   }
-  return { group, lids };
+  return { group, lids, face: faceController([skullMesh, mhBrow, mhLash].filter((m): m is THREE.Mesh => !!m)) };
 }

@@ -362,3 +362,20 @@ describe('Причёски MakeHuman', () => {
     }
   });
 });
+
+describe('Мимика MakeHuman', () => {
+  it('выражения сдвигают лицо, а не шею; повтор усиливает напряжение к середине', async () => {
+    const { EXPRESSIONS, expressionBase, expressionFor } = await import('../src/ui/game/three/face');
+    const n = headPositions(true, Object.fromEntries(FACE_PARTS.map((k) => [k, 0])) as never, 0).length / 3;
+    for (const e of EXPRESSIONS) {
+      const d = expressionBase(e, true, n);
+      let max = 0;
+      for (let i = 0; i < d.length; i += 1) max = Math.max(max, Math.abs(d[i]!));
+      expect(max).toBeGreaterThan(0.001);
+      expect(max).toBeLessThan(0.05);
+    }
+    expect(expressionFor('sleep')).toEqual(['sleep', 1]);
+    expect(expressionFor('squat', 0.5)[1]).toBeGreaterThan(expressionFor('squat', 0.05)[1]);
+    expect(expressionFor('idle')[0]).toBe(null);
+  });
+});

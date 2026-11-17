@@ -6,6 +6,7 @@ import { blobShadow, loadCharacter, type Member } from './people';
 import { animate, breathe } from './rig';
 import { createStudio, enableShadows, setupRenderer } from './studio';
 import { gymBackdrop } from './gymBackdrop';
+import { expressionFor } from './face';
 
 /**
  * Ученики на занятии: полоса с 3D-фигурами поверх камеры. Каждый засчитанный повтор
@@ -189,6 +190,10 @@ export default function SessionCrew3D({ clients, exercise, reps }: SessionCrew3D
         if (!active && !lying) animate(f.parts.rig, 'idle', t + i * 1.7, 0, 1 - Math.exp(-dt * 6));
         else animate(f.parts.rig, exercise, t, phase, active ? 1 - Math.exp(-dt * 30) : 1 - Math.exp(-dt * 8));
         breathe(f.parts.rig, t, i * 1.37, active ? 0.35 : 1);
+        // Лицо: напряжение на повторе (сильнее в середине), между повторами — спокойное.
+        const [ex, w] = active ? expressionFor(exercise, phase) : [null, 0];
+        f.parts.face.want(ex, w);
+        f.parts.face.update(dt);
         for (const a of f.parts.anim) a(t);
       });
       // Пока ученики собираются, кадры реже: камере и подсчёту повторов нужен процессор.

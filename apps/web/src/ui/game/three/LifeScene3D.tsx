@@ -19,6 +19,7 @@ import { M, mat, mesh } from './kit';
 import { blobShadow, loadCharacter, lookKey, type Look, type Member } from './people';
 import { prepareFists, showProps, tickProps, type PropKind } from './props3d';
 import { animate, gaitFreq, seatOffsets, type Motion, breathe } from './rig';
+import { expressionFor } from './face';
 import { createStudio, setupRenderer } from './studio';
 
 /**
@@ -1185,6 +1186,10 @@ export default function LifeScene3D(props: LifeScene3DProps) {
           walkBlend = 0;
         }
         tickProps(hero.rig, dt, t);
+        // Мимика героя: сон, упражнение, развлечения (см. expressionFor).
+        const [hx, hw] = expressionFor(posed ? act!.motion : null, (t * 0.5) % 1);
+        hero.face.want(hx, hw);
+        hero.face.update(dt);
         for (const f of hero.anim) f(t);
       }
       const nightNow = isNight(p.minute);
@@ -1212,6 +1217,9 @@ export default function LifeScene3D(props: LifeScene3DProps) {
         if (e.parts) {
           animate(e.parts.rig, set.motion, t + e.seed * 3, set.phase, 1 - Math.exp(-dt * 7));
           breathe(e.parts.rig, t, e.seed * 2.3, set.motion === 'idle' ? 0.8 : 0.3);
+          const [ex, ew] = expressionFor(set.motion, set.phase);
+          e.parts.face.want(ex, ew);
+          e.parts.face.update(dt);
           for (const f of e.parts.anim) f(t + e.seed);
         }
       }

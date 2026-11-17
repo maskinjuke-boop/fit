@@ -1,2 +1,2 @@
-Eyebrows eyebrow001/006/010/011 — MakeHuman system assets (makehumancommunity.org), CC0 1.0.
-Textures converted to greyscale strands + alpha (colour comes from the hair colour), 256×256.
+Eyebrows eyebrow001/006/010/011 and eyelashes eyelashes01/02 — MakeHuman system assets (makehumancommunity.org), CC0 1.0.
+Textures converted to greyscale strands + alpha (colour comes from the material), 256×256.
