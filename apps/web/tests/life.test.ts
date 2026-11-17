@@ -970,16 +970,16 @@ describe('деньги только с занятий, жильё и удобс�
     const first = makeClient(1, 1, 1);
     expect(clientHeavy(first)).toBe(1);
     expect(clientAppearance(first).heavy).toBe(1);
-    // Корпус — в разы шире: точка бока на талии уходит вдвое дальше от оси, живот — вперёд.
+    // Корпус — по полной модели MakeHuman: бок на талии в 1,6+ раза дальше от оси, живот — вперёд.
     for (const figure of ['female', 'male'] as const) {
       const L = landmarks(figure);
       const morph = bodyMorph(bodyShape(figure), clientAppearance(first))!;
       const side = new THREE.Vector3(L.waistW * 0.9, L.waist - 0.05, -0.04);
       morph(side);
-      expect(side.x).toBeGreaterThan(L.waistW * 0.9 * 2.2);
+      expect(side.x).toBeGreaterThan(L.waistW * 0.9 * 1.6);
       const belly = new THREE.Vector3(0, L.waist - 0.08, 0.1);
       morph(belly);
-      expect(belly.z).toBeGreaterThan(0.3);
+      expect(belly.z).toBeGreaterThan(0.22);
       // Ползунок «вес» на максимуме даёт намного меньше.
       const mild = new THREE.Vector3(L.waistW * 0.9, L.waist - 0.05, -0.04);
       bodyMorph(bodyShape(figure), { body: { weight: 1 } })!(mild);

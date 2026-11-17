@@ -1,8 +1,8 @@
 """Извлекает голову и тело из базовой модели MakeHuman (CC0) для игры.
 Обе части берутся из одной и той же модели, поэтому стыкуются по шее без шва.
 Тело ставится в игровую позу (руки опущены) по скелету MakeHuman (веса — тоже CC0).
-Ещё пишет (если задан BROWS_SRC — папка base/eyebrows ассетов MakeHuman) browData.ts с бровями и ресницами
-и (если заданы POSEUNITS и EXPRESSIONS) faceData.ts — мимику.
+Ещё пишет fatData.ts, (если задан BROWS_SRC — папка base/eyebrows ассетов MakeHuman) browData.ts с бровями и ресницами
+и (если заданы POSEUNITS и EXPRESSIONS) faceData.ts — мимику; fatData.ts — сдвиги тела к полной фигуре (MakeHuman maxweight).
 Запуск: MH_DATA=<makehuman/data> python3 extract-mh.py <dir with headData.ts/bodyData.ts>"""
 import numpy as np, base64, json, sys, collections, os
 D = os.environ.get('MH_DATA', '/home/claude/makehumancommunity/makehuman/makehuman/data')
@@ -455,6 +455,30 @@ if PU_DIR and EXPR_DIR:
     with open(f'{OUT}/faceData.ts', 'w') as fo:
         fo.write(HDR.replace('базовой модели MakeHuman', 'выражений лица MakeHuman') + 'export const FACE_DATA = ' + json.dumps(face, separators=(',', ':')) + ' as const;\n')
     print('face size', os.path.getsize(f'{OUT}/faceData.ts'))
+
+# ── Полная фигура: та же модель MakeHuman с максимальным весом (macrodetails maxweight) ──
+def fatV(g):
+    u=f'{g}-young-averagemuscle-averageweight'; m=f'{g}-young-averagemuscle-maxweight'
+    v=gender(g)
+    v=v-T(f'macrodetails/universal-{u}')+T(f'macrodetails/universal-{m}')
+    v=v-0.6*T(f'macrodetails/proportions/{u}-idealproportions')+0.6*T(f'macrodetails/proportions/{m}-idealproportions')
+    return v
+fat={}
+for g in ('female','male'):
+    f=frames[g]
+    vb=V[g]; vf=pose(fatV(g),g)
+    Qb=bodyTf(g,vb[bUsed])
+    # Стопы на полу: у полной фигуры своя нижняя точка.
+    gf=vf[bUsed][:,1].min()
+    Qf=(vf[bUsed]-np.array([0,gf,f['zc']]))*f['k']
+    DD=Qf-Qb
+    # Шов шеи: верх шеи остаётся на месте (голова отдельно).
+    print(g,'fat delta max',np.abs(DD).max(0).round(3),'ring move',np.abs(DD[[bMap[i] for i in cutRing]]).max().round(4))
+    sc=float(np.abs(DD).max())
+    fat[g]={'d':b64(q16(DD,sc)),'sc':round(sc,5)}
+with open(f'{OUT}/fatData.ts','w') as fo:
+    fo.write(HDR+'export const FAT_DATA = '+json.dumps(fat,separators=(',',':'))+' as const;\n')
+print('fat size',os.path.getsize(f'{OUT}/fatData.ts'))
 
 # ── Причёски ── (системные причёски MakeHuman, CC0; привязка к базовой сетке в формате .mhclo,
 # упакованная проектом Body Studio: src/body_studio/wardrobe/items/*.json.gz и текстуры static/wardrobe/*.png)
