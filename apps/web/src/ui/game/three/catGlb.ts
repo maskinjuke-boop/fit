@@ -447,7 +447,8 @@ function coatTexture(t: Template, look: CoatLook, key: string, seed: number, kee
           coatAt(look, part, px, py, pz, seed, base, dark, light, c);
           // Фактура шерсти: отношение яркости к размытой (без крупного рисунка исходника).
           const d = Math.max(0.55, Math.min(1.5, L[i]! / Math.max(0.05, blur[i]!)));
-          const f = look.hairless ? 1 + (d - 1) * 0.35 : d;
+          // Мульт-стиль: фактура шерсти едва заметна — окрас плоскими заливками.
+          const f = 1 + (d - 1) * (look.hairless ? 0.15 : 0.25);
           rr = c.r * f;
           gg = c.g * f;
           bb = c.b * f;

@@ -6,6 +6,8 @@ import { REACH, gymRect, houseRect, STICK_WALK, WALK_SPEED, bounds as sceneBound
 import type { CatBreed, ObjectId, SceneId } from '../../../game/lifeTypes';
 import { animFor } from './actionAnims';
 import { disposeObject, type CharacterParts } from './buildCharacter';
+import { addOutlines } from './outline';
+import { furnitureReady, loadFurniture } from './kenney';
 import { createCatLife, perchSpots, type CatAI, type CatHeroAct, type CatWorld, type Perch } from './catLife';
 import { buildBowls, buildLitter } from './cats3d';
 import { BASIC_DECOR, NEW_KIT, kitOf, type HomeLook } from '../../../game/homeDecor';
@@ -544,6 +546,8 @@ export default function LifeScene3D(props: LifeScene3DProps) {
         catBoxes = boxes;
         placedNow = placed;
       }
+      // Мульт-контур у мебели и тренажёров (пол и стены — без контура).
+      addOutlines(world, { thickness: 0.035 });
       bounds = sceneBounds(p.scene, p.scene === 'home' ? p.house : tier);
       perches = perchSpots(placedNow, bounds, catBoxes);
       // Подойти можно только к предметам с действиями (декор просто украшает).
@@ -779,6 +783,11 @@ export default function LifeScene3D(props: LifeScene3DProps) {
     let facing = Math.PI / 2;
     rebuildScene();
     rebuildHero();
+    // Мульт-мебель Kenney: как загрузится — пересобрать комнату.
+    if (!furnitureReady())
+      void loadFurniture().then(() => {
+        if (!disposed && furnitureReady()) rebuildScene();
+      });
 
     const keys = new Set<string>();
     /** С Shift клавишами — бегом, без него — шагом. */

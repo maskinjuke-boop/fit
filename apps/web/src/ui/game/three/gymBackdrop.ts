@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { toonCanvas } from './kit';
 
 /**
  * Зал за группой на полноэкранном занятии: резиновый пол, стена с зеркалом в раме,
@@ -12,6 +13,7 @@ function canvasTex(w: number, h: number, draw: (g: CanvasRenderingContext2D) => 
   c.height = h;
   const g = c.getContext('2d');
   if (g) draw(g);
+  toonCanvas(c, 0.6, w > 600 ? 2.5 : 1.4);
   const t = new THREE.CanvasTexture(c);
   t.wrapS = t.wrapT = THREE.RepeatWrapping;
   t.repeat.set(rx, ry);

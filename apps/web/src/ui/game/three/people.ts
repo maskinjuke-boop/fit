@@ -5,6 +5,7 @@ import { prepare } from './anatomy';
 import { buildCharacter, garmentsFor, type CharacterParts } from './buildCharacter';
 import { loadHairTexture } from './hairMesh';
 import { loadSkinTextures } from './skinTex';
+import { loadToonPeople, toonModelFor, toonReady } from './toonPeople';
 
 /** Внешность персонажа для 3D-сцен (герой и ученики). */
 export interface Look {
@@ -21,7 +22,9 @@ export const lookKey = (l: Look): string => JSON.stringify([l.color, l.appearanc
 
 /** Загружает сетки и волосы, затем строит персонажа с тенями. */
 export async function loadCharacter(l: Look): Promise<CharacterParts> {
-  await Promise.all([prepare(l.appearance.figure, garmentsFor(l.appearance.figure, l.equipped)), loadHairTexture(l.appearance.hair), loadSkinTextures()]);
+  // Мульт-модели; если не загрузились — прежняя модель (лепка тела и одежды, текстуры).
+  await loadToonPeople();
+  if (!toonReady(toonModelFor(l.appearance.figure, l.appearance.hair))) await Promise.all([prepare(l.appearance.figure, garmentsFor(l.appearance.figure, l.equipped)), loadHairTexture(l.appearance.hair), loadSkinTextures()]);
   const parts = buildCharacter(l.appearance, l.color, l.equipped);
   parts.root.traverse((o) => {
     const m = o as THREE.Mesh;

@@ -6,6 +6,8 @@ import { HEAD_CENTER_WORLD, HEAD_GROW } from './body';
 import { buildCharacter, buildItemModel, disposeObject, garmentsFor, iconFigure, itemGarments } from './buildCharacter';
 import { loadHairTexture } from './hairMesh';
 import { loadSkinTextures } from './skinTex';
+import { loadFurniture } from './kenney';
+import { loadToonPeople, TOON_HEAD_LIFT, toonModelFor, toonReady } from './toonPeople';
 import { createStudio, enableShadows, setupRenderer, type Studio } from './studio';
 import { buildCat, poseCat } from './cats3d';
 import { loadCatModel } from './catGlb';
@@ -180,7 +182,8 @@ export async function renderItem(id: string, color: string, figure: Figure, size
 
 /** Портрет героя по пояс для шапки и списков. */
 export async function renderPortrait(appearance: Appearance, color: string, equipped: Partial<Record<Slot, string>>, size = 160): Promise<string> {
-  await Promise.all([prepare(appearance.figure, garmentsFor(appearance.figure, equipped)), loadHairTexture(appearance.hair), loadSkinTextures()]);
+  await loadToonPeople();
+  if (!toonReady(toonModelFor(appearance.figure, appearance.hair))) await Promise.all([prepare(appearance.figure, garmentsFor(appearance.figure, equipped)), loadHairTexture(appearance.hair), loadSkinTextures()]);
   return enqueue(() => {
     const { studio: st } = ensure();
     const parts = buildCharacter(appearance, color, equipped);
@@ -192,9 +195,11 @@ export async function renderPortrait(appearance: Appearance, color: string, equi
     try {
       parts.root.rotation.y = 0.32;
       parts.root.updateMatrixWorld(true);
-      const target = new THREE.Vector3(0, HEAD_CENTER_WORLD - 0.06 * HEAD_GROW, 0);
+      const toon = toonReady(toonModelFor(appearance.figure, appearance.hair));
+      const lift = toon ? TOON_HEAD_LIFT : 0;
+      const target = new THREE.Vector3(0, HEAD_CENTER_WORLD - 0.06 * HEAD_GROW + lift, 0);
       const cam = new THREE.PerspectiveCamera(30, 1, 0.05, 50);
-      cam.position.set(0, HEAD_CENTER_WORLD + 0.04, 1.95 * HEAD_GROW);
+      cam.position.set(0, HEAD_CENTER_WORLD + 0.04 + lift, (toon ? 2.5 : 1.95) * HEAD_GROW);
       cam.lookAt(target);
       return shoot(st.scene, cam, size, target);
     } finally {
@@ -207,7 +212,8 @@ export async function renderPortrait(appearance: Appearance, color: string, equi
 
 
 /** Иконка предмета для дома (мебель, техника, декор) из его 3D-модели. */
-export function renderHome(id: ObjectId, size = 192): Promise<string> {
+export async function renderHome(id: ObjectId, size = 192): Promise<string> {
+  await loadFurniture();
   return enqueue(() => {
     const { studio: st } = ensure();
     const object = objectModel(id);

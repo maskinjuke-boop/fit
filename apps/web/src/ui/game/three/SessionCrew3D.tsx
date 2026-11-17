@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import * as THREE from 'three';
 import type { ExerciseId } from '../../../tracking/exercise';
 import { disposeObject, type CharacterParts } from './buildCharacter';
+import { addOutlines } from './outline';
 import { blobShadow, loadCharacter, type Member } from './people';
 import { animate, breathe } from './rig';
 import { createStudio, enableShadows, setupRenderer } from './studio';
@@ -73,7 +74,9 @@ export default function SessionCrew3D({ clients, exercise, reps }: SessionCrew3D
     scene.environmentIntensity = 0.55;
     const fog = new THREE.Fog('#1c1f25', 9, 16);
     scene.fog = fog;
-    scene.add(gymBackdrop());
+    const backdrop = gymBackdrop();
+    addOutlines(backdrop, { thickness: 0.02 });
+    scene.add(backdrop);
     scene.add(new THREE.HemisphereLight('#fff4e4', '#3b3530', 0.55));
     // Свет сверху-спереди с мягкими тенями на всю группу.
     const key = studio.key;
@@ -161,7 +164,7 @@ export default function SessionCrew3D({ clients, exercise, reps }: SessionCrew3D
       const hfov = 2 * Math.atan(Math.tan(vfov / 2) * camera.aspect);
       const depth = lying ? (n - 1) * STEP_Z : (rows - 1) * 1.3;
       const dist = Math.max(lying ? 3.4 : 4.6, width / 2 / Math.tan(hfov / 2) + 0.6);
-      const ty = lying ? 0.35 : 0.85;
+      const ty = lying ? 0.35 : 0.97;
       camera.position.set(cx, ty + dist * (lying ? 0.32 : 0.18), dist);
       camera.lookAt(cx, ty, -depth / 2);
       fog.near = dist + 3;

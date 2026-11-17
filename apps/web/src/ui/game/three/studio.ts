@@ -48,7 +48,25 @@ export interface Studio {
   dispose(): void;
 }
 
+let toonPatched = false;
+/**
+ * Мульт-освещение: прямой свет ложится двумя ступенями (свет и полутень) вместо плавного перехода.
+ * Меняется общий кусок шейдера PBR-материалов — до первой компиляции шейдеров.
+ */
+export function toonShading(): void {
+  if (toonPatched) return;
+  toonPatched = true;
+  const src = THREE.ShaderChunk.lights_physical_pars_fragment;
+  const from = 'float dotNL = saturate( dot( geometryNormal, directLight.direction ) );\n\tvec3 irradiance = dotNL * directLight.color;';
+  if (!src.includes(from)) return;
+  THREE.ShaderChunk.lights_physical_pars_fragment = src.replace(
+    from,
+    'float dotNL = saturate( dot( geometryNormal, directLight.direction ) );\n\tdotNL = 0.45 * smoothstep( 0.0, 0.06, dotNL ) + 0.55 * smoothstep( 0.38, 0.46, dotNL );\n\tvec3 irradiance = dotNL * directLight.color;',
+  );
+}
+
 export function setupRenderer(renderer: THREE.WebGLRenderer, shadows: boolean): void {
+  toonShading();
   renderer.toneMapping = THREE.NeutralToneMapping;
   renderer.toneMappingExposure = 1.0;
   renderer.shadowMap.enabled = shadows;

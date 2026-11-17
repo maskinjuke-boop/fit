@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { addOutlines } from './outline';
 import type { CatBreed } from '../../../game/lifeTypes';
 import { buildGlbCat, catModelReady, type CatPoseParams } from './catGlb';
 import { catEye, earGeometry, EYE, headGeometry, LID_CLOSED, LID_OPEN, limbGeometry, torsoGeometry } from './catModel';
@@ -279,6 +280,8 @@ export function buildCat(breed: CatBreed, seed = 1, opts: CatLookOpts = {}): Cat
     if (g) {
       const cat: Cat3D = { root: g.root, breed, key, body: g.body, head: g.head, legs: [], tail: [], eyes: [], lids: [], legLen: 1 - 0.1 * young, pose: restPose(), apply: g.apply };
       poseCat(cat, 'idle', 0, 0, 1);
+      // Мульт-контур, как у людей и мебели.
+      addOutlines(g.root, { thickness: 0.01 });
       return cat;
     }
   }

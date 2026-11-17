@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type { ObjectId } from '../../../game/lifeTypes';
-import { M, mat, mesh } from './kit';
+import { M, mat, mesh, toonCanvas } from './kit';
+import { furnitureReady, kenney } from './kenney';
 
 /**
  * 3D-модели предметов дома и зала (лицевая сторона — к +Z), процедурные
@@ -28,6 +29,7 @@ function canvasTex(w: number, h: number, draw: (ctx: CanvasRenderingContext2D) =
   const ctx = c.getContext('2d');
   if (!ctx) return null;
   draw(ctx);
+  if (srgb) toonCanvas(c, 0.6, w > 600 ? 2.5 : 1.4);
   const t = new THREE.CanvasTexture(c);
   if (srgb) t.colorSpace = THREE.SRGBColorSpace;
   t.anisotropy = 8;
@@ -335,6 +337,84 @@ export function objectModel(id: ObjectId, old = false): THREE.Group {
     const o = oldModel(id);
     if (o) return o;
   }
+  const g = procModel(id);
+  // Мульт-мебель Kenney вместо части процедурных деталей (места для сидения и сна — те же).
+  const swap = furnitureReady() ? KENNEY_SWAP[id] : undefined;
+  if (swap) swap(g);
+  return g;
+}
+
+/** Убирает из группы детали с номерами idx (остальные — анимации, экраны — остаются). */
+function drop(g: THREE.Group, idx: number[]): void {
+  const kids = idx.map((i) => g.children[i]).filter((x): x is THREE.Object3D => Boolean(x));
+  for (const k of kids) g.remove(k);
+}
+const range = (a: number, b: number): number[] => Array.from({ length: b - a }, (_, i) => a + i);
+
+const KENNEY_SWAP: Partial<Record<ObjectId, (g: THREE.Group) => void>> = {
+  bed: (g) => {
+    drop(g, range(0, 6));
+    g.add(kenney('bedDouble', [2.15, 1.25, 2.7], [0, 0, -0.03], { carpet: '#5b7fb3' }));
+  },
+  sofa: (g) => {
+    // Диван и столик — Kenney, телевизор напротив — прежний (экран светится).
+    drop(g, range(0, 5));
+    g.add(kenney('loungeSofa', [2.5, 1.0, 1.0], [0, 0, -0.02], { carpet: '#7d8b99' }));
+    g.add(kenney('tableCoffee', [0.95, 0.4, 0.72], [0, 0, 1.15]));
+  },
+  fridge: (g) => {
+    drop(g, range(0, 4));
+    g.add(kenney('kitchenFridgeLarge', [0.88, 1.92, 0.75]));
+  },
+  stove: (g) => {
+    // Кастрюля остаётся на плите.
+    drop(g, [0, 1, 2, 3, 4, 5, 7]);
+    g.add(kenney('kitchenStove', [1.0, 0.92, 0.7]));
+    g.add(kenney('hoodModern', [1.0, 0.75, 0.45], [0, 1.55, -0.13]));
+  },
+  shower: (g) => {
+    drop(g, range(0, 5));
+    g.add(kenney('shower', [1.32, 2.15, 1.32]));
+  },
+  bathtub: (g) => {
+    // Ванна вдоль глубины (модель Kenney — вдоль ширины): поворот на 90°.
+    drop(g, [0]);
+    g.add(kenney('bathtub', [1.85, 0.62, 1.02], [0, 0, 0], {}, Math.PI / 2));
+  },
+  armchair: (g) => {
+    drop(g, range(0, 9));
+    g.add(kenney('loungeChair', [1.0, 0.95, 0.95], [0, 0, 0.02], { carpet: '#6b8f71' }));
+  },
+  computer: (g) => {
+    // Стол, клавиатура и кресло — Kenney; монитор со светящимся экраном — прежний.
+    drop(g, [0, 1, 2, 5, 6, 7]);
+    g.add(kenney('desk', [1.32, 0.78, 0.66]));
+    g.add(kenney('computerKeyboard', [0.45, 0.03, 0.16], [0, 0.78, 0.12]));
+    g.add(kenney('chairDesk', [0.6, 1.05, 0.55], [0, 0, 0.68], { carpet: '#3a4250' }, Math.PI));
+  },
+  coffee_machine: (g) => {
+    drop(g, range(0, 3));
+    g.add(kenney('kitchenCabinet', [0.9, 0.92, 0.58]));
+    g.add(kenney('kitchenCoffeeMachine', [0.42, 0.42, 0.42], [0, 0.92, -0.02]));
+  },
+  blender: (g) => {
+    // Тумба и блендер — Kenney, фрукты на столешнице — прежние.
+    drop(g, range(0, 7));
+    g.add(kenney('kitchenCabinetDrawer', [0.94, 0.91, 0.64]));
+    g.add(kenney('kitchenBlender', [0.26, 0.46, 0.22], [0, 0.91, 0]));
+  },
+  microwave: (g) => {
+    drop(g, range(0, 7));
+    g.add(kenney('kitchenCabinetDrawer', [0.94, 0.91, 0.64]));
+    g.add(kenney('kitchenMicrowave', [0.58, 0.36, 0.42], [0, 0.91, -0.05]));
+  },
+  house_plant: (g) => {
+    drop(g, range(0, g.children.length));
+    g.add(kenney('pottedPlant', [0.55, 1.25, 0.55]));
+  },
+};
+
+function procModel(id: ObjectId): THREE.Group {
   const g = new THREE.Group();
   const tick: HomeAnim[] = [];
   g.userData.tick = tick;

@@ -4,15 +4,17 @@ import type { Appearance, Figure } from '../../../game/state';
 import { EYE_COLORS, HAIR_COLORS, SKIN_TONES } from '../palette';
 import { band, bodyGeometry, coverDepth, frontZ, garmentGeometry, garmentOffset, landmarks, type GarmentId } from './anatomy';
 import { buildBack, buildHands, buildNeck, buildShoes, composeOutfit, garmentsFor, headCover, headModel, iconFigure } from './wardrobe';
-import { HEAD_GROW, NECK_WORLD, NECK_Y, TORSO_Y, bodyShape } from './body';
+import { HEAD_GROW, HEAD_R, HEAD_SCALE, HEAD_Y, NECK_WORLD, NECK_Y, TORSO_Y, bodyShape } from './body';
 import { buildHair, type Cover } from './hair';
 import { buildHead, setFace, type Lid } from './head';
 import { applyMorph, bodyMorph, bodyValues, faceFat, headFatScale, HEAVY_ARM_OUT, heavyValue, heightScale } from './morph';
 import { ICON_TILT, defaultPlan, heldModel, holdPose, holdQuaternion, type ItemCtx, type Outfit } from './items3d';
 import { M, mesh, retile, shade, texKind, v, type Anim, type Mat } from './kit';
-import { buildRig, prepareSkin, type Rig } from './rig';
+import { BONES, buildRig, joints, prepareSkin, type Rig } from './rig';
 import { applySkinTexture } from './skinTex';
-import type { FaceCtl } from './face';
+import type { Expression, FaceCtl } from './face';
+import { buildToon, toonModelFor, toonReady } from './toonPeople';
+import { addOutlines } from './outline';
 
 export { disposeObject } from './kit';
 
@@ -124,6 +126,9 @@ export interface CharacterOptions {
 }
 
 export function buildCharacter(appearance: Appearance, color: string, equipped: Partial<Record<Slot, string>>, opts: CharacterOptions = {}): CharacterParts {
+  // Мульт-люди (готовые модели), пока они не загружены — прежняя модель MakeHuman.
+  const toon = buildToonCharacter(appearance, color, equipped, opts);
+  if (toon) return toon;
   const root = new THREE.Group();
   setFace(appearance.face, faceFatOf(appearance));
   const shape = bodyShape(appearance.figure);
@@ -230,6 +235,135 @@ export function buildCharacter(appearance: Appearance, color: string, equipped: 
   }
 
   return { root, torso, head: headPivot, lids: face.lids, anim, rig, face: face.face };
+}
+
+// ─── Мульт-люди ────────────────────────────────────────────────────────
+
+/** Голова мульт-персонажа относительно головы модели при её масштабе по плечам. */
+const TOON_HEAD = 0.72;
+
+/**
+ * Моргание и мимика мульт-лица: глаза сжимаются по высоте. Веко — пустой объект: его поворот
+ * (как у век прежней головы) — доля закрытия; сон, напряжение и улыбка прищуривают глаза.
+ */
+function toonFace(eyes: THREE.Mesh[]): { lids: Lid[]; face: FaceCtl } {
+  const blink = new THREE.Object3D();
+  let close = 0;
+  let target = 0;
+  const SQUINT: Partial<Record<Expression, number>> = { sleep: 1, effort: 0.35, strain: 0.4, tired: 0.45, focus: 0.15, smile: 0.25 };
+  for (const e of eyes) {
+    e.onBeforeRender = () => {
+      const shut = Math.max(0, Math.min(1, blink.rotation.x));
+      const open = (1 - shut) * (1 - close);
+      const sy = 0.1 + 0.9 * open;
+      if (Math.abs(e.scale.y - sy) > 1e-3) {
+        e.scale.y = sy;
+        e.updateMatrixWorld();
+      }
+    };
+  }
+  return {
+    lids: [{ obj: blink, open: 0, closed: 1 }],
+    face: {
+      want(e, w = 1) {
+        target = e ? (SQUINT[e] ?? 0) * Math.max(0, Math.min(1, w)) : 0;
+      },
+      update(dt) {
+        close += (target - close) * (1 - Math.exp(-dt * 6));
+      },
+    },
+  };
+}
+
+function buildToonCharacter(appearance: Appearance, color: string, equipped: Partial<Record<Slot, string>>, opts: CharacterOptions): CharacterParts | null {
+  const shape = bodyShape(appearance.figure);
+  const figure = shape.figure;
+  const model = toonModelFor(figure, appearance.hair);
+  if (!toonReady(model)) return null;
+  const root = new THREE.Group();
+  const female = figure === 'female';
+  const skinTone = opts.skin ?? SKIN_TONES[appearance.skin] ?? SKIN_TONES[1];
+  const hairColor = HAIR_COLORS[appearance.hairColor] ?? HAIR_COLORS[1];
+  const anim: Anim[] = [];
+  const ctx: ItemCtx = { color, shape, anim };
+  const outfit: Outfit = composeOutfit(equipped, ctx);
+  const morph = bodyMorph(shape, appearance);
+  // Суставы игры: без ползунков (масштаб модели) и с ними (как в buildRig).
+  const J0 = joints(figure);
+  const J = joints(figure);
+  if (morph) for (const b of BONES) morph(J[b]);
+  const bv = bodyValues(appearance);
+  const heavy = heavyValue(appearance);
+  const toon = buildToon(model, J, J0, { weight: bv.weight, heavy, muscle: bv.muscle }, TOON_HEAD)!;
+  // Цвета: кожа и волосы — из внешности, верх и низ — из надетой одежды (или цвет героя).
+  const set = (name: string, c: THREE.ColorRepresentation): void => {
+    toon.mats.get(name)?.color.set(c);
+  };
+  set('Skin', skinTone.base);
+  set('Hair', hairColor);
+  const top = outfit.top ?? outfit.layers[0];
+  set('Shirt', top ? top.color.clone() : shade(color, 0.62));
+  const bottom = outfit.bottom ?? (equipped.legs ? outfit.layers[outfit.layers.length - 1] : undefined);
+  set('Pants', bottom ? bottom.color.clone() : female ? '#2f3646' : '#2d3440');
+  set('Belt', '#2a2320');
+  set('Face', '#1d1714');
+
+  const torso = new THREE.Group();
+  root.add(torso);
+  // Перчатки и браслеты, украшения на шее, рюкзак или крылья и предметы в руках — как у прежней модели.
+  const rigid: Array<{ obj: THREE.Object3D; anchor: THREE.Vector3 }> = [];
+  const [right, left] = grips(figure);
+  if (equipped.hands) torso.add(buildHands(equipped.hands, ctx, [Boolean(equipped.weapon), Boolean(equipped.offhand)]));
+  if (equipped.neck) torso.add(buildNeck(equipped.neck, ctx));
+  if (equipped.back) torso.add(buildBack(equipped.back, ctx));
+  for (const [id, hand] of [[equipped.weapon, right], [equipped.offhand, left]] as const) {
+    if (!id) continue;
+    const o = heldModel(id, ctx);
+    holdInFist(o, id, hand);
+    o.userData.hand = hand === right ? 'r' : 'l';
+    torso.add(o);
+    rigid.push({ obj: o, anchor: hand.at.clone() });
+  }
+  const rigidSet = new Set(rigid.map((r) => r.obj));
+  prepareSkin(torso, figure, rigidSet);
+  if (morph) applyMorph(torso, morph, rigid);
+  // Тело модели — уже на суставах игры и с весами её костей.
+  toon.body.geometry.userData.skinFigure = figure;
+  toon.body.castShadow = true;
+  torso.add(toon.body);
+  root.scale.setScalar(heightScale(appearance));
+
+  // Голова — на шее (координаты от сустава шеи), головной убор — по размеру мульт-головы.
+  const headPivot = new THREE.Group();
+  headPivot.position.copy(J.neck);
+  headPivot.userData.baseY = J.neck.y;
+  headPivot.add(toon.head);
+  if (equipped.head) {
+    const skin = toon.head.children.filter((c) => c.name === 'toon-head-Skin');
+    const box = new THREE.Box3();
+    for (const c of skin) box.expandByObject(c);
+    if (!box.isEmpty()) {
+      const k = (box.max.x - box.min.x) / (2 * HEAD_R * HEAD_SCALE.x * HEAD_GROW);
+      const hat = new THREE.Group();
+      hat.scale.setScalar(HEAD_GROW * k);
+      const topLocal = HEAD_Y + HEAD_R * HEAD_SCALE.y;
+      hat.position.set(0, box.max.y - HEAD_GROW * k * topLocal, (box.min.z + box.max.z) / 2 - HEAD_GROW * k * 0.0);
+      hat.add(headModel(equipped.head, ctx));
+      headPivot.add(hat);
+      // Под шапкой и шлемом волосы прячутся.
+      if (headCover(equipped.head) === 'helm') for (const c of toon.head.children) if (c.name === 'toon-head-Hair') c.visible = false;
+    }
+  }
+  root.add(headPivot);
+  const rig = buildRig(root, torso, headPivot, figure, morph, rigidSet);
+  if (heavy > 0) {
+    rig.armOut = heavy * HEAVY_ARM_OUT;
+    rig.bulk = heavy;
+  }
+  const f = toonFace(toon.eyes);
+  // Мульт-контур (после скелета: сетки уже со скиннингом).
+  addOutlines(root, { thickness: 0.014 });
+  return { root, torso, head: headPivot, lids: f.lids, anim, rig, face: f.face };
 }
 
 /** Отдельная модель предмета для иконки магазина (без персонажа). */

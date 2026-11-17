@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { finishById, type FinishDef, type HomeLook } from '../../../game/homeDecor';
-import { M, mat, mesh } from './kit';
+import { M, mat, mesh, toonCanvas } from './kit';
 
 /**
  * Отделка дома в 3D: рисунок обоев и пола (процедурные холсты), панели и плинтус,
@@ -685,6 +685,8 @@ function canvasOf(key: string, w: number, h: number, draw: Draw, seed: number): 
     return null;
   }
   draw(ctx, w, h, seeded(seed));
+  // Мульт-стиль: рисунок отделки — плоскими заливками.
+  toonCanvas(c, 0.6, w > 600 ? 2.5 : 1.4);
   canvases.set(key, c);
   return c;
 }

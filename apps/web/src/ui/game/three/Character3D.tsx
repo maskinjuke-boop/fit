@@ -8,6 +8,7 @@ import { HEAD_CENTER_WORLD, HEAD_GROW } from './body';
 import { buildCharacter, disposeObject, garmentsFor, type CharacterParts } from './buildCharacter';
 import { hairTexture, loadHairTexture } from './hairMesh';
 import { loadSkinTextures, skinTexturesReady } from './skinTex';
+import { loadToonPeople, TOON_HEAD_LIFT, toonModelFor, toonReady } from './toonPeople';
 import { createStudio, enableShadows, setupRenderer } from './studio';
 
 /** Мягкая тень под ногами — текстура с радиальным градиентом вместо теневых карт (дёшево для телефонов). */
@@ -108,8 +109,9 @@ export default function Character3D({ color, appearance, equipped, height = 260,
     let zoom = closeRef.current ? 1 : 0;
     const place = (): void => {
       const narrow = Math.max(1, 0.62 / camera.aspect);
-      const far = { y: 1.66, ty: 1.36, d: 6.9 * narrow };
-      const near = { y: HEAD_CENTER_WORLD + 0.02, ty: HEAD_CENTER_WORLD - 0.04, d: 2 * HEAD_GROW * Math.max(1, 0.8 / camera.aspect) };
+      const lift = toonReady() ? TOON_HEAD_LIFT : 0;
+      const far = { y: 1.66 + lift * 0.8, ty: 1.36 + lift * 0.6, d: (6.9 + lift * 3) * narrow };
+      const near = { y: HEAD_CENTER_WORLD + 0.02 + lift, ty: HEAD_CENTER_WORLD - 0.04 + lift, d: 2.4 * HEAD_GROW * Math.max(1, 0.8 / camera.aspect) };
       const k = zoom * zoom * (3 - 2 * zoom);
       target.set(0, far.ty + (near.ty - far.ty) * k, 0);
       camera.position.set(0, far.y + (near.y - far.y) * k, far.d + (near.d - far.d) * k);
@@ -256,13 +258,16 @@ export default function Character3D({ color, appearance, equipped, height = 260,
       if (alive) api.current?.setCharacter(buildCharacter(appearance, color, equipped), color);
     };
     let timer = 0;
-    if (isPrepared(appearance.figure, garments) && hairTexture(appearance.hair) && skinTexturesReady()) {
+    const toon = toonModelFor(appearance.figure, appearance.hair);
+    if (toonReady(toon) || (isPrepared(appearance.figure, garments) && hairTexture(appearance.hair) && skinTexturesReady())) {
       setSculpting(false);
       // Ползунки меняют внешность много раз в секунду — пересобираем героя чуть позже, один раз.
       timer = window.setTimeout(apply, 40);
     } else {
       setSculpting(true);
-      void Promise.all([prepare(appearance.figure, garments), loadHairTexture(appearance.hair), loadSkinTextures()]).then(() => {
+      void loadToonPeople()
+        .then(() => (toonReady(toon) ? undefined : Promise.all([prepare(appearance.figure, garments), loadHairTexture(appearance.hair), loadSkinTextures()])))
+        .then(() => {
         if (!alive) return;
         setSculpting(false);
         apply();

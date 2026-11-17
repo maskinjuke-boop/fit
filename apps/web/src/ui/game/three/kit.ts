@@ -281,6 +281,60 @@ function draw(kind: TexKind): HTMLCanvasElement | null {
   }
 }
 
+/**
+ * Мульт-обработка рисунка: лёгкое размытие убирает мелкий шум (крапинки, волокна, поры),
+ * контраст рисунка снижается к среднему цвету, цвета чуть насыщеннее — чистые мульт-заливки
+ * с мягко читаемым узором.
+ */
+export function toonCanvas(c: HTMLCanvasElement | null, contrast = 0.55, blur = 1.6): HTMLCanvasElement | null {
+  if (!c) return c;
+  const ctx = c.getContext('2d');
+  if (!ctx) return c;
+  try {
+    if (blur > 0 && 'filter' in ctx) {
+      const tmp = document.createElement('canvas');
+      tmp.width = c.width;
+      tmp.height = c.height;
+      const t = tmp.getContext('2d');
+      if (t) {
+        t.filter = `blur(${blur}px)`;
+        t.drawImage(c, 0, 0);
+        ctx.clearRect(0, 0, c.width, c.height);
+        ctx.drawImage(tmp, 0, 0);
+      }
+    }
+    const img = ctx.getImageData(0, 0, c.width, c.height);
+    const d = img.data;
+    let mr = 0;
+    let mg = 0;
+    let mb = 0;
+    const n = d.length / 4;
+    for (let i = 0; i < d.length; i += 4) {
+      mr += d[i]!;
+      mg += d[i + 1]!;
+      mb += d[i + 2]!;
+    }
+    mr /= n;
+    mg /= n;
+    mb /= n;
+    const ml = (mr + mg + mb) / 3;
+    // Средний цвет — насыщеннее, рисунок — мягче вокруг него.
+    const sr = ml + (mr - ml) * 1.2;
+    const sg = ml + (mg - ml) * 1.2;
+    const sb = ml + (mb - ml) * 1.2;
+    const cl = (x: number): number => Math.max(0, Math.min(255, x));
+    for (let i = 0; i < d.length; i += 4) {
+      d[i] = cl(sr + (d[i]! - mr) * contrast);
+      d[i + 1] = cl(sg + (d[i + 1]! - mg) * contrast);
+      d[i + 2] = cl(sb + (d[i + 2]! - mb) * contrast);
+    }
+    ctx.putImageData(img, 0, 0);
+  } catch {
+    // Без доступа к пикселям — рисунок как есть.
+  }
+  return c;
+}
+
 const canvases = new Map<TexKind, HTMLCanvasElement | null>();
 const textures = new Map<string, THREE.Texture | null>();
 
@@ -288,7 +342,7 @@ const textures = new Map<string, THREE.Texture | null>();
 export function tex(kind: TexKind, rx = 1, ry = rx, color = false): THREE.Texture | null {
   const key = `${kind}|${rx}|${ry}|${color}`;
   if (textures.has(key)) return textures.get(key) ?? null;
-  if (!canvases.has(kind)) canvases.set(kind, draw(kind));
+  if (!canvases.has(kind)) canvases.set(kind, toonCanvas(draw(kind)));
   const c = canvases.get(kind);
   if (!c) {
     textures.set(key, null);
@@ -331,12 +385,9 @@ export function shade(color: THREE.ColorRepresentation, k: number): THREE.Color 
 
 const withMaps = (p: Params, maps: Partial<Record<'map' | 'bumpMap' | 'roughnessMap', THREE.Texture | null>>, bump = 1): Params => {
   const out: Params = { ...p };
+  // Мульт-стиль: только рисунок, без рельефа и карт шероховатости (плоские заливки).
   if (maps.map) out.map = maps.map;
-  if (maps.bumpMap) {
-    out.bumpMap = maps.bumpMap;
-    out.bumpScale = bump;
-  }
-  if (maps.roughnessMap) out.roughnessMap = maps.roughnessMap;
+  void bump;
   return out;
 };
 
@@ -363,7 +414,8 @@ export const M = {
   leather: (color: THREE.ColorRepresentation = '#7a4e2d', rep = 2): Mat => mat(color, 0.7, 0, withMaps({}, { map: tex('leather', rep, rep, true), bumpMap: tex('leather', rep) }, 1.5)),
   wood: (color: THREE.ColorRepresentation = '#9a6538', rx = 1, ry = 3): Mat => mat(color, 0.78, 0, withMaps({}, { map: tex('wood', rx, ry, true), bumpMap: tex('wood', rx, ry) }, 1.2)),
   planks: (color: THREE.ColorRepresentation = '#9a6538'): Mat => mat(color, 0.8, 0, withMaps({}, { map: tex('planks', 1, 1, true), bumpMap: tex('planks', 1) }, 2)),
-  metal: (color: THREE.ColorRepresentation, rough = 0.3): Mat => mat(color, rough, 0.92, withMaps({ envMapIntensity: 1.7 }, { roughnessMap: tex('brushed', 1, 2) })),
+  // Мульт-металл: меньше отражений окружения, мягкий блик.
+  metal: (color: THREE.ColorRepresentation, rough = 0.3): Mat => mat(color, Math.max(0.42, rough), 0.55, { envMapIntensity: 0.9 }),
   steel: (): Mat => M.metal('#c7cfd8', 0.28),
   darkSteel: (): Mat => M.metal('#6c757f', 0.35),
   silver: (): Mat => M.metal('#e4e8ee', 0.18),
