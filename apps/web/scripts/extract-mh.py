@@ -373,30 +373,8 @@ for g in ('female','male'):
     print(g,'fat delta max',np.abs(DD).max(0).round(3),'ring move',np.abs(DD[[bMap[i] for i in cutRing]]).max().round(4))
     sc=float(np.abs(DD).max())
     fat[g]={'d':b64(q16(DD,sc)),'sc':round(sc,5)}
-# ── Атлетичная фигура: та же модель с максимальной мускулатурой, чуть суше, плечи шире (V-силуэт) ──
-def athV(g):
-    u=f'{g}-young-averagemuscle-averageweight'; m=f'{g}-young-maxmuscle-averageweight'; lean=f'{g}-young-maxmuscle-minweight'
-    mus=0.15 if g=='female' else 0.3
-    v=gender(g)
-    v=v+(1-mus)*(T(f'macrodetails/universal-{m}')-T(f'macrodetails/universal-{u}'))
-    v=v+0.6*(T(f'macrodetails/proportions/{m}-idealproportions')-T(f'macrodetails/proportions/{u}-idealproportions'))
-    v=v+0.35*(T(f'macrodetails/universal-{lean}')-T(f'macrodetails/universal-{m}'))
-    v=v+(0.25 if g=='female' else 0.45)*T('torso/torso-vshape-incr')
-    return v
-ath={}
-for g in ('female','male'):
-    f=frames[g]
-    vb=V[g]; va_=pose(athV(g),g)
-    Qb=bodyTf(g,vb[bUsed])
-    ga=va_[bUsed][:,1].min()
-    Qa=(va_[bUsed]-np.array([0,ga,f['zc']]))*f['k']
-    DD=Qa-Qb
-    print(g,'muscle delta max',np.abs(DD).max(0).round(3),'ring move',np.abs(DD[[bMap[i] for i in cutRing]]).max().round(4))
-    sc=float(np.abs(DD).max())
-    ath[g]={'d':b64(q16(DD,sc)),'sc':round(sc,5)}
 with open(f'{OUT}/fatData.ts','w') as fo:
     fo.write(HDR+'export const FAT_DATA = '+json.dumps(fat,separators=(',',':'))+' as const;\n')
-    fo.write('/** Атлетичная фигура (MakeHuman: максимальная мускулатура, суше, V-силуэт). */\nexport const MUSCLE_DATA = '+json.dumps(ath,separators=(',',':'))+' as const;\n')
 print('fat size',os.path.getsize(f'{OUT}/fatData.ts'))
 
 # ── Причёски ── (системные причёски MakeHuman, CC0; привязка к базовой сетке в формате .mhclo,

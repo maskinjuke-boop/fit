@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import type { Figure } from '../../../game/state';
 import { bodyPositions, vertexParts } from './bodyMesh';
-import { FAT_DATA, MUSCLE_DATA } from './fatData';
+import { FAT_DATA } from './fatData';
 
 /**
  * Полная фигура — отдельная модель MakeHuman (та же сетка с максимальным весом, CC0):
@@ -29,16 +29,12 @@ const CELL = 0.06;
 const SIGMA = 0.028;
 const cellKey = (ix: number, iy: number, iz: number): number => ((ix + 512) * 1024 + (iy + 512)) * 1024 + (iz + 512);
 
-/** Какая форма: полная (fat) или атлетичная (muscle). */
-export type ShapeKind = 'fat' | 'muscle';
+const fields = new Map<Figure, Field>();
 
-const fields = new Map<string, Field>();
-
-function field(figure: Figure, kind: ShapeKind): Field {
-  const key = `${kind}|${figure}`;
-  let f = fields.get(key);
+function field(figure: Figure): Field {
+  let f = fields.get(figure);
   if (f) return f;
-  const data = (kind === 'fat' ? FAT_DATA : MUSCLE_DATA)[figure];
+  const data = FAT_DATA[figure];
   const q = new Int16Array(bytes(data.d).buffer);
   const k = data.sc / 32767;
   const d = new Float32Array(q.length);
@@ -55,7 +51,7 @@ function field(figure: Figure, kind: ShapeKind): Field {
     c.push(i);
   }
   f = { pos, d, arm, cells };
-  fields.set(key, f);
+  fields.set(figure, f);
   return f;
 }
 
@@ -68,8 +64,8 @@ const bestI = [-1, -1];
  * Сдвиг к полной фигуре в точке p (координаты героя). armShare — доля руки у вершины
  * со скиннингом (0 — корпус и ноги, 1 — рука); без неё берутся все ближайшие вершины.
  */
-export function fatShift(figure: Figure, p: THREE.Vector3, armShare: number | undefined, out: THREE.Vector3, kind: ShapeKind = 'fat'): THREE.Vector3 {
-  const f = field(figure, kind);
+export function fatShift(figure: Figure, p: THREE.Vector3, armShare: number | undefined, out: THREE.Vector3): THREE.Vector3 {
+  const f = field(figure);
   acc[0]!.set(0, 0, 0);
   acc[1]!.set(0, 0, 0);
   wsum[0] = wsum[1] = 0;

@@ -1,4 +1,4 @@
-import { effectiveAppearance, heroLook } from '../../game/life';
+import { effectiveAppearance } from '../../game/life';
 import { useState, type ChangeEvent, type ReactNode } from 'react';
 import { ACHIEVEMENTS, titleText, unlockedTitles } from '../../game/achievements';
 import { STATS } from '../../game/config';
@@ -262,7 +262,7 @@ export function HeroTab({ state, onAccuracy }: { state: GameState; onAccuracy():
           <div className="sheet wide-sheet">
             <h2>{t('appearance')}</h2>
             <div className="ob-hero-art sticky">
-              <Hero3D color={editing.color} appearance={heroLook(editing.appearance)} equipped={state.equipped} height={260} zoomable />
+              <Hero3D color={editing.color} appearance={editing.appearance} equipped={state.equipped} height={260} zoomable />
             </div>
             <AppearanceEditor appearance={editing.appearance} color={editing.color} onChange={(a, col) => setEditing({ appearance: a, color: col })} />
             <div className="row">

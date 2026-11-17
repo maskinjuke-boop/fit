@@ -5,7 +5,6 @@ import { DEFAULT_APPEARANCE, type Appearance } from '../../game/state';
 import { useI18n, type I18nKey } from '../../i18n';
 import { AppearanceEditor } from './AppearanceEditor';
 import { Hero3D } from './Hero3D';
-import { heroLook } from '../../game/life';
 
 /** Стартовый предмет пути — показываем его на портрете сразу при выборе. */
 const STARTER: Record<Archetype, { slot: 'weapon' | 'feet' | 'offhand'; id: string }> = {
@@ -41,10 +40,10 @@ export function Onboarding() {
       {step === 'welcome' && (
         <section className="ob-step">
           <div className="ob-hero-art pair">
-            <Hero3D color={COLORS[0]} appearance={heroLook(DEFAULT_APPEARANCE)} equipped={{ head: 'sports_cap', body: 'hoodie', legs: 'jeans', feet: 'sneakers', weapon: 'coffee_cup', offhand: 'tote_bag' }} height={230} interactive={false} />
+            <Hero3D color={COLORS[0]} appearance={DEFAULT_APPEARANCE} equipped={{ head: 'sports_cap', body: 'hoodie', legs: 'jeans', feet: 'sneakers', weapon: 'coffee_cup', offhand: 'tote_bag' }} height={230} interactive={false} />
             <Hero3D
               color={COLORS[1]}
-              appearance={heroLook({ ...DEFAULT_APPEARANCE, figure: 'female', hair: 'ponytail', hairColor: 3, skin: 2 })}
+              appearance={{ ...DEFAULT_APPEARANCE, figure: 'female', hair: 'ponytail', hairColor: 3, skin: 2 }}
               equipped={{ body: 'gambeson', weapon: 'flail', offhand: 'healing_flask' }}
               height={230}
               interactive={false}
@@ -104,7 +103,7 @@ export function Onboarding() {
         <section className="ob-step">
           <h1>{t('ob.heroTitle')}</h1>
           <div className="ob-hero-art sticky">
-            <Hero3D color={color} appearance={heroLook(appearance)} equipped={preview} height={270} zoomable />
+            <Hero3D color={color} appearance={appearance} equipped={preview} height={270} zoomable />
           </div>
           <label className="field">
             <span>{t('ob.name')}</span>
