@@ -142,10 +142,20 @@ export const mood = (life: LifeState): number => Math.round(NEEDS.reduce((a, n) 
 
 const clamp = (v: number, lo: number, hi: number): number => Math.max(lo, Math.min(hi, v));
 
-/** Фигура героя с учётом тренировок и питания. */
+/** Герой — фитнес-тренер: атлетичное сложение поверх ползунков (мышцы, чуть шире плечи). */
+export const HERO_FIT = { muscle: 0.65, shoulders: 0.15 } as const;
+
+/** Внешность героя с атлетичной основой (для редактора и везде, где герой без учёта тренировок). */
+export function heroLook(appearance: Appearance): Appearance {
+  const body: Partial<Record<BodyPart, number>> = { ...(appearance.body ?? {}) };
+  for (const [k, d] of Object.entries(HERO_FIT) as Array<[BodyPart, number]>) body[k] = clamp((body[k] ?? 0) + d, -1, 1);
+  return { ...appearance, body };
+}
+
+/** Фигура героя с учётом тренировок и питания (на атлетичной основе). */
 export function effectiveAppearance(appearance: Appearance, s: GameState): Appearance {
   const lv = (k: StatId): number => levelOf(s.statXp[k]) - 1;
-  const body: Partial<Record<BodyPart, number>> = { ...(appearance.body ?? {}) };
+  const body: Partial<Record<BodyPart, number>> = { ...(heroLook(appearance).body ?? {}) };
   const add = (k: BodyPart, d: number): void => {
     if (Math.abs(d) < 0.005) return;
     body[k] = clamp((body[k] ?? 0) + d, -1, 1);

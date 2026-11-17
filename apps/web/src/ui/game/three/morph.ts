@@ -63,15 +63,16 @@ export function bodyValues(a: Pick<Appearance, 'body' | 'heavy'>): Record<BodyPa
     height: v('height'),
     weight,
     muscle,
-    shoulders: v('shoulders') + muscle * 0.5,
-    chest: v('chest') + muscle * 0.35 + weight * 0.25,
-    arms: v('arms') + muscle * 0.6 + weight * 0.4,
-    neck: v('neck') + muscle * 0.5 + weight * 0.3 + h * 1.2,
+    // Мышцы сверх нуля — форма атлетичной модели MakeHuman (bodyMorph); здесь — только добавка.
+    shoulders: v('shoulders') + muscle * (muscle > 0 ? 0.15 : 0.5),
+    chest: v('chest') + muscle * (muscle > 0 ? 0.12 : 0.35) + weight * 0.25,
+    arms: v('arms') + muscle * (muscle > 0 ? 0.25 : 0.6) + weight * 0.4,
+    neck: v('neck') + muscle * (muscle > 0 ? 0.25 : 0.5) + weight * 0.3 + h * 1.2,
     waist: v('waist') + weight * 0.7 - muscle * 0.1,
     belly: v('belly') + weight * 0.8,
     hips: v('hips') + weight * 0.45,
-    glutes: v('glutes') + weight * 0.35 + muscle * 0.2,
-    legs: v('legs') + muscle * 0.45 + weight * 0.45,
+    glutes: v('glutes') + weight * 0.35 + muscle * (muscle > 0 ? 0.08 : 0.2),
+    legs: v('legs') + muscle * (muscle > 0 ? 0.15 : 0.45) + weight * 0.45,
   };
 }
 
@@ -98,7 +99,9 @@ export function bodyMorph(shape: BodyShape, a: Pick<Appearance, 'body' | 'heavy'
   const H = heavyValue(a);
   // Голова у полных крупнее (масштаб вокруг шарнира шеи) — верх шеи расширяется так же.
   const seamK = headFatScale(faceFat(a)) - 1;
-  if (H <= 0 && seamK <= 0 && parts.every((k) => Math.abs(m[k]) < 1e-3)) return null;
+  // Атлетичность: мышцы сверх нуля — по форме атлетичной модели MakeHuman.
+  const MU = Math.max(0, m.muscle);
+  if (H <= 0 && MU <= 0 && seamK <= 0 && parts.every((k) => Math.abs(m[k]) < 1e-3)) return null;
   const L = landmarks(shape.figure);
   const female = shape.figure === 'female';
   // Рука до кончиков пальцев: кисть — часть сетки тела и движется вместе с рукой.
@@ -218,6 +221,10 @@ export function bodyMorph(shape: BodyShape, a: Pick<Appearance, 'body' | 'heavy'
     p.x += d.x * sx;
     p.y += d.y;
     p.z += d.z;
+    if (MU > 0) {
+      fatShift(shape.figure, loc.set(p.x - d.x * sx, p.y - d.y, p.z - d.z), armShare, fd, 'muscle');
+      p.addScaledVector(fd, MU * MUSCLE_GAIN * smooth(NECK_WORLD - 0.015, NECK_WORLD - 0.09, loc.y));
+    }
     if (H > 0) {
       // Сильная полнота — форма полной модели MakeHuman (сдвиги вершин, усиленные под степень
       // полноты). У шва шеи сдвиг сходит на нет (голова отдельно), под одеждой тело чуть тоньше.
@@ -227,7 +234,7 @@ export function bodyMorph(shape: BodyShape, a: Pick<Appearance, 'body' | 'heavy'
       p.addScaledVector(fd, k);
     }
   };
-  if (H > 0) f.armSmooth = 28;
+  if (H > 0 || MU > 0) f.armSmooth = 28;
   return f;
 }
 
@@ -279,6 +286,8 @@ function smoothOnMesh(geo: THREE.BufferGeometry, val: Float32Array, iter: number
 
 /** Во сколько раз усилить сдвиги полной модели MakeHuman у самого полного ученика. */
 const FAT_GAIN = 3.6;
+/** Во сколько раз усилить сдвиги атлетичной модели при мышцах = 1. */
+const MUSCLE_GAIN = 2.1;
 const fd = new THREE.Vector3();
 /** На сколько (рад) скелет отводит руки от боков у самого полного (Rig.armOut). */
 export const HEAVY_ARM_OUT = 0.4;
