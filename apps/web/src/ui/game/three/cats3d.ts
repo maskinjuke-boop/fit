@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import type { CatBreed } from '../../../game/lifeTypes';
+import { buildGlbCat, catModelReady, type CatPoseParams } from './catGlb';
 import { catEye, earGeometry, EYE, headGeometry, LID_CLOSED, LID_OPEN, limbGeometry, torsoGeometry } from './catModel';
 import { taperTube } from './kit';
 import { mergeGeometries } from './sdf';
@@ -115,7 +116,7 @@ export interface CatLookOpts {
 }
 
 /** Ключ внешности: пересобрать модель, если поменялся. */
-export const catLookKey = (breed: CatBreed, o: CatLookOpts = {}): string => `${breed}|${o.mix ?? ''}|${Math.round((o.grow ?? 1) * 10)}`;
+export const catLookKey = (breed: CatBreed, o: CatLookOpts = {}): string => `${breed}|${o.mix ?? ''}|${Math.round((o.grow ?? 1) * 10)}|${catModelReady() ? 'm' : 'p'}`;
 
 interface Leg {
   pivot: THREE.Group;
@@ -130,7 +131,7 @@ export interface Cat3D {
   /** Ключ внешности (порода, помесь, рост). */
   key: string;
   body: THREE.Group;
-  head: THREE.Group;
+  head: THREE.Object3D;
   legs: Leg[];
   tail: THREE.Group[];
   eyes: THREE.Object3D[];
@@ -140,6 +141,8 @@ export interface Cat3D {
   legLen: number;
   /** Текущие параметры позы (для плавных переходов). */
   pose: Pose;
+  /** У реалистичной модели — поза через скелет (вместо групп прежней модели). */
+  apply?: (p: CatPoseParams, t: number, mode?: string) => void;
 }
 
 interface Pose {
@@ -269,6 +272,16 @@ export function buildCat(breed: CatBreed, seed = 1, opts: CatLookOpts = {}): Cat
   const grow = Math.max(0.42, Math.min(1, opts.grow ?? 1));
   // Котёнок: голова, глаза и уши крупнее относительно тела, хвост короче, шерсть пушистее.
   const young = (1 - grow) / 0.58;
+  // Реалистичная модель (если загружена): окрас породы на шерсти модели, позы через скелет.
+  if (catModelReady()) {
+    const key = catLookKey(breed, { mix, grow });
+    const g = buildGlbCat(look, key, seed, grow, young, breed === 'ginger' && !mix);
+    if (g) {
+      const cat: Cat3D = { root: g.root, breed, key, body: g.body, head: g.head, legs: [], tail: [], eyes: [], lids: [], legLen: 1 - 0.1 * young, pose: restPose(), apply: g.apply };
+      poseCat(cat, 'idle', 0, 0, 1);
+      return cat;
+    }
+  }
   const darkCoat = new THREE.Color(look.base).getHSL({ h: 0, s: 0, l: 0 }).l < 0.15;
   const fur = new THREE.MeshPhysicalMaterial({
     vertexColors: true,
@@ -736,7 +749,7 @@ export function poseCat(cat: Cat3D, mode: CatMode, t: number, speed: number, ble
     p.legs[i]![0] = mix(p.legs[i]![0], goal.legs[i]![0], legK);
     p.legs[i]![1] = mix(p.legs[i]![1], goal.legs[i]![1], legK);
   }
-  for (let i = 0; i < cat.tail.length; i += 1) {
+  for (let i = 0; i < p.tail.length; i += 1) {
     p.tail[i]![0] = mix(p.tail[i]![0], goal.tail[i]![0], k);
     p.tail[i]![1] = mix(p.tail[i]![1], goal.tail[i]![1], k);
   }
@@ -744,6 +757,13 @@ export function poseCat(cat: Cat3D, mode: CatMode, t: number, speed: number, ble
   const buzz = p.purr * 0.006 * Math.sin(t * 90);
   // Короткие лапки котёнка: стоя корпус ниже (лёжа и сидя опора — живот и таз, высота та же).
   const drop = (1 - cat.legLen) * 0.165 * Math.min(1, Math.max(0, (p.hipY - 0.09) / 0.085));
+  if (cat.apply) {
+    const hipY = p.hipY;
+    p.hipY = hipY - drop;
+    cat.apply(p, t, mode);
+    p.hipY = hipY;
+    return;
+  }
   cat.body.position.set(0, p.hipY - drop + buzz * 0.3, p.hipZ);
   cat.body.rotation.set(p.pitch, 0, p.roll);
   cat.body.scale.set(1 + p.breath * 0.012 + buzz, 1 + p.breath * 0.02 + buzz, 1);

@@ -7,6 +7,7 @@ import { buildCharacter, buildItemModel, disposeObject, garmentsFor, iconFigure,
 import { loadHairTexture } from './hairMesh';
 import { createStudio, enableShadows, setupRenderer, type Studio } from './studio';
 import { buildCat, poseCat } from './cats3d';
+import { loadCatModel } from './catGlb';
 import { objectModel, ticksOf } from './homeModels';
 import type { CatBreed, ObjectId } from '../../../game/lifeTypes';
 
@@ -227,7 +228,7 @@ export function renderHome(id: ObjectId, size = 192): Promise<string> {
 
 /** Портрет кошки породы breed (сидит вполоборота). */
 export function renderCat(breed: CatBreed, size = 192, mix?: CatBreed, grow = 1): Promise<string> {
-  return enqueue(() => {
+  return loadCatModel().then(() => enqueue(() => {
     const { studio: st } = ensure();
     const cat = buildCat(breed, 3, { mix, grow });
     for (let i = 0; i < 30; i += 1) poseCat(cat, 'sit', 2.2, 0, 0.35, 0.4);
@@ -243,5 +244,5 @@ export function renderCat(breed: CatBreed, size = 192, mix?: CatBreed, grow = 1)
       st.scene.remove(cat.root);
       disposeObject(cat.root);
     }
-  }, 1);
+  }, 1));
 }

@@ -277,6 +277,7 @@ function CatShop({ state }: { state: GameState }) {
           );
         })}
       </ul>
+      <p className="muted small">{t('cats.credit')}</p>
     </>
   );
 }

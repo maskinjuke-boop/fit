@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { PETS, dist, resolve, type Box, type P2, type Placed } from '../../../game/lifeMap';
 import type { CatBreed, ObjectId } from '../../../game/lifeTypes';
 import { buildCat, buildToy, catLookKey, poseCat, type Cat3D, type CatMode } from './cats3d';
+import { loadCatModel } from './catGlb';
 import { disposeObject } from './kit';
 import type { Motion } from './rig';
 
@@ -145,6 +146,8 @@ const LAND = 0.16;
 
 /** Кошки дома: parent — куда добавлять модели, shadow — тень под кошкой. */
 export function createCatLife(parent: THREE.Object3D, shadow: () => THREE.Object3D) {
+  // Реалистичная модель грузится в фоне; когда готова, кошки пересобираются (меняется ключ внешности).
+  void loadCatModel();
   const cats = new Map<string, CatAI>();
   const toys: Toy[] = [];
   let a = 12345;
