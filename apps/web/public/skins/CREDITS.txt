@@ -1,0 +1,3 @@
+Skin textures (young light/dark skinned, female/male) — MakeHuman system assets (makehumancommunity.org),
+released under CC0 1.0 (see LICENSE.ASSETS.md in github.com/makehumancommunity/makehuman).
+Downscaled to 1024×1024 JPEG; tinted to the game's skin palette at runtime.

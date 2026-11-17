@@ -4,6 +4,7 @@ import { NECK_WORLD, type BodyShape } from './body';
 import { landmarks } from './bodyMesh';
 import { BONES } from './rig';
 import { fatShift } from './fatBody';
+import { weldedNormals } from './skinTex';
 
 /** Номера костей рук (плечо, предплечье, кисть) в скелете. */
 const ARM_BONES = new Set<number>(['l_upper', 'l_fore', 'l_hand', 'r_upper', 'r_fore', 'r_hand'].map((b) => (BONES as readonly string[]).indexOf(b)));
@@ -336,9 +337,11 @@ export function applyMorph(group: THREE.Object3D, morph: Morph, rigid: Array<{ o
     }
     pos.needsUpdate = true;
     if (geo.index && geo.getAttribute('color')) {
-      // Сетки тела и одежды гладкие — нормали пересчитываем по новой форме.
+      // Сетки тела и одежды гладкие — нормали пересчитываем по новой форме
+      // (у кожи с развёрткой вершины на швах раздвоены — нормали у них общие).
       geo.deleteAttribute('normal');
-      geo.computeVertexNormals();
+      if (geo.getAttribute('uv1')) weldedNormals(geo);
+      else geo.computeVertexNormals();
     }
     geo.computeBoundingSphere();
     if (me.geometry.userData.shared !== true) me.geometry.dispose();

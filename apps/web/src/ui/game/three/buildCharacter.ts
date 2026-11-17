@@ -11,6 +11,7 @@ import { applyMorph, bodyMorph, bodyValues, faceFat, headFatScale, HEAVY_ARM_OUT
 import { ICON_TILT, defaultPlan, heldModel, holdPose, holdQuaternion, type ItemCtx, type Outfit } from './items3d';
 import { M, mesh, retile, shade, texKind, v, type Anim, type Mat } from './kit';
 import { buildRig, prepareSkin, type Rig } from './rig';
+import { applySkinTexture } from './skinTex';
 
 export { disposeObject } from './kit';
 
@@ -136,6 +137,8 @@ export function buildCharacter(appearance: Appearance, color: string, equipped: 
   const torso = new THREE.Group();
   const bodySkin = M.skin(skinTone.base);
   bodySkin.vertexColors = true;
+  // Текстура кожи MakeHuman (если загружена): поры, оттенки, губы, ногти.
+  applySkinTexture(bodySkin, figure, skinTone.base);
   // Полоса шеи под краем головы начинается прямо от шва: тело чуть «отодвинуто» по глубине,
   // чтобы на шве всегда была видна голова (без мерцания полосы сквозь кожу).
   bodySkin.polygonOffset = true;

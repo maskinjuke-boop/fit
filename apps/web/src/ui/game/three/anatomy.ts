@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import type { Figure } from '../../../game/state';
 import { NECK_WORLD, TORSO_Y, bodyShape, type BodyShape } from './body';
 import { bodyFistDeltas, bodyRenderGeometry, bodySdf, bodySdfAsync, landmarks } from './bodyMesh';
+import { weldedNormals } from './skinTex';
 export { landmarks };
 import { loadMesh, saveMesh } from './meshStore';
 import { ellipsoid, netsGen, polyline, runSliced, smax, type Field, type MeshOptions, type V3 } from './sdf';
@@ -181,12 +182,26 @@ export function fistMorph(figure: Figure, grips: readonly [boolean, boolean]): F
   const pos = geo.getAttribute('position').array as Float32Array;
   const n0 = geo.getAttribute('normal');
   const index = geo.index!;
-  const [dr, dl] = bodyFistDeltas(figure, grips);
+  const [dr0, dl0] = bodyFistDeltas(figure, grips);
+  // Сетка тела раздвоена на швах развёртки: сдвиги — по исходным вершинам.
+  const src = geo.userData.src as Uint32Array | undefined;
+  const remap = (d: Float32Array): Float32Array => {
+    if (!src) return d;
+    const out = new Float32Array(src.length * 3);
+    for (let i = 0; i < src.length; i += 1) {
+      out[i * 3] = d[src[i]! * 3]!;
+      out[i * 3 + 1] = d[src[i]! * 3 + 1]!;
+      out[i * 3 + 2] = d[src[i]! * 3 + 2]!;
+    }
+    return out;
+  };
+  const dr = remap(dr0);
+  const dl = remap(dl0);
   const fist = Float32Array.from(pos, (v, i) => v + dr[i]! + dl[i]!);
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.BufferAttribute(fist, 3));
   g.setIndex(index);
-  g.computeVertexNormals();
+  weldedNormals(g);
   const n1 = g.getAttribute('normal');
   // Вершины, которые двигаются, и их соседи — у них меняется нормаль.
   const n = pos.length / 3;

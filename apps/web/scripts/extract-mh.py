@@ -1,7 +1,8 @@
 """Извлекает голову и тело из базовой модели MakeHuman (CC0) для игры.
 Обе части берутся из одной и той же модели, поэтому стыкуются по шее без шва.
 Тело ставится в игровую позу (руки опущены) по скелету MakeHuman (веса — тоже CC0).
-Ещё пишет fatData.ts — сдвиги вершин тела к полной фигуре (MakeHuman maxweight).
+Ещё пишет fatData.ts и (если задан BROWS_SRC — папка base/eyebrows ассетов MakeHuman) browData.ts;
+fatData.ts — сдвиги вершин тела к полной фигуре (MakeHuman maxweight).
 Запуск: MH_DATA=<makehuman/data> python3 extract-mh.py <dir with headData.ts/bodyData.ts>"""
 import numpy as np, base64, json, sys, collections, os
 D = os.environ.get('MH_DATA', '/home/claude/makehumancommunity/makehuman/makehuman/data')
@@ -302,6 +303,55 @@ for g in ('female','male'):
 with open(f'{OUT}/bodyData.ts','w') as fo:
     fo.write(HDR+'export const BODY_DATA = '+json.dumps(body,separators=(',',':'))+' as const;\n')
 print('sizes',os.path.getsize(f'{OUT}/headData.ts'),os.path.getsize(f'{OUT}/bodyData.ts'))
+
+# ── Брови ── (системные брови MakeHuman, CC0: карточки с текстурой волосков, привязка .mhclo к базовой сетке)
+BROWS_SRC = os.environ.get('BROWS_SRC')   # папка makehuman assets base/eyebrows
+if BROWS_SRC:
+    brows = {}
+    for name in ('eyebrow001', 'eyebrow006', 'eyebrow010', 'eyebrow011'):
+        d = f'{BROWS_SRC}/{name}'
+        ov = []; ovt = []; ofc = []
+        for line in open(f'{d}/{name}.obj'):
+            if line.startswith('v '): ov.append([float(x) for x in line.split()[1:4]])
+            elif line.startswith('vt '): ovt.append([float(x) for x in line.split()[1:3]])
+            elif line.startswith('f '):
+                ofc.append([[int(x) - 1 for x in p.split('/')[:2]] for p in line.split()[1:]])
+        ref = []; wts = []; offs = []; scl = {}; mode = None
+        for line in open(f'{d}/{name}.mhclo'):
+            p = line.split()
+            if not p or p[0].startswith('#'): continue
+            if p[0] in ('x_scale', 'y_scale', 'z_scale'): scl[p[0][0]] = (int(p[1]), int(p[2]), float(p[3]))
+            elif p[0] == 'verts': mode = 'v'; continue
+            elif mode == 'v' and len(p) == 9:
+                ref.append([int(x) for x in p[:3]]); wts.append([float(x) for x in p[3:6]]); offs.append([float(x) for x in p[6:9]])
+            elif mode == 'v' and len(p) == 1:
+                ref.append([int(p[0])] * 3); wts.append([1, 0, 0]); offs.append([0, 0, 0])
+            elif mode == 'v' and not p[0].lstrip('-').isdigit(): continue
+        ref = np.array(ref); wts = np.array(wts); offs = np.array(offs)
+        # Вершины с развёрткой (пары вершина/uv), треугольники.
+        pairs = {}; vi = []; ui = []; nt = []
+        for f in ofc:
+            q = []
+            for v_, t_ in f:
+                k = (v_, t_)
+                if k not in pairs: pairs[k] = len(vi); vi.append(v_); ui.append(t_)
+                q.append(pairs[k])
+            nt.append([q[0], q[1], q[2]])
+            if len(q) == 4: nt.append([q[0], q[2], q[3]])
+        vi = np.array(vi); ui = np.array(ui)
+        ent = {'tris': b64(np.array(nt, dtype='<u2')), 'uv': b64(np.round(np.clip(np.array(ovt)[ui], 0, 1) * 65535).astype('<u2'))}
+        for g in ('female', 'male'):
+            v = V[g]
+            sc = np.array([abs(v[scl[k][0]][i] - v[scl[k][1]][i]) / scl[k][2] for i, k in enumerate('xyz')])
+            P = (wts[:, :, None] * v[ref]).sum(1) + offs * sc
+            Q = (headTf(g, P) - np.array([0, HEAD_Y, 0]))[vi]
+            HQ = headTf(g, v[hUsed]) - np.array([0, HEAD_Y, 0])
+            near = ((Q[:, None, :] - HQ[None, :, :]) ** 2).sum(2).argmin(1)
+            ent[g] = {'pos': b64(q16(Q, 1.0)), 'near': b64(near.astype('<u2'))}
+        brows[name] = ent
+        print('brows', name, 'verts', len(vi), 'tris', len(nt))
+    with open(f'{OUT}/browData.ts', 'w') as fo:
+        fo.write(HDR.replace('базовой модели MakeHuman', 'системных бровей MakeHuman') + 'export const BROW_DATA = ' + json.dumps(brows, separators=(',', ':')) + ' as const;\n')
 
 # ── Полная фигура: та же модель MakeHuman с максимальным весом (macrodetails maxweight) ──
 def fatV(g):

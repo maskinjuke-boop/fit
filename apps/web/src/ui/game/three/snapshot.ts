@@ -5,6 +5,7 @@ import { prepare } from './anatomy';
 import { HEAD_CENTER_WORLD, HEAD_GROW } from './body';
 import { buildCharacter, buildItemModel, disposeObject, garmentsFor, iconFigure, itemGarments } from './buildCharacter';
 import { loadHairTexture } from './hairMesh';
+import { loadSkinTextures } from './skinTex';
 import { createStudio, enableShadows, setupRenderer, type Studio } from './studio';
 import { buildCat, poseCat } from './cats3d';
 import { loadCatModel } from './catGlb';
@@ -179,7 +180,7 @@ export async function renderItem(id: string, color: string, figure: Figure, size
 
 /** Портрет героя по пояс для шапки и списков. */
 export async function renderPortrait(appearance: Appearance, color: string, equipped: Partial<Record<Slot, string>>, size = 160): Promise<string> {
-  await Promise.all([prepare(appearance.figure, garmentsFor(appearance.figure, equipped)), loadHairTexture(appearance.hair)]);
+  await Promise.all([prepare(appearance.figure, garmentsFor(appearance.figure, equipped)), loadHairTexture(appearance.hair), loadSkinTextures()]);
   return enqueue(() => {
     const { studio: st } = ensure();
     const parts = buildCharacter(appearance, color, equipped);

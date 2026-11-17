@@ -5,6 +5,8 @@ import { M, mat, mesh, shade, taperTube, tex, v } from './kit';
 import { mergeGeometries } from './sdf';
 import { applyRingNormals, eyeAnchor, eyeScale, headRing, headPositions, headTris, lipWeights, loopSubdivide, mouthAnchor, rayRadiusTable } from './headMesh';
 import { strands } from './strands';
+import { browFor, browMesh } from './brows';
+import { applySkinTexture, baseCornerUv, skinTexturesReady, splitByUv, subdivCornerUv } from './skinTex';
 
 /**
  * Голова — готовая модель MakeHuman (CC0, см. headMesh): форма черепа, лицо, нос, губы и уши.
@@ -137,7 +139,7 @@ const skullCache = new Map<string, THREE.BufferGeometry>();
 function skullGeometry(female: boolean, blush: number): THREE.BufferGeometry {
   // Изменённое ползунками лицо строится для каждого героя отдельно (и освобождается вместе с ним).
   if (!faceNeutral()) return buildSkull(female, blush);
-  const key = `${female}|${blush}`;
+  const key = `${female}|${blush}|${skinTexturesReady()}`;
   let g = skullCache.get(key);
   if (!g) {
     g = buildSkull(female, blush);
@@ -164,6 +166,7 @@ function buildSkull(female: boolean, blush: number): THREE.BufferGeometry {
   // Цвет вершин (множитель к цвету кожи): румянец на щеках, тень в глазницах, губы.
   const { c: eye } = eyeAnchor(female);
   const lipTint = female ? [0.84, 0.5, 0.58] : [0.9, 0.7, 0.68];
+  const textured = skinTexturesReady();
   const colors = new Float32Array(pos.length);
   for (let i = 0; i < pos.length / 3; i += 1) {
     const x = pos[i * 3]!;
@@ -172,13 +175,17 @@ function buildSkull(female: boolean, blush: number): THREE.BufferGeometry {
     const front = smooth(0.06, 0.14, z);
     const cheek = Math.max(g2(x, y, eye.x, -0.062, 0.035, 0.028), g2(x, y, -eye.x, -0.062, 0.035, 0.028)) * blush * front;
     const socket = Math.max(g2(x, y, eye.x, eye.y + 0.012, 0.036, 0.026), g2(x, y, -eye.x, eye.y + 0.012, 0.036, 0.026)) * 0.07 * front;
-    const l = smooth(0.25, 0.75, lip[i]!);
+    // С текстурой кожи губы уже окрашены — оттенок слабее.
+    const l = smooth(0.25, 0.75, lip[i]!) * (textured ? 0.3 : 1);
     colors[i * 3] = (1 - socket * 0.5) * (1 + (lipTint[0]! - 1) * l);
     colors[i * 3 + 1] = (1 - cheek * 0.16 - socket) * (1 + (lipTint[1]! - 1) * l);
     colors[i * 3 + 2] = (1 - cheek * 0.14 - socket * 0.9) * (1 + (lipTint[2]! - 1) * l);
   }
   geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-  return geo;
+  // Развёртка MakeHuman (текстура кожи): на швах — свои вершины.
+  const out = splitByUv(geo, subdivCornerUv(baseCornerUv('head', headTris())));
+  geo.dispose();
+  return out;
 }
 
 /**
@@ -333,6 +340,7 @@ export function buildHead(figure: Figure, skinBase: string, _skinShade: string, 
 
   const headMat = M.skin(skinBase);
   headMat.vertexColors = true;
+  applySkinTexture(headMat, figure, skinBase);
   const skull = skullGeometry(female, female ? 1 : 0.35);
   group.add(mesh(skull, headMat, [0, HEAD_Y, 0]));
 
@@ -348,9 +356,14 @@ export function buildHead(figure: Figure, skinBase: string, _skinShade: string, 
     if (lg) group.add(mesh(lg, lashM, [0, HEAD_Y, 0]));
   }
 
-  // Брови вдоль надбровной дуги.
+  // Брови: готовые брови MakeHuman (карточки волосков), без текстуры — трубки вдоль надбровной дуги.
+  const mhBrow = browMesh(browFor(female, F.brows), female, F, FAT, hair);
+  if (mhBrow) {
+    mhBrow.position.y = HEAD_Y;
+    group.add(mhBrow);
+  }
   const browM = M.hair(hair, 1);
-  for (const sx of [-1, 1]) {
+  for (const sx of mhBrow ? [] : [-1, 1]) {
     const pts = (female
       ? [
           [0.028, 0.038],

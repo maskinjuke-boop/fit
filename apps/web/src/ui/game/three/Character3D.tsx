@@ -7,6 +7,7 @@ import { isPrepared, prepare } from './anatomy';
 import { HEAD_CENTER_WORLD, HEAD_GROW } from './body';
 import { buildCharacter, disposeObject, garmentsFor, type CharacterParts } from './buildCharacter';
 import { hairTexture, loadHairTexture } from './hairMesh';
+import { loadSkinTextures, skinTexturesReady } from './skinTex';
 import { createStudio, enableShadows, setupRenderer } from './studio';
 
 /** Мягкая тень под ногами — текстура с радиальным градиентом вместо теневых карт (дёшево для телефонов). */
@@ -255,13 +256,13 @@ export default function Character3D({ color, appearance, equipped, height = 260,
       if (alive) api.current?.setCharacter(buildCharacter(appearance, color, equipped), color);
     };
     let timer = 0;
-    if (isPrepared(appearance.figure, garments) && hairTexture(appearance.hair)) {
+    if (isPrepared(appearance.figure, garments) && hairTexture(appearance.hair) && skinTexturesReady()) {
       setSculpting(false);
       // Ползунки меняют внешность много раз в секунду — пересобираем героя чуть позже, один раз.
       timer = window.setTimeout(apply, 40);
     } else {
       setSculpting(true);
-      void Promise.all([prepare(appearance.figure, garments), loadHairTexture(appearance.hair)]).then(() => {
+      void Promise.all([prepare(appearance.figure, garments), loadHairTexture(appearance.hair), loadSkinTextures()]).then(() => {
         if (!alive) return;
         setSculpting(false);
         apply();

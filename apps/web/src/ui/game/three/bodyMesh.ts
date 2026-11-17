@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import type { Figure } from '../../../game/state';
 import { BODY_DATA } from './bodyData';
 import { applyRingNormals, headRing, loopSubdivide } from './headMesh';
+import { baseCornerUv, splitByUv, subdivCornerUv } from './skinTex';
 
 /**
  * Тело — готовая модель MakeHuman (makehumancommunity.org, CC0) в игровой позе (руки опущены),
@@ -182,8 +183,11 @@ export function bodyRenderGeometry(figure: Figure, ao?: (x: number, y: number, z
   }
   geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
   geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
-  geo.computeBoundingSphere();
-  return geo;
+  // Развёртка MakeHuman (для текстуры кожи): делится вместе с сеткой, на швах — свои вершины.
+  const out = splitByUv(geo, subdivCornerUv(baseCornerUv('body', all)));
+  geo.dispose();
+  out.computeBoundingSphere();
+  return out;
 }
 
 // ─── Поле расстояний ──────────────────────────────────────────────────
