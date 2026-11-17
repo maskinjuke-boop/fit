@@ -1,5 +1,8 @@
 import * as THREE from 'three';
 import type { CatBreed } from '../../../game/lifeTypes';
+import { catEye, earGeometry, EYE, headGeometry, LID_CLOSED, LID_OPEN, limbGeometry, torsoGeometry } from './catModel';
+import { taperTube } from './kit';
+import { mergeGeometries } from './sdf';
 
 /**
  * Кошки разных пород: модель из сглаженных примитивов с окраской по вершинам
@@ -131,6 +134,8 @@ export interface Cat3D {
   legs: Leg[];
   tail: THREE.Group[];
   eyes: THREE.Object3D[];
+  /** Верхние веки (моргание). */
+  lids: THREE.Object3D[];
   /** Доля длины лап (у котёнка лапки короче — корпус ниже над полом). */
   legLen: number;
   /** Текущие параметры позы (для плавных переходов). */
@@ -189,6 +194,8 @@ function paint(root: THREE.Object3D, head: THREE.Object3D, look: Look, seed: num
       hp.fromBufferAttribute(pos, i).applyMatrix4(toHead);
       const { x, y, z } = tmp;
       c.copy(base);
+      // Подушечки усов и нос спереди морды (светлые у белогрудых, тёмные у сиамских).
+      const pads = part === 'head' ? sstep(0.082, 0.1, hp.z) * sstep(0.052, 0.04, hp.y) : 0;
       if (look.pattern === 'tabby') {
         // Поперечные полосы по спине и бокам, «М» на лбу, кольца на хвосте.
         let s = 0;
@@ -215,22 +222,25 @@ function paint(root: THREE.Object3D, head: THREE.Object3D, look: Look, seed: num
         if (part === 'ear') p = 1;
         if (part === 'tail') p = Math.min(1, 0.4 + (m.userData.seg as number) * 0.15);
         if (part === 'leg') p = sstep(0.17, 0.07, y);
-        if (part === 'head') p = sstep(0.035, 0.1, hp.z);
+        if (part === 'head') p = Math.max(sstep(0.035, 0.1, hp.z), pads);
         if (part === 'muzzle') p = 1;
         c.lerp(dark, p);
       } else {
-        c.lerp(dark, Math.max(0, Math.sin(x * 70 + z * 40) * 0.07));
+        c.lerp(dark, Math.max(0, Math.sin(x * 23 + z * 17) * 0.06));
       }
       // Белая грудка, живот и «носочки».
       if (look.white > 0) {
         const chest = part === 'body' ? Math.max(sstep(0.05, 0.11, z) * sstep(0.26, 0.21, y), sstep(0.135, 0.105, y)) : 0;
         const socks = part === 'leg' ? sstep(0.075, 0.045, y) : 0;
-        const muzzle = part === 'muzzle' ? 1 : part === 'head' ? sstep(0.045, 0.028, hp.y) * sstep(0.035, 0.065, hp.z) : 0;
+        const muzzle = part === 'muzzle' ? 1 : part === 'head' ? Math.max(sstep(0.045, 0.028, hp.y) * sstep(0.035, 0.065, hp.z), pads) : 0;
         c.lerp(light, Math.max(chest, socks, muzzle) * look.white);
       }
-      if (part === 'ear' && m.userData.inner) c.set('#e9a3a3');
+      const inner = m.geometry.getAttribute('inner');
+      if (part === 'ear' && inner) c.lerp(new THREE.Color(look.hairless ? '#d99b8f' : '#e6a3a1'), inner.getX(i));
       // Лёгкая неровность меха.
-      const n = Math.sin(x * 431 + y * 173 + z * 289 + seed) * 0.035;
+      // Случайная по вершине (без периода — на частой сетке нет муара «колец»).
+      const hh = Math.sin(x * 1271.1 + y * 3117.7 + z * 747.3 + seed * 13.1) * 43758.5453;
+      const n = (hh - Math.floor(hh) - 0.5) * 0.06;
       // Низ (подбородок, щёки снизу, живот) чуть светлее: мягкий мех рассеивает свет, и снизу
       // нет резкой тёмной «каймы» (например, «ошейника» под головой).
       const down = nor ? Math.max(0, -hp.copy(tmp.fromBufferAttribute(nor, i)).applyMatrix3(nm).normalize().y) : 0;
@@ -247,15 +257,6 @@ function blob(r: number, sx: number, sy: number, sz: number, m: THREE.Material, 
   const me = new THREE.Mesh(new THREE.SphereGeometry(r, 22, 16), m);
   me.scale.set(sx, sy, sz);
   me.position.set(...pos);
-  me.userData.part = part;
-  me.castShadow = true;
-  return me;
-}
-
-function stick(r0: number, r1: number, len: number, m: THREE.Material, part: string): THREE.Mesh {
-  const g = new THREE.CylinderGeometry(r1, r0, len, 12, 5);
-  g.translate(0, -len / 2, 0);
-  const me = new THREE.Mesh(g, m);
   me.userData.part = part;
   me.castShadow = true;
   return me;
@@ -286,23 +287,14 @@ export function buildCat(breed: CatBreed, seed = 1, opts: CatLookOpts = {}): Cat
   const body = new THREE.Group();
   body.position.set(0, 0.175, -0.13);
   scaleRoot.add(body);
-  // Корпус — одна гладкая капсула, грудь и бёдра чуть шире.
   // У котёнка корпус короче и круглее, лапки толще.
   const len = 1 - 0.14 * young;
   const chub = 1 + 0.08 * young;
-  // Средняя часть с рядами вершин вдоль корпуса — иначе полоски и пятна (окраска по вершинам) не видны.
-  const torsoGeo = new THREE.CapsuleGeometry(0.095, 0.2, 10, 22, 12);
-  torsoGeo.rotateX(Math.PI / 2);
-  const torso = new THREE.Mesh(torsoGeo, fur);
-  torso.scale.set(1.05 * F * chub, 1.0 * F * chub, len);
-  torso.position.set(0, 0.01, 0.13 * len);
+  // Цельный вылепленный корпус: круп, живот, грудь, лопатки и шея без швов.
+  const torso = new THREE.Mesh(torsoGeometry(F, chub, len), fur);
   torso.userData.part = 'body';
   torso.castShadow = true;
   body.add(torso);
-  body.add(blob(0.1, 1.0 * F * chub, 1.06 * F * chub, 0.95, fur, 'body', [0, 0.018, 0.25 * len]));
-  if (look.fluff > 1.15) body.add(blob(0.1, 1.15 * F, 1.05 * F, 0.8, fur, 'body', [0, 0.04, 0.31 * len]));
-  // Шея: плавный переход от груди к голове (без тёмной «щели» под головой).
-  body.add(blob(0.058, 1.05 * F, 1.0 * F, 1.05, fur, 'body', [0, 0.07, 0.315 * len]));
 
   // Голова.
   const head = new THREE.Group();
@@ -310,76 +302,83 @@ export function buildCat(breed: CatBreed, seed = 1, opts: CatLookOpts = {}): Cat
   body.add(head);
   const hs = ((HEAD[breed] ?? 1) + (HEAD[mix ?? breed] ?? 1)) / 2;
   head.scale.setScalar(1 + young * 0.42);
-  head.add(blob(0.075, 1.08 * hs, 0.95 * hs, 1.0 * hs, fur, 'head', [0, 0.06, 0.03]));
-  head.add(blob(0.04, 1.35 * hs, 0.9 * hs, 1, fur, 'head', [0.032, 0.035, 0.07]), blob(0.04, 1.35 * hs, 0.9 * hs, 1, fur, 'head', [-0.032, 0.035, 0.07]));
-  head.add(blob(0.034, 1.25, 0.85, look.flat ? 0.55 : 1.0, fur, 'muzzle', [0, 0.032, look.flat ? 0.098 : 0.1]));
-  // Горло под головой (двигается с ней): закрывает тёмный низ шара головы — нет «ошейника».
-  head.add(blob(0.046, 1.2 * hs, 0.9, 1.0, fur, 'head', [0, 0.02, 0.0]));
-  // Нижняя челюсть и подбородок: сглаживают глубокую тёмную складку под щеками.
-  head.add(blob(0.042, 1.45 * hs, 0.72, 1.0, fur, 'muzzle', [0, 0.014, 0.06]));
-  const nose = new THREE.Mesh(new THREE.SphereGeometry(0.011, 10, 8), new THREE.MeshStandardMaterial({ color: darkCoat ? '#2b2b2b' : '#d98a8a', roughness: 0.5 }));
-  nose.position.set(0, 0.05, look.flat ? 0.118 : 0.132);
-  nose.scale.set(1.2, 0.8, 0.8);
+  // Морда — одна вылепленная сетка (череп, скулы, подушечки усов, подбородок, глазницы).
+  const skull = new THREE.Mesh(headGeometry(look.flat), fur);
+  skull.scale.setScalar(hs);
+  skull.userData.part = 'head';
+  // Тень головы на грудь читается как тёмный «ошейник» — голова тень не отбрасывает.
+  skull.castShadow = false;
+  head.add(skull);
+  const mz = look.flat ? 0.82 : 1;
+  // Нос — треугольная мочка.
+  const noseGeo = new THREE.SphereGeometry(0.0115, 14, 10);
+  noseGeo.scale(1.25, 0.72, 0.75);
+  const nose = new THREE.Mesh(noseGeo, new THREE.MeshPhysicalMaterial({ color: darkCoat ? '#2b2626' : look.hairless ? '#c98a84' : '#d98585', roughness: 0.35, clearcoat: 0.5 }));
+  nose.position.set(0, 0.049 * hs, (0.119 * mz + 0.004) * hs);
+  nose.rotation.x = -0.35;
   head.add(nose);
-  // Глаза: радужка и вертикальный зрачок.
+  // Рот: от носа вниз и в стороны («перевёрнутая Y»).
+  const mouthM = new THREE.MeshStandardMaterial({ color: darkCoat ? '#0b0b0b' : '#4a302b', roughness: 0.7 });
+  const mp = (x: number, y: number, z: number): THREE.Vector3 => new THREE.Vector3(x * hs, y * hs, z * mz * hs);
+  const mouth = mergeGeometries([
+    taperTube(new THREE.CatmullRomCurve3([mp(0, 0.042, 0.121), mp(0, 0.033, 0.119)]), 0.0011, 0.0011, 4, 5),
+    taperTube(new THREE.CatmullRomCurve3([mp(0, 0.033, 0.119), mp(0.007, 0.029, 0.117), mp(0.016, 0.03, 0.111)]), 0.0011, 0.0006, 8, 5),
+    taperTube(new THREE.CatmullRomCurve3([mp(0, 0.033, 0.119), mp(-0.007, 0.029, 0.117), mp(-0.016, 0.03, 0.111)]), 0.0011, 0.0006, 8, 5),
+  ]);
+  const mouthMesh = new THREE.Mesh(mouth, mouthM);
+  mouthMesh.userData.keepColor = true;
+  head.add(mouthMesh);
+  // Глаза: крупные, с радужкой во весь глаз, вертикальным зрачком (у котят — круглее), блеском и веком.
   const eyes: THREE.Object3D[] = [];
-  const eyeBig = 1 + young * 0.25;
-  const eyeMat = new THREE.MeshPhysicalMaterial({ color: look.eyes, roughness: 0.08, clearcoat: 1, emissive: new THREE.Color(look.eyes), emissiveIntensity: 0.18 });
-  const pupilMat = new THREE.MeshStandardMaterial({ color: '#050505', roughness: 0.2 });
+  const lids: THREE.Object3D[] = [];
+  const eyeBig = 1 + young * 0.22;
   for (const sx of [-1, 1]) {
-    const eye = new THREE.Group();
-    eye.position.set(sx * 0.033 * hs, 0.075 * hs, 0.088 * hs);
-    eye.rotation.y = sx * 0.35;
-    const ball = new THREE.Mesh(new THREE.SphereGeometry(0.017, 14, 10), eyeMat);
-    ball.scale.set(eyeBig, 0.85 * eyeBig, 0.6);
-    ball.userData.keepColor = true;
-    const pupil = new THREE.Mesh(new THREE.SphereGeometry(0.0172, 10, 8), pupilMat);
-    // У котят зрачки круглее.
-    pupil.scale.set((0.25 + young * 0.35) * eyeBig, 0.8 * eyeBig, 0.62);
-    pupil.position.z = 0.0012;
-    pupil.userData.keepColor = true;
-    eye.add(ball, pupil);
-    head.add(eye);
-    eyes.push(eye);
+    const e = catEye(look.eyes, Math.min(1, young * 0.8), EYE.r * eyeBig, fur);
+    e.group.position.set(sx * EYE.x * hs, EYE.y * hs, EYE.z * mz * hs);
+    e.group.rotation.set(-0.05, sx * 0.32, 0);
+    e.group.scale.setScalar(hs);
+    head.add(e.group);
+    eyes.push(e.group);
+    lids.push(e.lid);
   }
-  // Уши.
-  const earScale = look.ears === 'big' ? 1.45 : look.ears === 'fold' ? 0.75 : 1;
+  // Уши: изогнутая раковина с розовой внутренней стороной.
+  const earScale = look.ears === 'big' ? 1.42 : look.ears === 'fold' ? 0.72 : 1;
+  const earFur = fur.clone();
+  earFur.side = THREE.DoubleSide;
   for (const sx of [-1, 1]) {
     const ear = new THREE.Group();
-    ear.position.set(sx * 0.045 * hs, 0.11 * hs, 0.02);
-    ear.rotation.set(look.ears === 'fold' ? 1.25 : -0.1, 0, -sx * 0.32);
-    const outer = new THREE.Mesh(new THREE.ConeGeometry(0.03 * earScale, 0.06 * earScale, 4, 1), fur);
-    outer.scale.set(1, 1, 0.45);
-    outer.rotation.y = Math.PI / 4;
-    outer.position.y = 0.025 * earScale;
+    ear.position.set(sx * 0.044 * hs, 0.108 * hs, 0.018);
+    ear.rotation.set(look.ears === 'fold' ? 1.25 : -0.12, sx * 0.25, -sx * 0.3);
+    const eh = 0.062 * earScale;
+    const outer = new THREE.Mesh(earGeometry(0.031 * earScale, eh), earFur);
     outer.userData.part = 'ear';
-    const inner = new THREE.Mesh(new THREE.ConeGeometry(0.02 * earScale, 0.045 * earScale, 3, 1), fur);
-    inner.scale.set(1, 1, 0.3);
-    inner.position.set(0, 0.022 * earScale, 0.006);
-    inner.userData.part = 'ear';
-    inner.userData.inner = true;
-    ear.add(outer, inner);
+    outer.castShadow = true;
+    ear.add(outer);
     if (look.ears === 'tufts') {
-      const tuft = new THREE.Mesh(new THREE.ConeGeometry(0.006, 0.035, 5), fur);
-      tuft.position.y = 0.07;
+      const tuft = new THREE.Mesh(new THREE.ConeGeometry(0.006, 0.035, 6), fur);
+      tuft.position.y = eh * 0.95 + 0.012;
       tuft.userData.part = 'ear';
       ear.add(tuft);
     }
     head.add(ear);
   }
-  // Усы.
+  // Усы: изогнутые тонкие волоски от подушечек.
   const wpos: number[] = [];
   for (const sx of [-1, 1]) {
-    for (let i = 0; i < 3; i += 1) {
-      wpos.push(sx * 0.03, 0.035 - i * 0.006, 0.11, sx * 0.11, 0.045 - i * 0.02, 0.09 - i * 0.01);
+    for (let i = 0; i < 4; i += 1) {
+      const y0 = 0.036 - i * 0.004;
+      const pts = [mp(sx * 0.022, y0, 0.108), mp(sx * 0.07, y0 + 0.004 - i * 0.008, 0.11 - i * 0.004), mp(sx * 0.115, y0 - 0.006 - i * 0.017, 0.098 - i * 0.012)];
+      const curve = new THREE.QuadraticBezierCurve3(pts[0]!, pts[1]!, pts[2]!);
+      const ps = curve.getPoints(6);
+      for (let k = 0; k < ps.length - 1; k += 1) wpos.push(ps[k]!.x, ps[k]!.y, ps[k]!.z, ps[k + 1]!.x, ps[k + 1]!.y, ps[k + 1]!.z);
     }
   }
   const wg = new THREE.BufferGeometry();
   wg.setAttribute('position', new THREE.Float32BufferAttribute(wpos, 3));
-  const whiskers = new THREE.LineSegments(wg, new THREE.LineBasicMaterial({ color: darkCoat ? '#777777' : '#f5f5f5', transparent: true, opacity: 0.8 }));
+  const whiskers = new THREE.LineSegments(wg, new THREE.LineBasicMaterial({ color: darkCoat ? '#8a8a8a' : '#f7f4ee', transparent: true, opacity: 0.85 }));
   head.add(whiskers);
 
-  // Лапы: у каждой бедро/плечо и нижнее звено с подушечкой.
+  // Лапы: у каждой бедро/плечо и нижнее звено с подушечкой; суставы скруглены.
   const legs: Leg[] = [];
   const legR = 0.026 * (0.9 + 0.1 * F) * (1 + 0.18 * young);
   const legLen = 1 - 0.16 * young;
@@ -388,14 +387,22 @@ export function buildCat(breed: CatBreed, seed = 1, opts: CatLookOpts = {}): Cat
       const pivot = new THREE.Group();
       pivot.position.set(side * 0.052 * F * chub, -0.01, front ? 0.27 * len : 0.02);
       const upLen = front ? 0.085 : 0.08;
-      const up = stick(front ? legR * 1.15 : legR * 1.6, legR, upLen, fur, 'leg');
+      const up = new THREE.Mesh(limbGeometry(front ? legR * 1.18 : legR * 1.5, legR, upLen), fur);
+      up.userData.part = 'leg';
+      up.castShadow = true;
       pivot.add(up);
-      if (!front) pivot.add(blob(0.05, 0.75 * F, 1.0 * F, 1.0, fur, 'body', [0, -0.01, 0]));
+      // Задние лапы: мощное бедро (двигается вместе с лапой).
+      if (!front) pivot.add(blob(0.052, 0.72 * F, 1.0 * F, 1.05, fur, 'body', [0, -0.012, 0.004]));
       const lower = new THREE.Group();
       lower.position.y = -upLen;
-      lower.add(stick(legR, legR * 0.85, 0.075, fur, 'leg'));
-      const paw = blob(0.024, 1.0, 0.6, 1.25, fur, 'leg', [0, -0.075, 0.01]);
+      const low = new THREE.Mesh(limbGeometry(legR, legR * 0.82, 0.072), fur);
+      low.userData.part = 'leg';
+      low.castShadow = true;
+      lower.add(low);
+      // Лапка: округлая, с намёком на пальчики.
+      const paw = blob(0.024, 1.05, 0.58, 1.28, fur, 'leg', [0, -0.076, 0.01]);
       lower.add(paw);
+      for (const tx of [-1.5, -0.5, 0.5, 1.5]) lower.add(blob(0.0085, 1, 0.75, 1.1, fur, 'leg', [tx * 0.0105, -0.08, 0.034 - Math.abs(tx) * 0.003]));
       pivot.add(lower);
       pivot.scale.y = legLen;
       body.add(pivot);
@@ -403,7 +410,7 @@ export function buildCat(breed: CatBreed, seed = 1, opts: CatLookOpts = {}): Cat
     }
   }
 
-  // Хвост из сегментов.
+  // Хвост из сегментов: плавно сужается к кончику.
   const tail: THREE.Group[] = [];
   let parent: THREE.Object3D = body;
   const segs = 8;
@@ -412,14 +419,15 @@ export function buildCat(breed: CatBreed, seed = 1, opts: CatLookOpts = {}): Cat
     const g = new THREE.Group();
     if (i === 0) g.position.set(0, 0.04, -0.08);
     else g.position.set(0, 0, -segLen);
-    const r = (0.02 - i * 0.0013) * look.tail;
-    const seg = new THREE.Mesh(new THREE.CylinderGeometry(r, r * 0.92, segLen * 1.25, 10), fur);
+    const r = (0.019 - i * 0.0012) * look.tail;
+    const r1 = (0.019 - (i + 1) * 0.0012) * look.tail;
+    const seg = new THREE.Mesh(new THREE.CylinderGeometry(r1, r, segLen, 14, 3, true), fur);
     seg.rotation.x = Math.PI / 2;
     seg.position.z = -segLen / 2;
     seg.userData.part = 'tail';
     seg.userData.seg = i;
     seg.castShadow = true;
-    const knob = new THREE.Mesh(new THREE.SphereGeometry(r * 0.98, 10, 8), fur);
+    const knob = new THREE.Mesh(new THREE.SphereGeometry(r1, 14, 10), fur);
     knob.position.z = -segLen;
     knob.userData.part = 'tail';
     knob.userData.seg = i;
@@ -431,7 +439,7 @@ export function buildCat(breed: CatBreed, seed = 1, opts: CatLookOpts = {}): Cat
 
   if (young > 0) tail[0]!.scale.setScalar(1 - young * 0.35);
   paint(scaleRoot, head, look, seed);
-  const cat: Cat3D = { root, breed, key: catLookKey(breed, { mix, grow }), body, head, legs, tail, eyes, legLen, pose: restPose() };
+  const cat: Cat3D = { root, breed, key: catLookKey(breed, { mix, grow }), body, head, legs, tail, eyes, lids, legLen, pose: restPose() };
   poseCat(cat, 'idle', 0, 0, 1);
   return cat;
 }
@@ -748,7 +756,7 @@ export function poseCat(cat: Cat3D, mode: CatMode, t: number, speed: number, ble
     g.rotation.x = p.tail[i]![0];
     g.rotation.y = p.tail[i]![1];
   });
-  for (const e of cat.eyes) e.scale.y = Math.max(0.06, p.eye);
+  for (const l of cat.lids) l.rotation.x = LID_CLOSED + (LID_OPEN - LID_CLOSED) * Math.max(0, Math.min(1, p.eye));
 }
 
 // ─── Кошачье хозяйство: миски, лоток, игрушки ──────────────────────────

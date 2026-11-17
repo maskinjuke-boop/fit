@@ -7,7 +7,7 @@ import { levelOf } from './levels';
 import { ACTIONS, GYM_EXTRAS, HOUSES, gymExtraById, type GymExtraId, BOWL_MAX, CAT_AGE, CAT_BREEDS, CAT_PREGNANCY_DAYS, CAT_RATES, LITTER_DIRTY, WATER_RATE, CAT_NAMES, CLIENT_NAMES, FURNITURE, GYMS, GYM_HOURS, HOME_OBJECTS, LIFE_EVENTS, MAX_CATS, OBJECTS, SESSION_EXERCISES, actionById, catBreedById, lifeEventById, mountOf, slotsFor } from './lifeContent';
 import { BASIC_DECOR, DECOR_KINDS, KITS, NEW_KIT, OLD_DECOR, OLD_KIT, OLD_KIT_COMFORT, OLD_KIT_FACTOR, finishById, kitById, kitOf, type KitId } from './homeDecor';
 import { rng } from './random';
-import type { Appearance, BodyPart, GameState, HairStyle } from './state';
+import { FACE_PARTS, type Appearance, type BodyPart, type FacePart, type GameState, type HairStyle } from './state';
 import { NEEDS, SKILLS, type ActionDef, type Cat, type CatBreed, type Client, type LifeEffect, type LifeResult, type LifeState, type NeedId, type ObjectId, type SkillId, type Txt } from './lifeTypes';
 
 /**
@@ -193,14 +193,34 @@ export const clientTarget = (s: GameState): number => Math.min(GYMS[s.life.gym]!
 /** Сильная полнота ученика 0 … 1: новичок на первом уровне — самый полный, с занятиями и уровнем — меньше. */
 export const clientHeavy = (c: Client): number => Math.round(Math.max(0, c.fat) ** 1.3 * 100) / 100;
 
+/**
+ * Черты лица ученика по его номеру: у каждого своё лицо (ширина, скулы, челюсть, подбородок,
+ * нос, губы, глаза, брови). Значения ближе к середине, крайние — реже.
+ */
+export function clientFace(seed: number): Partial<Record<FacePart, number>> {
+  const r = rng(`face:${seed}`);
+  const face: Partial<Record<FacePart, number>> = {};
+  for (const k of FACE_PARTS) {
+    // Сумма двух случайных: чаще умеренные черты, иногда яркие.
+    const v = (r() + r() - 1) * 1.6;
+    face[k] = Math.round(Math.max(-1, Math.min(1, v)) * 100) / 100;
+  }
+  return face;
+}
+
 export function clientAppearance(c: Client): Appearance {
+  const r = rng(`look:${c.seed}`);
+  // Цвет глаз — свой у каждого; у части мужчин — короткая борода.
+  const eyes = Math.floor(r() * 6);
+  const beard = c.figure === 'male' && r() < 0.3;
   return {
     figure: c.figure,
     skin: c.skin,
     hair: c.hair,
     hairColor: c.hairColor,
-    beard: false,
-    eyes: c.seed % 3,
+    beard,
+    eyes,
+    face: clientFace(c.seed),
     body: { weight: c.fat, belly: Math.max(0, c.fat) * 0.9, muscle: c.muscle, chest: Math.max(0, c.fat) * 0.3, arms: c.fat * 0.4 },
     heavy: clientHeavy(c),
   };

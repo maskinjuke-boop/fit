@@ -3,6 +3,7 @@ import { sliderValue, type Appearance, type BodyPart } from '../../../game/state
 import { NECK_WORLD, type BodyShape } from './body';
 import { landmarks } from './bodyMesh';
 import { BONES } from './rig';
+import { fatShift } from './fatBody';
 
 /** Номера костей рук (плечо, предплечье, кисть) в скелете. */
 const ARM_BONES = new Set<number>(['l_upper', 'l_fore', 'l_hand', 'r_upper', 'r_fore', 'r_hand'].map((b) => (BONES as readonly string[]).indexOf(b)));
@@ -61,10 +62,10 @@ export function bodyValues(a: Pick<Appearance, 'body' | 'heavy'>): Record<BodyPa
     height: v('height'),
     weight,
     muscle,
-    shoulders: v('shoulders') + muscle * 0.5 + h * 0.5,
+    shoulders: v('shoulders') + muscle * 0.5,
     chest: v('chest') + muscle * 0.35 + weight * 0.25,
     arms: v('arms') + muscle * 0.6 + weight * 0.4,
-    neck: v('neck') + muscle * 0.5 + weight * 0.3 + h * 1.6,
+    neck: v('neck') + muscle * 0.5 + weight * 0.3 + h * 1.2,
     waist: v('waist') + weight * 0.7 - muscle * 0.1,
     belly: v('belly') + weight * 0.8,
     hips: v('hips') + weight * 0.45,
@@ -80,7 +81,7 @@ export function faceFat(a: Pick<Appearance, 'body' | 'heavy'>): number {
 }
 
 /** Во сколько раз крупнее голова у полного (fat — полнота лица): голова под стать телу. */
-export const headFatScale = (fat: number): number => 1 + 0.42 * Math.max(0, Math.min(1, fat));
+export const headFatScale = (fat: number): number => 1 + 0.3 * Math.max(0, Math.min(1, fat));
 
 /** Сильная полнота 0 … 1. */
 export const heavyValue = (a: Pick<Appearance, 'heavy'>): number => (typeof a.heavy === 'number' && Number.isFinite(a.heavy) ? Math.max(0, Math.min(1, a.heavy)) : 0);
@@ -115,8 +116,6 @@ export function bodyMorph(shape: BodyShape, a: Pick<Appearance, 'body' | 'heavy'
   const loc = new THREE.Vector3();
   const d = new THREE.Vector3();
   const dir = new THREE.Vector3();
-  const armDir = new THREE.Vector3().subVectors(shape.elbow, shape.shoulder).normalize();
-  const shoulderC = new THREE.Vector3(shape.shoulder.x - 0.015, shape.shoulder.y + 0.02, shape.shoulder.z);
   const pivot = new THREE.Vector3(0, NECK_WORLD, 0);
   const f: Morph = (p, armShare) => {
     const sx = p.x < 0 ? -1 : 1;
@@ -203,57 +202,6 @@ export function bodyMorph(shape: BodyShape, a: Pick<Appearance, 'body' | 'heavy'
       d.x += dx < 0 ? dx * 0.3 : dx;
       d.z += (loc.z - ql.z) * k;
     }
-    if (H > 0) {
-      // Сильная полнота: корпус раздувается от оси тела (вперёд — сильнее: живот), ноги и руки — от
-      // своих осей (руки отводит от боков скелет: Rig.armOut). Корпус и ноги смешиваются только по
-      // высоте, а рука — по близости к её оси за пределами корпуса: так слои одежды раздуваются
-      // одинаково и тело не проступает.
-      const y = loc.y;
-      const gy = (c: number, w: number): number => Math.exp(-(((y - c) / w) ** 2));
-      // Граница «корпус — рука» по ширине: у подмышки 0.15, у талии 0.19, у бёдер 0.25
-      // (кисть висит у бедра в 3–5 см от него).
-      const lo = 0.15 + 0.04 * smooth(sy - 0.05, L.waist, y) + 0.06 * smooth(L.waist, hipY, y);
-      const side = smooth(lo, lo + 0.035, ax);
-      // Кисть у бедра — тонкая: брюки на бедре рядом с ней не должны считаться рукой (иначе
-      // они отстают от раздутого бедра и сквозь них видна кожа).
-      const low = smooth(L.waist, hipY, y);
-      // Рука — по весам костей вершины (брюки у кисти привязаны к бедру, а не к руке); без весов — по близости к оси руки.
-      const aw = armShare !== undefined ? smooth(0.2, 0.75, armShare) : smooth(0.11 - 0.05 * low, 0.07 - 0.025 * low, na.d) * side;
-      const wLeg = smooth(hipY + 0.04, hipY - 0.16, y);
-      // Под одеждой (ниже груди и выше щиколоток) тело чуть тоньше одежды.
-      const u = under ? 1 - 0.14 * smooth(L.armpit - 0.12, L.armpit - 0.28, y) * smooth(shape.ankle.y + 0.12, shape.ankle.y + 0.3, y) : 1;
-      const tw = (1 - aw) * (1 - wLeg) * smooth(NECK_WORLD - 0.02, sy - 0.06, y) * u;
-      const px = Math.min(1.5, 0.8 * gy(chestC.y, 0.13) + 1.45 * gy(L.waist - 0.05, 0.16) + 1.05 * gy(hipY + 0.02, 0.13));
-      const front = smooth(TORSO_Z - 0.03, TORSO_Z + 0.03, loc.z);
-      const pz = Math.min(2.6, 0.7 * gy(chestC.y, 0.13) + (1.0 + 1.4 * front) * gy(L.waist - 0.08, 0.17) + (1.3 - 0.4 * front) * gy(hipY - 0.02, 0.12));
-      d.x += loc.x * H * px * tw;
-      d.z += (loc.z - TORSO_Z) * H * pz * tw;
-      // Живот чуть провисает.
-      d.y -= 0.05 * H * tw * front * gy(L.waist - 0.12, 0.12);
-      const lw = (1 - aw) * wLeg * u;
-      if (lw > 0) {
-        const kl = H * lw * (0.45 + 1.15 * smooth(shape.ankle.y + 0.15, hipY - 0.1, y)) * smooth(shape.ankle.y + 0.03, shape.ankle.y + 0.14, y);
-        const dx = (loc.x - ql.x) * kl;
-        d.x += dx < 0 ? dx * 0.25 : dx;
-        d.z += (loc.z - ql.z) * kl;
-      }
-      // Плечо: общий «валик» вокруг плечевого сустава — одинаковый для корпуса и руки (по месту, а не
-      // по весам костей), поэтому на стыке рукава и футболки нет разрывов и складок.
-      const sd = loc.distanceToSquared(shoulderC);
-      const pad = 0.055 * H * Math.exp(-sd / 0.011);
-      if (pad > 1e-4) {
-        dir.set(loc.x, loc.y - (sy - 0.12), loc.z - TORSO_Z).normalize();
-        d.addScaledVector(dir, pad);
-      }
-      if (aw > 0) {
-        // Раздувание руки от оси сходит на нет к плечевому суставу (дальше — «валик»).
-        const along = armDir.dot(dir.subVectors(loc, shape.shoulder));
-        const ka = H * aw * smooth(-0.02, 0.13, along) * (0.55 + 0.85 * smooth(shape.wrist.y, shape.shoulder.y - 0.1, y)) * smooth(shape.wrist.y + 0.01, shape.wrist.y + 0.12, y);
-        d.x += (loc.x - qa.x) * ka;
-        d.y += (loc.y - qa.y) * ka;
-        d.z += (loc.z - qa.z) * ka;
-      }
-    }
     if (seamK > 0) {
       // Верх шеи и полоса под кожей головы масштабируются вокруг шарнира, как голова: шов без ступеньки.
       // Плавно по радиусу и почти без вертикального сжатия: иначе зазор между кожей и воротом
@@ -269,6 +217,14 @@ export function bodyMorph(shape: BodyShape, a: Pick<Appearance, 'body' | 'heavy'
     p.x += d.x * sx;
     p.y += d.y;
     p.z += d.z;
+    if (H > 0) {
+      // Сильная полнота — форма полной модели MakeHuman (сдвиги вершин, усиленные под степень
+      // полноты). У шва шеи сдвиг сходит на нет (голова отдельно), под одеждой тело чуть тоньше.
+      fatShift(shape.figure, loc.set(p.x - d.x * sx, p.y - d.y, p.z - d.z), armShare, fd);
+      const u = under ? 1 - 0.08 * smooth(L.armpit - 0.12, L.armpit - 0.28, loc.y) * smooth(shape.ankle.y + 0.12, shape.ankle.y + 0.3, loc.y) : 1;
+      const k = H * FAT_GAIN * u * smooth(NECK_WORLD - 0.015, NECK_WORLD - 0.09, loc.y);
+      p.addScaledVector(fd, k);
+    }
   };
   if (H > 0) f.armSmooth = 28;
   return f;
@@ -320,10 +276,11 @@ function smoothOnMesh(geo: THREE.BufferGeometry, val: Float32Array, iter: number
   for (let i = 0; i < n; i += 1) val[i] = cur[weld[i]!]!;
 }
 
-/** Ось корпуса по глубине (z) — от неё раздувается живот и спина. */
-const TORSO_Z = -0.045;
+/** Во сколько раз усилить сдвиги полной модели MakeHuman у самого полного ученика. */
+const FAT_GAIN = 3.6;
+const fd = new THREE.Vector3();
 /** На сколько (рад) скелет отводит руки от боков у самого полного (Rig.armOut). */
-export const HEAVY_ARM_OUT = 0.75;
+export const HEAVY_ARM_OUT = 0.4;
 
 /** Рост: масштаб героя от земли (±6%). */
 export const heightScale = (a: Pick<Appearance, 'body'>): number => 1 + 0.06 * sliderValue(a.body?.height);

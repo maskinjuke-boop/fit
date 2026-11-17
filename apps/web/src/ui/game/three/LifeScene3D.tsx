@@ -1196,17 +1196,20 @@ export default function LifeScene3D(props: LifeScene3DProps) {
       for (const e of crew.values()) {
         e.root.position.set(e.spot.x, 0, e.spot.z);
         e.shadow.position.set(e.spot.x, 0.02, e.spot.z);
-        const near = Math.hypot(pos.x - e.spot.x, pos.z - e.spot.z) < 3;
-        const look = near ? pos : coach;
-        const want = Math.atan2(look.x - e.spot.x, look.z - e.spot.z);
-        let diff = want - e.root.rotation.y;
-        while (diff > Math.PI) diff -= Math.PI * 2;
-        while (diff < -Math.PI) diff += Math.PI * 2;
-        e.root.rotation.y += diff * Math.min(1, dt * 3);
+        // Ученики всё время заняты: подходы разных упражнений подряд с короткой паузой
+        // и плавными переходами (у каждого свой порядок и темп).
+        const set = crewSet(e, t);
+        // Поворачиваются только между подходами: во время упражнения стоят (лежат) ровно.
+        if (set.motion === 'idle' || !e.parts) {
+          const near = Math.hypot(pos.x - e.spot.x, pos.z - e.spot.z) < 3;
+          const look = near ? pos : coach;
+          const want = Math.atan2(look.x - e.spot.x, look.z - e.spot.z);
+          let diff = want - e.root.rotation.y;
+          while (diff > Math.PI) diff -= Math.PI * 2;
+          while (diff < -Math.PI) diff += Math.PI * 2;
+          e.root.rotation.y += diff * Math.min(1, dt * 3);
+        }
         if (e.parts) {
-          // Ученики всё время заняты: подходы разных упражнений подряд с короткой паузой
-          // и плавными переходами (у каждого свой порядок и темп).
-          const set = crewSet(e, t);
           animate(e.parts.rig, set.motion, t + e.seed * 3, set.phase, 1 - Math.exp(-dt * 7));
           for (const f of e.parts.anim) f(t + e.seed);
         }
