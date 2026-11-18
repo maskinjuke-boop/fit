@@ -283,6 +283,18 @@ describe('деньги: повторы, задания и гости', () => {
     lonely.life.guests = 0;
     expect(hasObject(lonely, 'table')).toBe(true);
     expect(blocker(lonely, actionById('serve')!)).toBe('empty');
+    // Игровая зона есть всегда: уют, кошки скучают медленнее, у неё — игры с кошками.
+    expect(hasObject(lonely, 'play_zone')).toBe(true);
+    expect(ACTIONS.filter((x) => x.at === 'play_zone').length).toBeGreaterThanOrEqual(3);
+    for (let t = 0; t < HOUSES.length; t += 1) {
+      const lay = homeLayout([...FURNITURE], true, t);
+      const pz = lay.find((x) => x.id === 'play_zone')!;
+      const rb = bounds('cafe', t);
+      expect(pz.box!.x0).toBeGreaterThanOrEqual(rb.x0 - 0.35);
+      expect(pz.box!.z0).toBeGreaterThanOrEqual(rb.z0 - 0.35);
+      // Не налезает на столики, стойку, диван и купленную мебель.
+      for (const o of lay) if (o !== pz && o.box) expect(o.box.x1 <= pz.box!.x0 || o.box.x0 >= pz.box!.x1 || o.box.z1 <= pz.box!.z0 || o.box.z0 >= pz.box!.z1).toBe(true);
+    }
     // Столиков больше с каждой ступенью кафе.
     for (let t = 0; t < HOUSES.length; t += 1) expect(cafeTables(t).length).toBe(HOUSES[t]!.tables);
   });
@@ -426,7 +438,9 @@ describe('самостоятельность героя', () => {
     for (const c of s.life.cats) c.play = 5;
     const c = autoChoice(s);
     expect(c).not.toBe(null);
-    expect(['play_cat', 'pet_cat']).toContain(c!.action.id);
+    // С кошкой или в игровой зоне (дразнилка, новые игрушки, котошоу).
+    expect(['play_cat', 'pet_cat', 'laser', 'new_toys', 'cat_show']).toContain(c!.action.id);
+    expect(c!.action.effect.catPlay || c!.action.effect.catsPlay).toBeTruthy();
     for (let i = 0; i < 30; i += 1) {
       const x = autoChoice({ ...s, life: { ...s.life, minute: 600 + i * 17 } });
       if (x) expect(x.action.rescue || x.action.train || x.action.go).toBeFalsy();

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { actionsAt } from '../../../game/life';
 import { BOWL_MAX } from '../../../game/lifeContent';
-import { DEMON_ROOM, DEMON_SPOT, REACH, demonLayout, guestSpots, houseRect, tableChairs, STICK_WALK, WALK_SPEED, bounds as sceneBounds, blocked, detourPoint, dist, freeSpot, homeLayout, homeObstacles, petsAt, resolve, spawn, stickSpeed, type Box, type P2, type Placed } from '../../../game/lifeMap';
+import { DEMON_ROOM, DEMON_SPOT, REACH, demonLayout, guestSpots, houseRect, playCatBoxes, playParts, tableChairs, type PlayParts, STICK_WALK, WALK_SPEED, bounds as sceneBounds, blocked, detourPoint, dist, freeSpot, homeLayout, homeObstacles, petsAt, resolve, spawn, stickSpeed, type Box, type P2, type Placed } from '../../../game/lifeMap';
 import type { CatBreed, ObjectId, SceneId } from '../../../game/lifeTypes';
 import { animFor } from './actionAnims';
 import { disposeObject, type CharacterParts } from './buildCharacter';
@@ -488,6 +488,8 @@ export default function LifeScene3D(props: LifeScene3DProps) {
     let targets: Array<{ id: ObjectId; pos: P2; obj: Placed }> = [];
     let placedNow: Placed[] = [];
     let ticks: HomeAnim[] = [];
+    /** Игровая зона кафе для кошек (в лавке демона — нет). */
+    let playNow: PlayParts | null = null;
     /** Пирожные в витрине стойки (видно столько, сколько еды на витрине). */
     let cakes: THREE.Object3D[] = [];
     const pos = new THREE.Vector3();
@@ -505,14 +507,17 @@ export default function LifeScene3D(props: LifeScene3DProps) {
         const placed = homeLayout(p.furniture, p.cats.length > 0, p.house);
         world.add(house(placed, night, petModels, p.house, p.home ?? DEFAULT_LOOK));
         boxes = [...placed.map((x) => x.box).filter((b): b is Box => b !== null), ...homeObstacles()];
-        // Кошки подходят к мискам и лотку вплотную — для них это не препятствия.
-        catBoxes = [...placed.filter((x) => x.id !== 'cat_bowl' && x.id !== 'litter').map((x) => x.box).filter((b): b is Box => b !== null), ...homeObstacles()];
+        // Кошки подходят к мискам и лотку вплотную и ходят по игровой зоне (мешают только домик и столбик).
+        const zone = placed.find((x) => x.id === 'play_zone');
+        catBoxes = [...placed.filter((x) => x.id !== 'cat_bowl' && x.id !== 'litter' && x.id !== 'play_zone').map((x) => x.box).filter((b): b is Box => b !== null), ...homeObstacles(), ...(zone ? playCatBoxes(zone.pos) : [])];
+        playNow = zone ? playParts(zone.pos) : null;
         placedNow = placed;
       } else {
         const placed = demonLayout();
         world.add(demonRoom(placed, night));
         boxes = placed.map((x) => x.box).filter((b): b is Box => b !== null);
         catBoxes = boxes;
+        playNow = null;
         placedNow = placed;
       }
       // Мульт-контур у мебели (пол и стены — без контура).
@@ -581,6 +586,7 @@ export default function LifeScene3D(props: LifeScene3DProps) {
       world0.litterSurface = petModels.current?.surface ?? 0.07;
       world0.litter = petsAt(p.house).litter.pos;
       world0.pets = p.pets ?? world0.pets;
+      world0.play = playNow;
       if (act) {
         catAct.key = act.key;
         catAct.motion = act.motion;

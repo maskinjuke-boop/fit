@@ -625,6 +625,10 @@ function grounded(mode: string, i: number, up: number, low: number): number {
     case 'jump':
     case 'belly':
       return 0;
+    case 'scratch':
+    case 'reach':
+      // На задних лапах: передние в воздухе (на столбике), задние — на полу.
+      return i < 2 ? 0 : 1;
     case 'walk':
     case 'trot':
     case 'rub':

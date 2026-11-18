@@ -32,6 +32,7 @@ export const OBJECTS: Record<ObjectId, ObjectDef> = {
   counter: { id: 'counter', icon: '🍰', name: t('Стойка с витриной', 'Counter and display case') },
   sofa: { id: 'sofa', icon: '🛋️', name: t('Гостевой диван', 'Guest sofa') },
   table: { id: 'table', icon: '☕', name: t('Столик для гостей', 'Guest table') },
+  play_zone: { id: 'play_zone', icon: '🧶', name: t('Игровая зона для кошек', 'Cat play area'), desc: t('Домик-когтеточка с полками, столбик, тоннель и помпон: кошки играют сами, гостям есть на что посмотреть', 'A cat tree with shelves, a scratching post, a tunnel and a pom-pom: the cats play on their own and guests love to watch'), comfort: 2 },
   bookshelf: { id: 'bookshelf', icon: '📚', name: t('Книжный шкаф', 'Bookshelf'), price: 200, desc: t('Сказки вслух — кошки засыпают, гости умиляются', 'Bedtime stories — cats doze, guests melt'), comfort: 1, kind: 'furniture' },
   easel: { id: 'easel', icon: '🎨', name: t('Мольберт', 'Easel'), price: 150, desc: t('Портреты котиков на продажу', 'Cat portraits for sale'), kind: 'furniture' },
   armchair: { id: 'armchair', icon: '🪑', name: t('Мягкое кресло', 'Cosy armchair'), price: 220, desc: t('Ещё одно уютное место для гостей', 'One more cosy seat for guests'), comfort: 2, kind: 'furniture' },
@@ -59,7 +60,7 @@ export const OBJECTS: Record<ObjectId, ObjectDef> = {
 };
 
 /** Предметы, которые есть в кафе всегда. */
-export const HOME_OBJECTS: readonly ObjectId[] = ['door', 'counter', 'sofa', 'table'];
+export const HOME_OBJECTS: readonly ObjectId[] = ['door', 'counter', 'sofa', 'table', 'play_zone'];
 /** Всё для кафе из магазина — в порядке показа. */
 export const FURNITURE: readonly ObjectId[] = [
   // Мебель.
@@ -142,6 +143,8 @@ export const BOWL_MAX = 6;
 export const LITTER_DIRTY = 60;
 /** Как быстро падают потребности кошки (в час игрового времени). */
 export const CAT_RATES = { fed: 5, play: 4, toilet: 8 } as const;
+/** Игровая зона: кошки играют сами — скучают медленнее (доля от обычного). */
+export const PLAY_ZONE_BOREDOM = 0.75;
 /** Сколько воды (из 100) выпивает кошка за час игрового времени. */
 export const WATER_RATE = 2.5;
 export const CAT_NAMES: readonly Txt[] = [
@@ -215,6 +218,9 @@ export const ACTIONS: readonly ActionDef[] = [
   { id: 'armchair', icon: '🪑', label: t('Посидеть в кресле', 'Sit in the armchair'), at: 'armchair', minutes: 30, effect: fx({ catPlay: 8 }) },
   { id: 'cinema', icon: '🍿', label: t('Кино про котиков', 'A cat movie night'), at: 'big_tv', minutes: 120, effect: fx({ buzz: 3 }) },
   { id: 'dance', icon: '🎶', label: t('Включить мурлыкающий плейлист', 'Play the purring playlist'), at: 'smart_speaker', minutes: 30, effect: fx({ catsPlay: 8 }) },
+  { id: 'laser', icon: '🪶', label: t('Поиграть с кошками дразнилкой', 'Play with the cats using a teaser wand'), at: 'play_zone', minutes: 20, effect: fx({ catsPlay: 18 }) },
+  { id: 'new_toys', icon: '🪀', label: t('Повесить новые игрушки', 'Hang up new toys'), at: 'play_zone', minutes: 10, cost: 15, effect: fx({ catsPlay: 25 }) },
+  { id: 'cat_show', icon: '🎪', label: t('Устроить гостям котошоу', 'Put on a cat show for guests'), at: 'play_zone', minutes: 40, effect: fx({ catsPlay: 10, buzz: 2 }) },
   { id: 'pet_cat', icon: '🤲', label: t('Погладить кошку', 'Pet the cat'), at: 'cat', minutes: 10, effect: fx({ catPlay: 12 }) },
   { id: 'play_cat', icon: '🧶', label: t('Поиграть с кошкой', 'Play with the cat'), at: 'cat', minutes: 20, effect: fx({ catPlay: 45 }) },
   { id: 'feed_cat', icon: '🐟', label: t('Угостить кошку', 'Give the cat a treat'), at: 'cat', minutes: 5, cost: 5, effect: fx({ catFed: 25, catPlay: 5 }) },

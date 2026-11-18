@@ -1,7 +1,7 @@
 import { Group, Object3D } from 'three';
 import { describe, expect, it } from 'vitest';
 import { FURNITURE } from '../src/game/lifeContent';
-import { PETS, bounds, homeLayout, homeObstacles, type Box } from '../src/game/lifeMap';
+import { PETS, bounds, homeLayout, homeObstacles, playCatBoxes, playParts, type Box } from '../src/game/lifeMap';
 import { createCatLife, perchSpots, type CatHeroAct, type CatWorld } from '../src/ui/game/three/catLife';
 
 /** Дом со всей мебелью и кошачьим хозяйством; кошки живут rounds секунд (без отрисовки поз). */
@@ -26,6 +26,37 @@ function home(needs: { fed: number; play: number; toilet: number }, pets = { bow
 const inside = (p: { x: number; z: number }, bx: Box, r = 0.25): boolean => p.x > bx.x0 - r && p.x < bx.x1 + r && p.z > bx.z0 - r && p.z < bx.z1 + r;
 
 describe('кошки в доме', () => {
+  it('игровая зона: лезут на лежанку домика, спят в домике, точат когти, бьют помпон, бегают через тоннель', () => {
+    const placed = homeLayout([], true, 1);
+    const b = bounds('cafe', 1);
+    const zone = placed.find((x) => x.id === 'play_zone')!;
+    expect(zone).toBeTruthy();
+    const boxes: Box[] = [...placed.filter((x) => x.id !== 'cat_bowl' && x.id !== 'litter' && x.id !== 'play_zone').map((x) => x.box).filter((x): x is Box => x !== null), ...homeObstacles(), ...playCatBoxes(zone.pos)];
+    const play = playParts(zone.pos);
+    const world: CatWorld = { bounds: b, boxes, perches: perchSpots(placed, b, boxes), litterSurface: 0.07, hero: { x: 3, z: 3 }, act: null, pets: { bowl: 6, water: 100, litter: 0 }, need: () => ({ fed: 90, play: 15, toilet: 95 }), play };
+    const life = createCatLife(new Group(), () => new Object3D());
+    life.sync(['ginger', 'black', 'siamese', 'bengal'].map((breed, i) => ({ id: `cat${i + 1}`, breed: breed as 'ginger' })), world);
+    const dt = 1 / 20;
+    const seen = new Set<string>();
+    let maxY = 0;
+    let bad = 0;
+    for (let i = 0; i < 20 * 900; i += 1) {
+      life.update(i * dt, dt, world, i % 4 === 0);
+      for (const c of life.cats.values()) {
+        maxY = Math.max(maxY, c.y);
+        if (c.mode === 'scratch' || c.mode === 'reach') seen.add(c.mode);
+        if (!c.jump && Math.abs(c.y - play.houseY) < 0.01 && Math.hypot(c.pos.x - play.house.x, c.pos.z - play.house.z) < 0.05) seen.add('house');
+        if (Math.abs(c.pos.z - play.tunnel[0].z) < 0.1 && c.pos.x > play.tunnel[0].x + 0.4 && c.pos.x < play.tunnel[1].x - 0.4 && c.y < 0.01) seen.add('tunnel');
+        // На полу — не внутри домика и столбика.
+        if (c.y < 0.01 && !c.jump && playCatBoxes(zone.pos).some((x) => inside(c.pos, x, 0))) bad += 1;
+      }
+    }
+    expect(maxY).toBeGreaterThan(play.top.y - 0.01);
+    for (const k of ['scratch', 'reach', 'house', 'tunnel']) expect(seen.has(k)).toBe(true);
+    expect(bad).toBe(0);
+    expect([...life.cats.values()].reduce((a, c) => a + c.log.play, 0)).toBeGreaterThan(4);
+  });
+
   it('сами живут: едят, ходят в лоток, запрыгивают на мебель, играют; не проходят сквозь мебель и пол', () => {
     const { life, world, boxes, b } = home({ fed: 30, play: 20, toilet: 20 });
     const dt = 1 / 20;

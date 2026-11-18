@@ -39,7 +39,11 @@ export type CatMode =
   // Трётся о ноги: идёт медленно, голова набок, хвост трубой.
   | 'rub'
   // Стоя бьёт лапой по игрушке.
-  | 'swat';
+  | 'swat'
+  // Встала на задние лапы у столбика и точит когти (передние лапы по очереди тянут вниз).
+  | 'scratch'
+  // Встала на задние лапы и бьёт лапой висящую игрушку над собой.
+  | 'reach';
 
 interface Look {
   base: string;
@@ -487,6 +491,34 @@ function target(mode: CatMode, t: number, speed: number, look: number, tilt: num
       p.headY = 0.05 * Math.sin(t * 0.8);
       p.tail = p.tail.map((_, i) => [i === 0 ? -0.5 : i < 5 ? 0.02 : 0.12, Math.sin(t * 1.1 + i * 0.5) * 0.08] as [number, number]);
       p.eye = 0.6;
+      return p;
+    }
+    case 'scratch':
+    case 'reach': {
+      // На задних лапах, корпус почти вертикально; передние лапы вытянуты вперёд-вверх.
+      const scr = mode === 'scratch';
+      const a = Math.sin(t * (scr ? 6 : 5));
+      const b = Math.sin(t * (scr ? 6 : 5) + Math.PI);
+      p.hipY = 0.1;
+      p.hipZ = -0.06;
+      p.pitch = scr ? -1.0 : -1.1;
+      p.legs = scr
+        ? [
+            [-0.55 + 0.35 * a, -0.35],
+            [-0.55 + 0.35 * b, -0.35],
+            [-0.75, 1.55],
+            [-0.75, 1.55],
+          ]
+        : [
+            [-1.25 + 0.45 * Math.max(0, a), -0.2],
+            [-0.35, -0.9],
+            [-0.75, 1.55],
+            [-0.75, 1.55],
+          ];
+      p.headX = scr ? 0.75 : 0.35;
+      p.headY = look * 0.3;
+      p.tail = p.tail.map((_, i) => [i === 0 ? -0.6 : i < 3 ? -0.15 : 0.05, Math.sin(t * 3 + i) * (scr ? 0.15 : 0.3)] as [number, number]);
+      p.eye = scr ? 0.6 : 1.15;
       return p;
     }
     case 'crouch': {

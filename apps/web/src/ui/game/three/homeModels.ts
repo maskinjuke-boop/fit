@@ -582,6 +582,89 @@ function procModel(id: string): THREE.Group {
       }
       break;
     }
+    case 'play_zone': {
+      // Игровая зона для кошек (координаты частей — playParts в lifeMap): мягкий коврик с
+      // лапками, домик-когтеточка (домик внизу, средняя полка, верхняя лежанка), отдельный
+      // столбик-когтеточка с полочкой, помпон на верёвочке и шуршащий тоннель.
+      const rug = mesh(new THREE.BoxGeometry(2.0, 0.016, 1.6), M.cloth('#bfe0cf', 3, 0.98), [0, 0.008, 0]);
+      g.add(rug);
+      g.add(mesh(new THREE.BoxGeometry(2.04, 0.012, 1.64), M.cloth('#7fb59a', 3, 0.98), [0, 0.006, 0]));
+      const paw = paint('#8fc4aa', 0.9);
+      for (const [x, z, r] of [[0.15, 0.2, 0.4], [0.35, 0.05, 0.6], [-0.15, 0.62, -0.3], [0.4, 0.68, 0.2], [0.8, -0.05, 0.9]] as const) {
+        const p = new THREE.Group();
+        p.add(mesh(new THREE.CylinderGeometry(0.045, 0.045, 0.004, 14), paw, [0, 0, 0]));
+        for (let k = 0; k < 4; k += 1) p.add(mesh(new THREE.CylinderGeometry(0.017, 0.017, 0.004, 10), paw, [-0.045 + k * 0.03, 0, -0.055 - (k === 1 || k === 2 ? 0.012 : 0)]));
+        p.position.set(x, 0.018, z);
+        p.rotation.y = r;
+        p.traverse((o) => (o.userData.noOutline = true));
+        g.add(p);
+      }
+      const carpet = M.cloth('#e8d6b8', 4, 0.98);
+      const carpet2 = M.cloth('#d7b98c', 4, 0.98);
+      const sisal = M.cloth('#c9a46c', 7, 0.98);
+      const rope = paint('#a8834d', 0.9);
+      const post = (x: number, z: number, y0: number, y1: number, r = 0.06): void => {
+        g.add(mesh(new THREE.CylinderGeometry(r, r, y1 - y0, 14), sisal, [x, (y0 + y1) / 2, z]));
+        for (let y = y0 + 0.06; y < y1 - 0.03; y += 0.09) g.add(mesh(new THREE.TorusGeometry(r + 0.004, 0.006, 5, 16), rope, [x, y, z]).rotateX(Math.PI / 2));
+      };
+      // Домик-когтеточка: основание, полый домик с круглым входом, столбик, средняя полка, лежанка.
+      const hx = -0.55;
+      const hz = -0.32;
+      g.add(mesh(new THREE.BoxGeometry(0.72, 0.05, 0.72), carpet2, [hx, 0.025, hz]));
+      const wall = (w: number, h: number, d: number, x: number, y: number, z: number): void => {
+        g.add(mesh(new THREE.BoxGeometry(w, h, d), carpet, [hx + x, y, hz + z]));
+      };
+      wall(0.56, 0.5, 0.04, 0, 0.3, -0.26);
+      wall(0.04, 0.5, 0.56, -0.26, 0.3, 0);
+      wall(0.04, 0.5, 0.56, 0.26, 0.3, 0);
+      wall(0.6, 0.04, 0.6, 0, 0.57, 0);
+      // Передняя стенка с проёмом 0,3 × 0,32.
+      wall(0.13, 0.5, 0.04, -0.215, 0.3, 0.26);
+      wall(0.13, 0.5, 0.04, 0.215, 0.3, 0.26);
+      wall(0.3, 0.13, 0.04, 0, 0.485, 0.26);
+      g.add(mesh(new THREE.TorusGeometry(0.15, 0.012, 6, 20, Math.PI), carpet2, [hx, 0.37, hz + 0.285]));
+      // Мягкая подушка в домике.
+      g.add(mesh(new THREE.CylinderGeometry(0.2, 0.2, 0.03, 18), M.cloth('#f2b5c4', 3), [hx, 0.065, hz]));
+      post(hx, hz, 0.59, 1.26);
+      // Средняя полка — на своём столбике сбоку от домика.
+      post(-0.12, -0.42, 0.05, 0.8, 0.05);
+      g.add(mesh(new THREE.BoxGeometry(0.34, 0.05, 0.34), carpet2, [-0.12, 0.025, -0.42]));
+      g.add(mesh(new THREE.CylinderGeometry(0.22, 0.22, 0.04, 20), carpet, [-0.12, 0.8, -0.42]));
+      // Верхняя лежанка с бортиком.
+      g.add(mesh(new THREE.CylinderGeometry(0.3, 0.3, 0.04, 22), carpet, [hx, 1.28, hz]));
+      g.add(mesh(new THREE.TorusGeometry(0.25, 0.05, 8, 24), M.cloth('#f2b5c4', 3), [hx, 1.33, hz]).rotateX(Math.PI / 2));
+      // Помпон на верёвочке под краем средней полки (качается).
+      const swing = new THREE.Group();
+      swing.position.set(0.0, 0.78, -0.3);
+      const string = mesh(new THREE.CylinderGeometry(0.004, 0.004, 0.33, 4), paint('#f5efe6', 0.8), [0, -0.165, 0]);
+      string.userData.noOutline = true;
+      swing.add(string);
+      swing.add(mesh(new THREE.SphereGeometry(0.05, 12, 10), M.cloth('#ff6fa3', 2), [0, -0.36, 0]));
+      swing.name = 'pompom';
+      g.add(swing);
+      tick.push((t) => {
+        swing.rotation.z = Math.sin(t * 1.7) * 0.12 + Math.sin(t * 4.3) * 0.04;
+        swing.rotation.x = Math.sin(t * 1.1 + 1) * 0.08;
+      });
+      // Столбик-когтеточка с полочкой.
+      g.add(mesh(new THREE.BoxGeometry(0.4, 0.04, 0.4), carpet2, [0.6, 0.02, -0.45]));
+      post(0.6, -0.45, 0.04, 0.78, 0.07);
+      g.add(mesh(new THREE.CylinderGeometry(0.17, 0.17, 0.04, 18), carpet, [0.6, 0.78, -0.45]));
+      // Тоннель: гофрированная труба лежит на коврике вдоль x, торцы открыты.
+      const tunnel = new THREE.Group();
+      const tc = M.cloth('#5b8fd6', 2, 0.95);
+      tc.side = THREE.DoubleSide;
+      const tube = mesh(new THREE.CylinderGeometry(0.17, 0.17, 1.0, 20, 1, true), tc, [0, 0, 0]);
+      tunnel.add(tube);
+      for (let k = 0; k <= 10; k += 1) tunnel.add(mesh(new THREE.TorusGeometry(0.17, 0.012, 5, 22), paint('#3f6db2', 0.7), [0, -0.5 + k * 0.1, 0]).rotateX(Math.PI / 2));
+      tunnel.rotation.z = Math.PI / 2;
+      tunnel.position.set(0.21, 0.16, 0.45);
+      g.add(tunnel);
+      // Пара мячиков на коврике.
+      g.add(mesh(new THREE.SphereGeometry(0.04, 12, 10), paint('#f1c40f', 0.5), [-0.85, 0.05, 0.55]));
+      g.add(mesh(new THREE.SphereGeometry(0.035, 12, 10), paint('#2ecc71', 0.5), [0.85, 0.045, -0.05]));
+      break;
+    }
     case 'counter': {
       // Стойка кафе: корпус, деревянная столешница, светлая полоса спереди, касса,
       // стеклянная витрина с пирожными (их столько, сколько еды на витрине — см. сцену),

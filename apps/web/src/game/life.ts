@@ -23,6 +23,7 @@ import {
   NIGHT_GUESTS,
   NIGHT_HOURS,
   OBJECTS,
+  PLAY_ZONE_BOREDOM,
   TICKET,
   WATER_RATE,
   actionById,
@@ -212,9 +213,9 @@ export function decorComfort(life: LifeState): number {
   return finish + kit;
 }
 
-/** Уют кафе: ремонт, мебель и декор, простор (до 40); грязный лоток его портит. */
+/** Уют кафе: ремонт, мебель и декор, игровая зона, простор (до 40); грязный лоток его портит. */
 export function comfort(life: LifeState): number {
-  const items = life.furniture.reduce((a, id) => a + (OBJECTS[id].comfort ?? 0), 0);
+  const items = [...life.furniture, ...HOME_OBJECTS].reduce((a, id) => a + (OBJECTS[id].comfort ?? 0), 0);
   const space = HOUSES[life.house]?.comfort ?? 0;
   return Math.max(0, Math.min(40, items + space + decorComfort(life)) - (litterDirty(life) ? 5 : 0));
 }
@@ -302,7 +303,8 @@ function catsLive(life: LifeState, hours: number, night: boolean, guests: number
       c.toilet = 100;
     }
     // Ночью кошки спят, днём скучают, но гости с ними играют.
-    c.play = clamp(c.play - CAT_RATES.play * hours * (night ? 0.4 : 1) * (isKitten(c, life.day) ? 1.5 : 1) + fun, 0, 100);
+    // В игровой зоне кошки играют сами — скучают медленнее.
+    c.play = clamp(c.play - CAT_RATES.play * PLAY_ZONE_BOREDOM * hours * (night ? 0.4 : 1) * (isKitten(c, life.day) ? 1.5 : 1) + fun, 0, 100);
     life.water = clamp(life.water - WATER_RATE * hours * (night ? 0.6 : 1), 0, 100);
   }
 }
