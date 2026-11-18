@@ -54,12 +54,16 @@ export interface CatWorld {
   need(id: string): { fed: number; play: number; toilet: number };
   /** Игровая зона кафе (null — нет). */
   play?: PlayParts | null;
+  /** Герой держит кошку на руках: где она (у груди героя), куда смотрит и куда её потом опустят. */
+  carry?: { id: string; pos: P2; y: number; heading: number; drop: P2 } | null;
+  /** Гости: где стоят, куда смотрят и что делают (присели погладить или поиграть — кошки подходят). */
+  guests?: ReadonlyArray<{ pos: P2; face: number; motion: Motion }>;
 }
 
 type Step =
   | { k: 'go'; to: P2; run?: boolean; near?: number; detours?: number }
   | { k: 'turn'; heading: number }
-  | { k: 'pose'; mode: CatMode; dur: number; tag?: 'eat' | 'drink' | 'litter' | 'wheel' }
+  | { k: 'pose'; mode: CatMode; dur: number; tag?: 'eat' | 'drink' | 'litter' | 'wheel' | 'spin' | 'guest' }
   | { k: 'jump'; to: P2; y: number; hop?: boolean; edge?: P2 }
   | { k: 'hunt'; toy: Toy; left: number; phase: 'chase' | 'aim' | 'swat' }
   | { k: 'rub'; dur: number; angle: number };
@@ -93,7 +97,9 @@ export interface CatAI {
   /** На какой зов уже откликнулась. */
   called: number;
   /** Сколько раз за время жизни ела, ходила в лоток, запрыгивала на мебель (для проверок). */
-  log: { eat: number; drink: number; litter: number; perch: number; hunt: number; rub: number; play: number };
+  log: { eat: number; drink: number; litter: number; perch: number; hunt: number; rub: number; play: number; guest: number; fun: number; held: number };
+  /** К какому гостю подошла (номер в списке гостей) — к одному гостю идёт одна кошка. */
+  guest: number;
 }
 
 interface Toy {
@@ -167,6 +173,12 @@ export function createCatLife(parent: THREE.Object3D, shadow: () => THREE.Object
     return { x: 0, z: 0.5 };
   };
   const restDur = (mode: CatMode): number => ({ sit: 4 + rand() * 5, groom: 3 + rand() * 3, idle: 1.5 + rand() * 2.5, lie: 6 + rand() * 7, sleep: 12 + rand() * 14 } as Partial<Record<CatMode, number>>)[mode] ?? 3;
+  /** Отдых: перед тем как лечь — иногда «топчет» лапками; проснувшись — потягивается. */
+  const rest = (m: CatMode, extra = 0): Step[] => [
+    ...((m === 'lie' || m === 'sleep') && rand() < 0.5 ? ([{ k: 'pose', mode: 'knead', dur: 2 + rand() * 2 }] as Step[]) : []),
+    { k: 'pose', mode: m, dur: restDur(m) + extra },
+    ...(m === 'sleep' ? ([{ k: 'pose', mode: 'stretch', dur: 1.6 + rand() }] as Step[]) : []),
+  ];
   /** Точка перед миской (кошка стоит мордой к ней, на +x). */
   const bowlFront = (bowl: P2, c: CatAI): P2 => ({ x: bowl.x - 0.3 * c.size, z: bowl.z });
   let litterAt: P2 = PETS.litter.pos;
@@ -182,7 +194,7 @@ export function createCatLife(parent: THREE.Object3D, shadow: () => THREE.Object
       const urgent = need.toilet < 40 || (need.fed < 50 && w.pets.bowl > 0);
       if (!urgent && rand() < 0.45) {
         const m = pick(['lie', 'sleep', 'groom', 'sit'] as const);
-        c.plan = [{ k: 'pose', mode: m, dur: restDur(m) }];
+        c.plan = rest(m);
       } else c.plan = [{ k: 'jump', to: c.edge ?? randomSpot(w), y: 0 }];
       return;
     }
@@ -228,7 +240,7 @@ export function createCatLife(parent: THREE.Object3D, shadow: () => THREE.Object
         () => {
           const pr = pick(perches);
           const m = pick(['lie', 'sleep', 'sleep', 'groom', 'sit'] as const);
-          return [{ k: 'go', to: pr.edge }, { k: 'turn', heading: Math.atan2(pr.pos.x - pr.edge.x, pr.pos.z - pr.edge.z) }, { k: 'jump', to: pr.pos, y: pr.y }, { k: 'pose', mode: m, dur: restDur(m) }];
+          return [{ k: 'go', to: pr.edge }, { k: 'turn', heading: Math.atan2(pr.pos.x - pr.edge.x, pr.pos.z - pr.edge.z) }, { k: 'jump', to: pr.pos, y: pr.y }, ...rest(m)];
         },
       ]);
     // Игровая зона: у каждой игрушки свои занятия; заскучавшая кошка играет охотнее,
@@ -403,9 +415,54 @@ export function createCatLife(parent: THREE.Object3D, shadow: () => THREE.Object
       1.8,
       () => {
         const m = pick(['sit', 'groom', 'idle', 'lie', 'sleep'] as const);
-        return [{ k: 'pose', mode: m, dur: restDur(m) }];
+        return rest(m);
       },
     ]);
+    // Свои кошачьи забавы: обнюхать угол, покататься на спине, погоняться за хвостом.
+    opts.push([
+      0.8,
+      () => {
+        c.log.fun += 1;
+        return [{ k: 'go', to: randomSpot(w) }, { k: 'pose', mode: 'sniff', dur: 2 + rand() * 2 }, { k: 'pose', mode: 'idle', dur: 0.8 }];
+      },
+    ]);
+    opts.push([
+      0.45 + (100 - need.play) / 120,
+      () => {
+        c.log.fun += 1;
+        return [{ k: 'pose', mode: 'roll', dur: 3 + rand() * 2 }, { k: 'pose', mode: 'sit', dur: 1.2 }, { k: 'pose', mode: 'groom', dur: 2 }];
+      },
+    ]);
+    opts.push([
+      0.25 + (100 - need.play) / 150,
+      () => {
+        c.log.fun += 1;
+        return [{ k: 'pose', mode: 'crouch', dur: 0.6 }, { k: 'pose', mode: 'chase', dur: 1.8 + rand() * 1.5, tag: 'spin' }, { k: 'pose', mode: 'sit', dur: 1.5 }];
+      },
+    ]);
+    // Гость присел погладить или поиграть — подходит к нему (к одному гостю — одна кошка).
+    const busy = new Set([...cats.values()].filter((o) => o !== c).map((o) => o.guest));
+    const guests = (w.guests ?? []).map((g, i) => ({ g, i })).filter(({ g, i }) => !busy.has(i) && (g.motion === 'crouch:pet' || g.motion === 'crouch:play') && dist(g.pos, c.pos) < 7);
+    if (guests.length)
+      opts.push([
+        2.4,
+        () => {
+          const { g, i } = pick(guests);
+          c.guest = i;
+          c.log.guest += 1;
+          const front = resolve({ x: g.pos.x + Math.sin(g.face) * 0.5, z: g.pos.z + Math.cos(g.face) * 0.5 }, w.bounds, w.boxes);
+          const look = Math.atan2(g.pos.x - front.x, g.pos.z - front.z);
+          const pet = g.motion === 'crouch:pet';
+          return [
+            { k: 'go', to: front, run: dist(front, c.pos) > 3 },
+            { k: 'turn', heading: look },
+            ...(pet
+              ? ([{ k: 'pose', mode: 'purr', dur: 3 + rand() * 2, tag: 'guest' }, { k: 'pose', mode: rand() < 0.5 ? 'belly' : 'roll', dur: 3, tag: 'guest' }] as Step[])
+              : ([{ k: 'pose', mode: 'crouch', dur: 0.8, tag: 'guest' }, { k: 'pose', mode: 'reach', dur: 2.5, tag: 'guest' }, { k: 'pose', mode: 'swat', dur: 2, tag: 'guest' }] as Step[])),
+            { k: 'pose', mode: 'sit', dur: 1.5 },
+          ];
+        },
+      ]);
     const total = opts.reduce((s, [x]) => s + x, 0);
     let r = rand() * total;
     for (const [x, make] of opts) {
@@ -509,6 +566,7 @@ export function createCatLife(parent: THREE.Object3D, shadow: () => THREE.Object
     c.tilt = 0;
     if (act.motion === 'crouch:pet') c.mode = e > 1.4 && (act.key + Math.round(c.seed)) % 2 === 0 ? 'belly' : 'purr';
     else if (act.motion === 'crouch:feed') c.mode = e > 0.5 ? 'eat' : 'sit';
+    else if (act.motion === 'crouch:brush') c.mode = e > 2.6 && (act.key + Math.round(c.seed)) % 2 === 0 ? 'roll' : 'purr';
     else if (act.motion === 'crouch:play') {
       // Охотится на пёрышко: припадает, подпрыгивает, бьёт лапой.
       const k = (e * 0.9) % 1;
@@ -521,6 +579,23 @@ export function createCatLife(parent: THREE.Object3D, shadow: () => THREE.Object
   const updateCat = (c: CatAI, t: number, dt: number, w: CatWorld): void => {
     c.tilt *= 0.9;
     c.hop = 0;
+    // На руках у героя: держится у его груди; потом её опускают на пол перед ним.
+    if (w.carry && w.carry.id === c.id) {
+      if (c.mode !== 'held') c.log.held += 1;
+      c.jump = null;
+      // Плавно поднимается в руки (первые доли секунды), дальше — у груди.
+      const k = Math.min(1, dt * 7);
+      c.pos = { x: c.pos.x + (w.carry.pos.x - c.pos.x) * k, z: c.pos.z + (w.carry.pos.z - c.pos.z) * k };
+      c.y += (w.carry.y - c.y) * k;
+      c.heading += angleTo(c.heading, w.carry.heading) * Math.min(1, dt * 8);
+      c.mode = 'held';
+      c.speed = 0;
+      c.tilt = 0;
+      c.edge = { ...w.carry.drop };
+      c.plan = [];
+      c.stepAt = -1;
+      return;
+    }
     const act = w.act;
     // Зов: все кошки бегут к герою и трутся о ноги.
     if (act && act.settledAt !== null && act.motion === 'crouch:call' && c.called !== act.key) {
@@ -564,6 +639,7 @@ export function createCatLife(parent: THREE.Object3D, shadow: () => THREE.Object
       return;
     }
     if (!c.plan.length) {
+      c.guest = -1;
       planNext(c, t, w);
       c.stepAt = -1;
     }
@@ -603,6 +679,8 @@ export function createCatLife(parent: THREE.Object3D, shadow: () => THREE.Object
       }
       case 'pose':
         c.mode = step.mode;
+        // За хвостом — крутится на месте.
+        if (step.tag === 'spin') c.heading += dt * 7;
         // В колесе бежит на месте (колесо крутится под ней).
         if (step.tag === 'wheel') c.speed = 1.2;
         if (t - c.stepAt > step.dur) {
@@ -699,7 +777,7 @@ export function createCatLife(parent: THREE.Object3D, shadow: () => THREE.Object
         cat.root.position.set(start.x, 0, start.z);
         parent.add(cat.root, sh);
         const size = cat.root.children[0]?.scale.x ?? 1;
-        cats.set(x.id, { cat, id: x.id, shadow: sh, pos: start, y: 0, heading: rand() * Math.PI * 2, mode: 'idle', plan: [], stepAt: -1, speed: 0, seed: i * 2.1, size, tilt: 0, hop: 0, jump: null, edge: null, stuck: 0, ateAt: -999, drankAt: -999, litterAt: -999, called: -1, log: { eat: 0, drink: 0, litter: 0, perch: 0, hunt: 0, rub: 0, play: 0 } });
+        cats.set(x.id, { cat, id: x.id, shadow: sh, pos: start, y: 0, heading: rand() * Math.PI * 2, mode: 'idle', plan: [], stepAt: -1, speed: 0, seed: i * 2.1, size, tilt: 0, hop: 0, jump: null, edge: null, stuck: 0, ateAt: -999, drankAt: -999, litterAt: -999, called: -1, log: { eat: 0, drink: 0, litter: 0, perch: 0, hunt: 0, rub: 0, play: 0, guest: 0, fun: 0, held: 0 }, guest: -1 });
       });
       if (!want.length) {
         for (const toy of toys) {

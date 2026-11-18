@@ -765,6 +765,9 @@ export default function LifeScene3D(props: LifeScene3DProps) {
         return { fed: c?.fed ?? 80, play: c?.play ?? 70, toilet: c?.toilet ?? 90 };
       },
     };
+    const handL = new THREE.Vector3();
+    const handR = new THREE.Vector3();
+    const guestsInfo: Array<{ pos: P2; face: number; motion: Motion }> = [];
     const catWorld = (): CatWorld => {
       const p = propsRef.current;
       world0.bounds = bounds;
@@ -785,6 +788,25 @@ export default function LifeScene3D(props: LifeScene3DProps) {
         catAct.at = act.anchor;
         world0.act = catAct;
       } else world0.act = null;
+      // Кошка на руках: у груди героя, между кистями; опустят — на пол перед героем.
+      world0.carry = null;
+      if (act && act.motion === 'stand:hold' && act.cat && catAct.settledAt !== null && hero) {
+        hero.rig.bones.l_hand.getWorldPosition(handL);
+        hero.rig.bones.r_hand.getWorldPosition(handR);
+        const mx = (handL.x + handR.x) / 2;
+        const mz = (handL.z + handR.z) / 2;
+        world0.carry = {
+          id: act.cat,
+          pos: { x: mx + Math.sin(facing) * 0.05, z: mz + Math.cos(facing) * 0.05 },
+          y: Math.max(0.6, (handL.y + handR.y) / 2 - 0.05),
+          heading: facing + Math.PI / 2,
+          drop: resolve({ x: pos.x + Math.sin(facing) * 0.6, z: pos.z + Math.cos(facing) * 0.6 }, bounds, catBoxes),
+        };
+      }
+      // Гости, которые сидят на корточках у кошек (гладят, играют), — кошки подходят к ним.
+      guestsInfo.length = 0;
+      for (const e of crew.values()) if (!e.seat && e.motion) guestsInfo.push({ pos: e.spot, face: e.root.rotation.y, motion: e.motion });
+      world0.guests = guestsInfo;
       return world0;
     };
     const syncCats = (): void => {

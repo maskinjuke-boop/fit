@@ -1271,12 +1271,13 @@ export function roomLights(look: HomeLook, spots: ReadonlyArray<[number, number]
     // Подвесные шары-плафоны на латунных крышках: днём мягко светятся, вечером — тепло.
     const glass = M.glow('#fff4e2', night ? 2.0 : 0.9);
     const brass = mat('#c9a24a', 0.35, 0.8);
-    const cord = mat('#2b2b2b', 0.6);
+    // Светлый тонкий шнур: близко к камере не превращается в тёмную полосу.
+    const cord = mat('#d8c8b4', 0.6);
     for (const [x, z] of spots) {
       for (const [ox, drop] of [[-0.35, 0.95], [0, 0.75], [0.35, 1.05]] as const) {
         // Без мульт-контура и теней: тонкий шнур с контуром у камеры выглядит толстой чёрной полосой.
         for (const m of [
-          mesh(new THREE.CylinderGeometry(0.006, 0.006, drop, 6), cord, [x + ox, H - drop / 2, z]),
+          mesh(new THREE.CylinderGeometry(0.004, 0.004, drop, 6), cord, [x + ox, H - drop / 2, z]),
           mesh(new THREE.CylinderGeometry(0.035, 0.05, 0.06, 12), brass, [x + ox, H - drop - 0.02, z]),
           mesh(new THREE.SphereGeometry(0.13, 18, 14), glass, [x + ox, H - drop - 0.15, z]),
         ]) {

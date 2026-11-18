@@ -332,6 +332,8 @@ export const ACTIONS: readonly ActionDef[] = [
   { id: 'cat_show', icon: '🎪', label: t('Устроить гостям котошоу', 'Put on a cat show for guests'), at: 'play_zone', minutes: 40, effect: fx({ catsPlay: 10, buzz: 2 }) },
   { id: 'pet_cat', icon: '🤲', label: t('Погладить кошку', 'Pet the cat'), at: 'cat', minutes: 10, effect: fx({ catPlay: 12 }) },
   { id: 'play_cat', icon: '🧶', label: t('Поиграть с кошкой', 'Play with the cat'), at: 'cat', minutes: 20, effect: fx({ catPlay: 45 }) },
+  { id: 'hug_cat', icon: '🫶', label: t('Взять кошку на руки', 'Pick up the cat'), at: 'cat', minutes: 10, effect: fx({ catPlay: 20 }) },
+  { id: 'brush_cat', icon: '🪮', label: t('Расчесать кошку', 'Brush the cat'), at: 'cat', minutes: 15, effect: fx({ catPlay: 15, buzz: 1 }) },
   { id: 'feed_cat', icon: '🐟', label: t('Угостить кошку', 'Give the cat a treat'), at: 'cat', minutes: 5, cost: 5, effect: fx({ catFed: 25, catPlay: 5 }) },
   { id: 'call_cat', icon: '📣', label: t('Позвать кошку', 'Call the cat'), at: 'cat', minutes: 2, effect: fx({ catPlay: 3 }) },
   { id: 'fill_bowl', icon: '🥣', label: t('Насыпать корм и налить воды', 'Fill the food and water bowls'), at: 'cat_bowl', minutes: 5, cost: 8, effect: fx({ bowl: BOWL_MAX, water: 100 }) },

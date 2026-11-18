@@ -453,7 +453,7 @@ describe('самостоятельность героя', () => {
     const c = autoChoice(s);
     expect(c).not.toBe(null);
     // С кошкой или в игровой зоне (дразнилка, новые игрушки, котошоу).
-    expect(['play_cat', 'pet_cat', 'laser', 'new_toys', 'cat_show']).toContain(c!.action.id);
+    expect(['play_cat', 'pet_cat', 'hug_cat', 'brush_cat', 'laser', 'new_toys', 'cat_show']).toContain(c!.action.id);
     expect(c!.action.effect.catPlay || c!.action.effect.catsPlay).toBeTruthy();
     for (let i = 0; i < 30; i += 1) {
       const x = autoChoice({ ...s, life: { ...s.life, minute: 600 + i * 17 } });

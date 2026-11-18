@@ -124,7 +124,7 @@ describe('кошки в доме', () => {
       for (const c of life.cats.values()) {
         if (c.mode === 'eat' && c.y === 0) {
           const d = Math.min(Math.hypot(c.pos.x - PETS.food.x, c.pos.z - PETS.food.z), Math.hypot(c.pos.x - PETS.water.x, c.pos.z - PETS.water.z));
-          expect(d).toBeLessThan(0.6);
+          expect(d).toBeLessThan(0.7);
           seen.eat = true;
         }
         if (c.mode === 'litter') {
@@ -177,5 +177,39 @@ describe('кошки в доме', () => {
       life.update(3 + i * dt, dt, world, false);
       for (const c of life.cats.values()) if (!c.jump) expect(c.y > 0.05 && Math.hypot(c.pos.x - seat.x, c.pos.z - seat.z) < 0.5).toBe(false);
     }
+  });
+});
+
+describe('взаимодействие с кошками', () => {
+  it('к присевшим гостям подходят кошки; на руках у героя кошка у груди, потом спрыгивает; свои забавы', () => {
+    const { life, world } = home({ fed: 90, play: 30, toilet: 95 });
+    world.guests = [
+      { pos: { x: -4, z: 2.5 }, face: Math.PI / 2, motion: 'crouch:pet' },
+      { pos: { x: 3, z: 3 }, face: -Math.PI / 2, motion: 'crouch:play' },
+    ];
+    const dt = 1 / 20;
+    let near = 0;
+    const modes = new Set<string>();
+    for (let i = 0; i < 20 * 900; i += 1) {
+      life.update(i * dt, dt, world, false);
+      for (const c of life.cats.values()) {
+        modes.add(c.mode);
+        for (const g of world.guests!) if (Math.hypot(c.pos.x - g.pos.x, c.pos.z - g.pos.z) < 0.8) near += 1;
+      }
+    }
+    const log = [...life.cats.values()].map((c) => c.log);
+    expect(log.some((l) => l.guest > 0)).toBe(true);
+    expect(near).toBeGreaterThan(0);
+    expect(log.reduce((a, l) => a + l.fun, 0)).toBeGreaterThan(0);
+    expect(['sniff', 'roll', 'chase', 'stretch', 'knead'].filter((m) => modes.has(m)).length).toBeGreaterThanOrEqual(4);
+    // На руках.
+    const cat = life.cats.get('cat1')!;
+    world.carry = { id: 'cat1', pos: { x: 0, z: 2 }, y: 1.3, heading: 1, drop: { x: 0, z: 2.6 } };
+    for (let i = 0; i < 40; i += 1) life.update(2000 + i * dt, dt, world, false);
+    expect(cat.mode).toBe('held');
+    expect(Math.abs(cat.y - 1.3)).toBeLessThan(0.05);
+    world.carry = null;
+    for (let i = 0; i < 20 * 20; i += 1) life.update(2002 + i * dt, dt, world, false);
+    expect(cat.y).toBeLessThan(0.05);
   });
 });

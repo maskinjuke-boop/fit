@@ -35,6 +35,7 @@ export type PropKind =
   | 'notepad'
   | 'pen'
   | 'teaser'
+  | 'comb'
   | 'treat'
   | 'foodbag'
   | 'scoop'
@@ -82,6 +83,7 @@ const MOUNT: Record<PropKind, Mount> = {
   notepad: { at: 'l', rot: [-0.6, 0, 0], off: [0.03, 0.03, 0.04], grip: 0.15 },
   pen: { at: 'r', rot: [2.3, 0, 0], off: [0, 0, 0], grip: 1 },
   teaser: { at: 'r', rot: [1.9, 0, 0], off: [0, 0, -0.02], grip: 1 },
+  comb: { at: 'r', rot: [1.6, 0, 0], off: [0, 0, -0.02], grip: 1 },
   // Угощение — на почти раскрытой ладони (кошка ест с руки).
   treat: { at: 'r', rot: [0, 0, 0], off: [0, 0.02, 0.0], grip: 0.15 },
   foodbag: { at: 'r', rot: [0, 0, 0], off: [0.02, 0.02, 0.03], grip: 0.8 },
@@ -210,6 +212,13 @@ function model(kind: PropKind): THREE.Group {
       feather.position.y = 0.4;
       for (let i = 0; i < 4; i += 1) feather.add(mesh(new THREE.ConeGeometry(0.015, 0.09, 6), mat(['#e84393', '#f1c40f', '#39d0ff', '#2ecc71'][i]!, 0.8), [Math.sin(i * 1.6) * 0.01, -0.13, Math.cos(i * 1.6) * 0.01]).rotateZ(Math.PI + (i - 1.5) * 0.25));
       g.add(feather);
+      break;
+    }
+    case 'comb': {
+      // Щётка для кошек: розовая ручка и овальная подушечка со щетиной.
+      g.add(mesh(cyl(0.012, 0.012, 0.11), mat('#f2a7b8', 0.5), [0, 0.03, 0]));
+      g.add(mesh(new THREE.BoxGeometry(0.07, 0.025, 0.1), mat('#f2a7b8', 0.5), [0, 0.11, 0.0]));
+      for (let i = 0; i < 12; i += 1) g.add(mesh(cyl(0.002, 0.002, 0.018, 4), mat('#ffffff', 0.6), [-0.025 + (i % 4) * 0.017, 0.11, -0.03 + Math.floor(i / 4) * 0.03]).rotateX(Math.PI / 2).translateY(0.012));
       break;
     }
     case 'treat':

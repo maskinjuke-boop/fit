@@ -426,6 +426,8 @@ export type Act =
   | 'write'
   | 'piano'
   | 'pet'
+  | 'hold'
+  | 'brush'
   | 'play'
   | 'feed'
   | 'call'
@@ -706,6 +708,34 @@ function actPose(act: Act, stance: Stance, t: number): Rots {
         l_upper: [-0.55, 0, 0.18],
         l_fore: [-0.9, 0, -0.1],
         neck: [0.35, 0.08 * s(t * 0.7), 0.06],
+      };
+    }
+    case 'hold': {
+      // Держит кошку на руках: обе руки согнуты перед грудью «колыбелькой», чуть покачивает.
+      const sway = 0.06 * s(t * 1.4);
+      return {
+        l_upper: [-0.22, 0, 0.18],
+        l_fore: [-1.4, 0.35, -0.75 + sway],
+        l_hand: [0.1, 0, 0.3],
+        r_upper: [-0.25, 0, -0.18],
+        r_fore: [-1.35, -0.35, 0.75 + sway],
+        r_hand: [0.1, 0, -0.3],
+        spine: [-0.05, 0.08 * s(t * 0.7), 0],
+        neck: [0.4, 0.15 * s(t * 0.5), 0],
+      };
+    }
+    case 'brush': {
+      // Расчёсывает кошку щёткой: длинные движения от головы к хвосту.
+      const a = (t * 0.8) % 1;
+      const stroke = a < 0.75 ? a / 0.75 : 1 - (a - 0.75) / 0.25;
+      return {
+        r_upper: [-1.0 + 0.4 * stroke, 0.1, -0.15],
+        r_fore: [-0.45 + 0.2 * stroke, 0, 0.15],
+        r_hand: [0.2, 0, 0],
+        l_upper: [-0.7, 0, 0.2],
+        l_fore: [-0.7, 0, -0.2],
+        l_hand: [0.3, 0, 0],
+        neck: [0.38, 0.05 * s(t), 0.05],
       };
     }
     case 'play': {

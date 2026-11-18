@@ -47,6 +47,8 @@ export const ACTION_ANIMS: Record<string, ActionAnim> = {
   cat_show: front('stand:dance', undefined, 3200),
   pet_cat: { motion: 'crouch:pet', place: 'cat', ms: 3000 },
   play_cat: { motion: 'crouch:play', place: 'cat', ms: 3400, prop: ['teaser'] },
+  hug_cat: { motion: 'stand:hold', place: 'cat', ms: 4600 },
+  brush_cat: { motion: 'crouch:brush', place: 'cat', ms: 4200, prop: ['comb'] },
   feed_cat: { motion: 'crouch:feed', place: 'cat', ms: 2800, prop: ['treat'] },
   call_cat: { motion: 'crouch:call', place: 'here', ms: 2600 },
   fill_bowl: front('crouch:pour', ['foodbag'], 2800),

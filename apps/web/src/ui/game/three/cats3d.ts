@@ -43,7 +43,19 @@ export type CatMode =
   // Встала на задние лапы у столбика и точит когти (передние лапы по очереди тянут вниз).
   | 'scratch'
   // Встала на задние лапы и бьёт лапой висящую игрушку над собой.
-  | 'reach';
+  | 'reach'
+  // Потягивается: передние лапы далеко вперёд, грудь у пола, зад кверху.
+  | 'stretch'
+  // Мнёт лапками («топчет»), мурлыча, перед тем как лечь.
+  | 'knead'
+  // Принюхивается: идёт медленно, голова у пола.
+  | 'sniff'
+  // Катается на спине с боку на бок.
+  | 'roll'
+  // На руках у человека: лапки свисают, мурлычет.
+  | 'held'
+  // Охотится за своим хвостом (крутится на месте).
+  | 'chase';
 
 interface Look {
   base: string;
@@ -498,6 +510,95 @@ function target(mode: CatMode, t: number, speed: number, look: number, tilt: num
       p.eye = 0.6;
       return p;
     }
+    case 'stretch': {
+      // Передние лапы вытянуты вперёд по полу, грудь почти на полу, зад и хвост подняты.
+      p.hipY = 0.17;
+      p.hipZ = -0.12;
+      p.pitch = 0.55;
+      p.legs = [
+        [-1.25, 0.1],
+        [-1.25, 0.1],
+        [0.05, 0],
+        [0.05, 0],
+      ];
+      p.headX = -0.55;
+      p.headY = 0;
+      p.tail = p.tail.map((_, i) => [i === 0 ? 0.4 : 0.05, Math.sin(t * 2 + i) * 0.1] as [number, number]);
+      p.eye = 0.2;
+      return p;
+    }
+    case 'knead': {
+      // Сидит и попеременно поднимает и опускает передние лапки, глаза прищурены.
+      const a = Math.max(0, Math.sin(t * 5));
+      const b = Math.max(0, Math.sin(t * 5 + Math.PI));
+      p.hipY = 0.09;
+      p.hipZ = -0.1;
+      p.pitch = -0.45;
+      p.legs = [
+        [0.45 - 0.45 * a, -0.6 * a],
+        [0.45 - 0.45 * b, -0.6 * b],
+        [-1.25, 2.3],
+        [-1.25, 2.3],
+      ];
+      p.headX = 0.45;
+      p.headY = look * 0.3;
+      p.tail = p.tail.map((_, i) => [i === 0 ? -0.4 : 0.02, 0.2 + 0.05 * Math.sin(t + i)] as [number, number]);
+      p.eye = 0.25;
+      p.purr = 1;
+      return p;
+    }
+    case 'sniff': {
+      // Стоит, вытянув шею к полу, водит носом из стороны в сторону.
+      p.hipY = 0.17;
+      p.pitch = 0.22;
+      p.legs = [
+        [-0.1, -0.25],
+        [0.05, -0.15],
+        [-0.25, 0.4],
+        [-0.25, 0.4],
+      ];
+      p.headX = 0.85 + 0.08 * Math.sin(t * 3);
+      p.headY = 0.35 * Math.sin(t * 1.3);
+      p.tail = p.tail.map((_, i) => [i === 0 ? 0.3 : i < 4 ? 0.05 : 0.25, Math.sin(t * 1.5 + i * 0.6) * 0.15] as [number, number]);
+      p.eye = 1;
+      return p;
+    }
+    case 'roll': {
+      // На спине, перекатывается с боку на бок, лапки кверху.
+      const k = Math.sin(t * 1.6);
+      p.hipY = 0.095;
+      p.hipZ = -0.13;
+      p.roll = 2.55 + 0.45 * k;
+      p.legs = [
+        [-1.1 + 0.2 * k, -1.2],
+        [-1.0 - 0.2 * k, -1.3],
+        [-1.0, 1.4],
+        [-0.85, 1.2],
+      ];
+      p.headX = -0.3;
+      p.headY = 0.3 * k;
+      p.headZ = -0.45;
+      p.tail = p.tail.map((_, i) => [i === 0 ? -0.2 : 0, 0.35 * Math.sin(t * 1.6 + i * 0.4)] as [number, number]);
+      p.eye = 0.6;
+      return p;
+    }
+    case 'held': {
+      // На руках: корпус ровно, лапки расслабленно свисают, хвост вниз, мурлычет.
+      p.hipY = 0.17;
+      p.pitch = 0.05;
+      p.legs = [
+        [0.25, 0.35],
+        [0.15, 0.3],
+        [0.3, 0.2],
+        [0.35, 0.25],
+      ];
+      p.headX = 0.1;
+      p.headY = look * 0.5 + 0.2 * Math.sin(t * 0.6);
+      p.tail = p.tail.map((_, i) => [i === 0 ? -0.9 : -0.05, 0.1 * Math.sin(t + i)] as [number, number]);
+      p.eye = 0.3;
+      p.purr = 1;
+      return p;
+    }
     case 'scratch':
     case 'reach': {
       // На задних лапах, корпус почти вертикально; передние лапы вытянуты вперёд-вверх.
@@ -660,11 +761,13 @@ function target(mode: CatMode, t: number, speed: number, look: number, tilt: num
       p.eye = 1.15;
       return p;
     }
+    case 'chase':
     case 'walk':
     case 'trot': {
-      const f = mode === 'trot' ? 11 : 7;
-      const a = t * f * Math.max(0.4, Math.min(1.6, speed / 0.45));
-      const sw = mode === 'trot' ? 0.6 : 0.45;
+      const fast = mode === 'trot' || mode === 'chase';
+      const f = fast ? 11 : 7;
+      const a = t * f * Math.max(0.4, Math.min(1.6, (mode === 'chase' ? 0.9 : speed) / 0.45));
+      const sw = fast ? 0.6 : 0.45;
       // Диагональные пары лап: левая передняя с правой задней.
       const ph = [0, Math.PI, Math.PI, 0];
       p.legs = p.legs.map((_, i) => {
@@ -677,6 +780,13 @@ function target(mode: CatMode, t: number, speed: number, look: number, tilt: num
       p.headY = look * 0.3;
       p.tail = p.tail.map((_, i) => [i === 0 ? 0.95 : i < 5 ? -0.06 : 0.28, Math.sin(t * 3 + i * 0.5) * 0.1] as [number, number]);
       p.eye = blink;
+      if (mode === 'chase') {
+        // За хвостом: голова повёрнута назад к хвосту, хвост загнут вбок к голове.
+        p.headY = 0.9;
+        p.headZ = 0.3;
+        p.tail = p.tail.map((_, i) => [i === 0 ? 0.5 : 0.05, 0.35 + 0.1 * Math.sin(t * 6 + i)] as [number, number]);
+        p.eye = 1.15;
+      }
       return p;
     }
     case 'sit':
@@ -774,7 +884,7 @@ export function poseCat(cat: Cat3D, mode: CatMode, t: number, speed: number, ble
   const p = cat.pose;
   const k = Math.min(1, blend);
   // Ноги при ходьбе меняются быстро, поэтому их фаза не смешивается долго.
-  const legK = mode === 'walk' || mode === 'trot' || mode === 'rub' || mode === 'dig' || mode === 'swat' || mode === 'jump' ? Math.max(k, 0.5) : k;
+  const legK = mode === 'walk' || mode === 'trot' || mode === 'chase' || mode === 'knead' || mode === 'rub' || mode === 'dig' || mode === 'swat' || mode === 'jump' ? Math.max(k, 0.5) : k;
   p.hipY = mix(p.hipY, goal.hipY, k);
   p.hipZ = mix(p.hipZ, goal.hipZ, k);
   p.pitch = mix(p.pitch, goal.pitch, k);
