@@ -146,7 +146,7 @@ export function homeObstacles(placed?: readonly Placed[]): Box[] {
 export const TABLE = { chair: 0.72, hw: 1.0, hd: 0.42 } as const;
 
 /** Что в кафе занято всегда: стойка, диван, миски, лоток, проход от двери, места мебели и где у неё стоят. */
-function fixedKeep(tier: number): Box[] {
+function fixedKeep(tier: number, slots = true): Box[] {
   const { L, R, B } = houseRect(tier);
   const P = petsAt(tier);
   const door = { x: L + 0.06, z: frontOf(tier) - 1.3 };
@@ -157,6 +157,7 @@ function fixedKeep(tier: number): Box[] {
     box(P.litter.pos.x, P.litter.pos.z, 0.9, 1.0),
     box(door.x + 1.2, door.z, 1.4, 0.9),
   ];
+  if (!slots) return keep;
   // Места мебели (все, даже пустые: купленная мебель не встанет в столик) и где у неё стоят.
   for (const sl of furnitureSlots(tier)) keep.push(box(sl.pos.x, sl.pos.z, 0.65, 0.65), box(sl.use.x, sl.use.z, 0.45, 0.45));
   for (const sl of floorSlots(tier)) keep.push(box(sl.pos.x, sl.pos.z, 0.45, 0.45), box(sl.use.x, sl.use.z, 0.35, 0.35));
@@ -184,7 +185,8 @@ export function playZoneAt(tier: number, size = 0): P2 {
   const { w, d } = playSize(size);
   const hw = w / 2;
   const hd = d / 2;
-  const keep = fixedKeep(tier);
+  // Места мебели под зоной не мешают — мебель встанет в другие места (см. defaultLayout).
+  const keep = fixedKeep(tier, false);
   const pad = 0.2;
   let best: P2 | null = null;
   let bestScore = Infinity;
@@ -208,7 +210,27 @@ export function playSizeFits(tier: number, size: number): boolean {
   const { w, d } = playSize(size);
   const p = playZoneAt(tier, size);
   const me = box(p.x, p.z, w / 2, d / 2);
-  return me.x0 >= L && me.x1 <= R && me.z0 >= B && me.z1 <= F && !fixedKeep(tier).some((k) => overlaps(box(p.x, p.z, w / 2 + 0.2, d / 2 + 0.2), k));
+  if (!(me.x0 >= L && me.x1 <= R && me.z0 >= B && me.z1 <= F) || fixedKeep(tier, false).some((k) => overlaps(box(p.x, p.z, w / 2 + 0.2, d / 2 + 0.2), k))) return false;
+  // Столики помещаются рядом с зоной.
+  return cafeTables(tier, size).length >= HOUSES[Math.max(0, Math.min(HOUSES.length - 1, tier))]!.tables;
+}
+
+/** Препятствия игрушек зоны для людей (сама зона — проходная: в неё можно зайти). */
+export function playObstacles(zone: P2, play: PlayZoneState = PLAY_START): Box[] {
+  const ext: Record<PlayItemId, [number, number, number, number]> = {
+    tree: [-0.45, 0.95, -0.45, 0.45],
+    post: [-0.3, 0.3, -0.3, 0.3],
+    tunnel: [-0.75, 0.75, -0.28, 0.28],
+    hammock: [-0.5, 0.5, -0.3, 0.3],
+    boxes: [-0.45, 0.45, -0.3, 0.35],
+    tower: [-0.13, 0.63, -0.33, 0.33],
+    wheel: [-0.42, 0.92, -0.3, 0.3],
+    track: [-0.65, 0.65, -0.4, 0.4],
+  };
+  return playLayout(play).map((it) => {
+    const [x0, x1, z0, z1] = ext[it.id];
+    return { x0: zone.x + it.x + x0, x1: zone.x + it.x + x1, z0: zone.z + it.z + z0, z1: zone.z + it.z + z1 };
+  });
 }
 
 /** Где что стоит в зоне: игрушки по местам своего вида, в порядке списка (лишние не встают). */
@@ -364,10 +386,13 @@ export function defaultLayout(furniture: readonly ObjectId[], pets = false, tier
   // Столики: подходят к ним спереди (со стороны зрителя).
   cafeTables(tier, play.size).forEach((tb, i) => base.push({ id: 'table', key: `table:${i}`, pos: tb, rot: 0, use: { x: tb.x, z: tb.z + TABLE.hd + 0.75 }, box: box(tb.x, tb.z, TABLE.hw, TABLE.hd) }));
   const out: PlacedHome[] = base.map((p) => ({ ...p, key: p.key ?? p.id, y: 0 }));
+  // Места мебели под игровой зоной и под столиками заняты — мебель встаёт в остальные.
+  const busy: Box[] = base.filter((p) => p.id === 'play_zone' || p.id === 'table').map((p) => p.box!);
+  const freeSlot = (sl: Slot): boolean => !busy.some((b) => overlaps(box(sl.pos.x, sl.pos.z, 0.6, 0.6), box((b.x0 + b.x1) / 2, (b.z0 + b.z1) / 2, (b.x1 - b.x0) / 2 + 0.2, (b.z1 - b.z0) / 2 + 0.2)) || blocked(sl.use, [b], 0.1));
   const pools: Record<'slot' | 'wall' | 'floor', Slot[]> = {
-    slot: furnitureSlots(tier).slice(0, slotsFor('slot', tier)),
+    slot: furnitureSlots(tier).filter(freeSlot).slice(0, slotsFor('slot', tier)),
     wall: wallSlots(tier).slice(0, slotsFor('wall', tier)),
-    floor: floorSlots(tier).slice(0, slotsFor('floor', tier)),
+    floor: floorSlots(tier).filter(freeSlot).slice(0, slotsFor('floor', tier)),
   };
   const used = { slot: 0, wall: 0, floor: 0 };
   for (const id of furniture) {
@@ -378,10 +403,15 @@ export function defaultLayout(furniture: readonly ObjectId[], pets = false, tier
       out.push({ id, key: id, pos: { x: L + 0.35, z }, rot: Math.PI / 2, use: { x: L + 1.3, z }, box: null, y: 0 });
       continue;
     }
-    const sl = pools[mount][used[mount]];
-    if (!sl) continue;
-    used[mount] += 1;
     const hw = mount === 'slot' ? 0.55 : 0.28;
+    let sl = pools[mount][used[mount]];
+    if (sl) used[mount] += 1;
+    else if (mount !== 'wall') {
+      // Мест не хватило (заняты зоной) — свободное место на полу.
+      const spot = freeFloorSpot(tier, [...out.map((o) => o.box).filter((b): b is Box => b !== null)], [...out.map((o) => o.use)], hw);
+      if (spot) sl = { pos: spot, rot: 0, use: { x: spot.x, z: spot.z + hw + 0.75 } };
+    }
+    if (!sl) continue;
     out.push({ id, key: id, pos: sl.pos, rot: sl.rot, use: sl.use, box: mount === 'wall' ? null : box(sl.pos.x, sl.pos.z, hw, hw), y: sl.y ?? 0 });
   }
   if (pets) {
@@ -392,6 +422,23 @@ export function defaultLayout(furniture: readonly ObjectId[], pets = false, tier
     out.push({ id: 'litter', key: 'litter', pos: { ...l.pos }, rot: l.rot, use: { ...l.use }, box: box(l.pos.x, l.pos.z, 0.3, 0.24), y: 0 });
   }
   return out;
+}
+
+/** Свободная точка пола для вещи с полуразмером hw: не на вещах, не на местах подхода, с подходом спереди. */
+function freeFloorSpot(tier: number, boxes: readonly Box[], uses: readonly P2[], hw: number): P2 | null {
+  const { L, R, B, F } = houseRect(tier);
+  const P = petsAt(tier);
+  const keep = [...boxes, box(L + 1.4, frontOf(tier) - 1.3, 1.4, 0.9), box(P.bowls.pos.x, P.bowls.pos.z, 1.0, 0.8), box(P.litter.pos.x, P.litter.pos.z, 0.8, 0.9)];
+  for (let z = B + hw + 0.2; z <= F - hw - 1.2; z += 0.25) {
+    for (let x = R - hw - 0.3; x >= L + hw + 0.3; x -= 0.25) {
+      const me = box(x, z, hw + 0.25, hw + 0.25);
+      if (keep.some((k) => overlaps(me, k)) || uses.some((u) => blocked(u, [me], 0.2))) continue;
+      const use = { x, z: z + hw + 0.75 };
+      if (blocked(use, keep, 0.2)) continue;
+      return { x, z };
+    }
+  }
+  return null;
 }
 
 // ─── Перестановка ──────────────────────────────────────────────────────
@@ -461,9 +508,10 @@ export function placeBlocker(layout: readonly Placed[], key: string, at: ItemSpo
   const b = moved.box;
   if (b && (b.x0 < room.x0 || b.x1 > room.x1 || b.z0 < room.z0 || b.z1 > room.z1)) return 'out';
   const withSofa = (list: readonly Placed[]): Box[] => [...list.map((o) => o.box).filter((x): x is Box => x !== null), ...homeObstacles(list)];
-  const obstacles = withSofa(others);
+  const obstacles = withSofa(others.filter((o) => o.id !== 'play_zone'));
+  const zoneRug = others.find((o) => o.id === 'play_zone')?.box;
   const mine = moved.id === 'sofa' ? homeObstacles([moved]) : [];
-  if (b && [...obstacles].some((o) => overlaps(b, o))) return 'overlap';
+  if (b && [...obstacles, ...(zoneRug ? [zoneRug] : [])].some((o) => overlaps(b, o))) return 'overlap';
   if (mine.some((m) => others.some((o) => o.box && overlaps(m, o.box)))) return 'overlap';
   // Проход от двери свободен.
   const door = layout.find((p) => p.id === 'door');
@@ -473,7 +521,8 @@ export function placeBlocker(layout: readonly Placed[], key: string, at: ItemSpo
   const all = [...obstacles, ...(b ? [b] : []), ...mine];
   const u = moved.use;
   if (u.x < bounds0.x0 || u.x > bounds0.x1 || u.z < bounds0.z0 || u.z > bounds0.z1 || blocked(u, all, 0.2)) return 'reach';
-  if (b && others.some((o) => !onWall(o) && blocked(o.use, [b], 0.15))) return 'reach';
+  // Игровая зона проходная — места подхода других вещей могут быть на её коврике.
+  if (b && moved.id !== 'play_zone' && others.some((o) => !onWall(o) && blocked(o.use, [b], 0.15))) return 'reach';
   return null;
 }
 
@@ -524,12 +573,22 @@ export const graveSpot = (i: number): P2 => ({ x: GRAVES_AT.x + ((i % 5) - 2) * 
  * Места гостей в кафе: свободные точки зала (не в мебели и не у дверей), сначала ближе к
  * середине, где играют кошки.
  */
-export function guestSpots(tier: number, boxes: readonly Box[], n: number): P2[] {
+export function guestSpots(tier: number, boxes: readonly Box[], n: number, zone: Box | null = null): P2[] {
   const { L, R, B, F, cx, cz } = houseRect(tier);
   const out: P2[] = [];
   const cand: P2[] = [];
   for (let x = L + 1.6; x <= R - 1.6; x += 1.5) for (let z = B + 2.2; z <= F - 1.4; z += 1.5) cand.push({ x, z });
+  // Игровая зона: точки на её коврике — гости заходят туда играть с кошками (каждый второй — там).
+  const inZone: P2[] = [];
+  if (zone) for (let x = zone.x0 + 0.6; x <= zone.x1 - 0.6; x += 0.8) for (let z = zone.z0 + 0.7; z <= zone.z1 - 0.5; z += 0.8) inZone.push({ x, z });
   cand.sort((a, b) => Math.hypot(a.x - cx, a.z - cz) - Math.hypot(b.x - cx, b.z - cz));
+  const zc = zone ? { x: (zone.x0 + zone.x1) / 2, z: (zone.z0 + zone.z1) / 2 } : null;
+  if (zc) inZone.sort((a, b) => Math.hypot(a.x - zc.x, a.z - zc.z) - Math.hypot(b.x - zc.x, b.z - zc.z));
+  for (const p of inZone) {
+    if (out.length >= Math.ceil(n / 2)) break;
+    if (blocked(p, boxes, 0.45) || out.some((q) => Math.hypot(q.x - p.x, q.z - p.z) < 1.2)) continue;
+    out.push(p);
+  }
   for (const p of cand) {
     if (out.length >= n) break;
     if (blocked(p, boxes, 0.55)) continue;

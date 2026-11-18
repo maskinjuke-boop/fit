@@ -654,7 +654,7 @@ const va = new THREE.Vector3();
 const vs = new THREE.Vector3();
 
 /**
- * Строит кошку из модели: grow — рост котёнка (0.42…1), young — 0…1 (котёнок).
+ * Строит кошку из модели: grow — множитель размера (см. catSizeOf), young — 0…1 (котёнок).
  * Масштаб — в единицах прежней модели: таз на высоте 0.175 × размер породы.
  */
 export function buildGlbCat(look: CoatLook, lookKey: string, seed: number, grow: number, young: number, original = false): GlbCat | null {

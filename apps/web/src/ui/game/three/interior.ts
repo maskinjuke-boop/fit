@@ -175,6 +175,86 @@ const wallDraw: Record<string, (d: FinishDef) => Draw> = {
       ctx.fillRect(r() * w, r() * h, 2 + r() * 5, 2 + r() * 5);
     }
   },
+  // Современные: большие арки-панели второго цвета (модный приём кафе).
+  arches: (d) => (ctx, w, h, r) => {
+    ctx.fillStyle = d.look.color;
+    ctx.fillRect(0, 0, w, h);
+    const acc = d.look.accent ?? tone(d.look.color, -0.12);
+    // Холст — 4 м × 3 м: две арки на холст, низ — до пола, верх — полукруг на 2,2 м.
+    for (const cx of [w * 0.25, w * 0.75]) {
+      const aw = w * 0.16;
+      const top = h * 0.3;
+      ctx.fillStyle = acc;
+      ctx.beginPath();
+      ctx.moveTo(cx - aw, h);
+      ctx.lineTo(cx - aw, top + aw);
+      ctx.arc(cx, top + aw, aw, Math.PI, 0);
+      ctx.lineTo(cx + aw, h);
+      ctx.closePath();
+      ctx.fill();
+    }
+    for (let i = 0; i < 6000; i += 1) {
+      ctx.fillStyle = tone(d.look.color, (r() - 0.5) * 0.08, 0.35);
+      ctx.fillRect(r() * w, r() * h, 2 + r() * 4, 2 + r() * 4);
+    }
+  },
+  // Мелкий горошек.
+  dots: (d) => (ctx, w, h, r) => {
+    ctx.fillStyle = d.look.color;
+    ctx.fillRect(0, 0, w, h);
+    const acc = d.look.accent ?? tone(d.look.color, -0.2);
+    for (let row = 0, y = 24; y < h + 20; row += 1, y += 48) {
+      for (let x = row % 2 ? 24 : 0; x < w + 20; x += 48) {
+        ctx.fillStyle = acc;
+        ctx.beginPath();
+        ctx.arc(x, y, 7, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+    speckle(ctx, w, h, r, 2000, 0.04);
+  },
+  // Кошачьи лапки и мордочки — милые обои для котокафе.
+  paws: (d) => (ctx, w, h, r) => {
+    ctx.fillStyle = d.look.color;
+    ctx.fillRect(0, 0, w, h);
+    const acc = d.look.accent ?? tone(d.look.color, -0.2);
+    for (let row = 0, y = 50; y < h + 60; row += 1, y += 110) {
+      for (let x = row % 2 ? 60 : 0; x < w + 60; x += 120) {
+        ctx.save();
+        ctx.translate(x, y);
+        ctx.rotate(((row * 7 + x) % 5) * 0.2 - 0.4);
+        ctx.fillStyle = acc;
+        if ((row + Math.round(x / 120)) % 3 === 0) {
+          // Мордочка: голова и уши.
+          ctx.beginPath();
+          ctx.arc(0, 0, 16, 0, Math.PI * 2);
+          ctx.moveTo(-15, -6);
+          ctx.lineTo(-12, -24);
+          ctx.lineTo(-3, -14);
+          ctx.moveTo(15, -6);
+          ctx.lineTo(12, -24);
+          ctx.lineTo(3, -14);
+          ctx.fill();
+          ctx.fillStyle = d.look.color;
+          ctx.beginPath();
+          ctx.arc(-6, -2, 2.5, 0, Math.PI * 2);
+          ctx.arc(6, -2, 2.5, 0, Math.PI * 2);
+          ctx.fill();
+        } else {
+          ctx.beginPath();
+          ctx.ellipse(0, 4, 11, 9, 0, 0, Math.PI * 2);
+          ctx.fill();
+          for (const [tx, ty] of [[-12, -8], [-4, -14], [4, -14], [12, -8]] as const) {
+            ctx.beginPath();
+            ctx.arc(tx, ty, 4.5, 0, Math.PI * 2);
+            ctx.fill();
+          }
+        }
+        ctx.restore();
+      }
+    }
+    speckle(ctx, w, h, r, 2000, 0.04);
+  },
   stripes: (d) => (ctx, w, h, r) => {
     ctx.fillStyle = d.look.color;
     ctx.fillRect(0, 0, w, h);
@@ -405,6 +485,49 @@ const floorDraw: Record<string, (d: FinishDef) => Draw> = {
         }
       }
     }
+  },
+  // Терраццо: светлая основа с разноцветной крошкой.
+  terrazzo: (d) => (ctx, w, h, r) => {
+    ctx.fillStyle = d.look.color;
+    ctx.fillRect(0, 0, w, h);
+    const chips = (d.look.accent ?? '#e9a9a0,#9cc3b0,#f2d08a,#c9c1e6').split(',');
+    for (let i = 0; i < 1400; i += 1) {
+      const x = r() * w;
+      const y = r() * h;
+      const s0 = 3 + r() * (r() < 0.15 ? 16 : 7);
+      ctx.fillStyle = tone(chips[i % chips.length]!, (r() - 0.5) * 0.15);
+      ctx.beginPath();
+      ctx.moveTo(x, y - s0);
+      ctx.lineTo(x + s0 * (0.6 + r() * 0.6), y - s0 * 0.2);
+      ctx.lineTo(x + s0 * 0.3, y + s0 * (0.6 + r() * 0.4));
+      ctx.lineTo(x - s0 * (0.6 + r() * 0.5), y + s0 * 0.3);
+      ctx.closePath();
+      ctx.fill();
+    }
+    speckle(ctx, w, h, r, 6000, 0.06, 2);
+  },
+  // Шестиугольная плитка двух пастельных тонов.
+  hexes: (d) => (ctx, w, h, r) => {
+    ctx.fillStyle = '#f4efe8';
+    ctx.fillRect(0, 0, w, h);
+    const R = 48;
+    const dx = R * Math.sqrt(3);
+    for (let row = -1, y = 0; y < h + R * 2; row += 1, y += R * 1.5) {
+      for (let x = row % 2 ? dx / 2 : 0; x < w + dx; x += dx) {
+        ctx.fillStyle = tone((x / dx + row) % 4 < 1 ? (d.look.accent ?? '#9cc3b0') : d.look.color, (r() - 0.5) * 0.05);
+        ctx.beginPath();
+        for (let k = 0; k < 6; k += 1) {
+          const a = Math.PI / 6 + (k * Math.PI) / 3;
+          const px = x + Math.cos(a) * (R - 3);
+          const py = y + Math.sin(a) * (R - 3);
+          if (k) ctx.lineTo(px, py);
+          else ctx.moveTo(px, py);
+        }
+        ctx.closePath();
+        ctx.fill();
+      }
+    }
+    speckle(ctx, w, h, r, 2000, 0.04);
   },
   checker: (d) => (ctx, w, h, r) => {
     const s = 128;
@@ -1142,6 +1265,37 @@ export function roomLights(look: HomeLook, spots: ReadonlyArray<[number, number]
       });
     }
     g.userData.tick = ticks;
+    return g;
+  }
+  if (st === 'globes') {
+    // Подвесные шары-плафоны на латунных крышках: днём мягко светятся, вечером — тепло.
+    const glass = M.glow('#fff4e2', night ? 2.0 : 0.9);
+    const brass = mat('#c9a24a', 0.35, 0.8);
+    const cord = mat('#2b2b2b', 0.6);
+    for (const [x, z] of spots) {
+      for (const [ox, drop] of [[-0.35, 0.95], [0, 0.75], [0.35, 1.05]] as const) {
+        // Без мульт-контура и теней: тонкий шнур с контуром у камеры выглядит толстой чёрной полосой.
+        for (const m of [
+          mesh(new THREE.CylinderGeometry(0.006, 0.006, drop, 6), cord, [x + ox, H - drop / 2, z]),
+          mesh(new THREE.CylinderGeometry(0.035, 0.05, 0.06, 12), brass, [x + ox, H - drop - 0.02, z]),
+          mesh(new THREE.SphereGeometry(0.13, 18, 14), glass, [x + ox, H - drop - 0.15, z]),
+        ]) {
+          m.userData.noOutline = true;
+          m.castShadow = false;
+          g.add(m);
+        }
+      }
+      const lamp = new THREE.PointLight(color, night ? 9 : 2.5, 11, 1.7);
+      lamp.position.set(x, H - 1.0, z);
+      g.add(lamp);
+      if (night) {
+        const halo = lampHalo(color, 1.3, 0.45);
+        if (halo) {
+          halo.position.set(x, H - 1.0, z);
+          g.add(halo);
+        }
+      }
+    }
     return g;
   }
   const k = st === 'chandelier' ? 1.25 : st === 'led' ? 1.1 : 1;

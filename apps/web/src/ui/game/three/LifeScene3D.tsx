@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { actionsAt, dayFraction } from '../../../game/life';
 import { BOWL_MAX } from '../../../game/lifeContent';
-import { PLAY_START, BELT, DEMON_FACE, DEMON_ROOM, DEMON_SPOT, GRAVES_SHOWN, REACH, beltSpot, demonLayout, graveSpot, guestSpots, houseRect, playCatBoxes, playParts, chairsOf, type PlayParts, STICK_WALK, WALK_SPEED, bounds as sceneBounds, blocked, detourPoint, dist, freeSpot, homeLayout, homeObstacles, petsAt, resolve, spawn, stickSpeed, type Box, type P2, type Placed } from '../../../game/lifeMap';
+import { PLAY_START, BELT, DEMON_FACE, DEMON_ROOM, DEMON_SPOT, GRAVES_SHOWN, REACH, beltSpot, demonLayout, graveSpot, guestSpots, houseRect, playCatBoxes, playObstacles, playParts, chairsOf, type PlayParts, STICK_WALK, WALK_SPEED, bounds as sceneBounds, blocked, detourPoint, dist, freeSpot, homeLayout, homeObstacles, petsAt, resolve, spawn, stickSpeed, type Box, type P2, type Placed } from '../../../game/lifeMap';
 import type { ItemSpot, PlayZoneState, CatBreed, ObjectId, SceneId } from '../../../game/lifeTypes';
 import { animFor } from './actionAnims';
 import { disposeObject, type CharacterParts } from './buildCharacter';
@@ -658,6 +658,8 @@ export default function LifeScene3D(props: LifeScene3DProps) {
     let ticks: HomeAnim[] = [];
     /** Игровая зона кафе для кошек (в лавке демона — нет). */
     let playNow: PlayParts | null = null;
+    /** Коврик игровой зоны (часть гостей играет с кошками прямо в зоне). */
+    let zoneBox: Box | null = null;
     // Подсветка предмета в режиме перестановки: зелёный — можно, красный — нельзя.
     const markMat = new THREE.MeshBasicMaterial({ color: '#3ddc84', transparent: true, opacity: 0.32, depthWrite: false });
     const mark = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), markMat);
@@ -687,9 +689,11 @@ export default function LifeScene3D(props: LifeScene3DProps) {
         const play = p.play ?? PLAY_START;
         const placed = homeLayout(p.furniture, p.cats.length > 0, p.house, play, p.moved ?? {});
         world.add(house(placed, night, petModels, p.house, p.home ?? DEFAULT_LOOK, play));
-        boxes = [...placed.map((x) => x.box).filter((b): b is Box => b !== null), ...homeObstacles(placed)];
-        // Кошки подходят к мискам и лотку вплотную и ходят по игровой зоне (мешают только домик и столбик).
+        // Игровая зона проходная: люди заходят в неё, мешают только сами игрушки.
         const zone = placed.find((x) => x.id === 'play_zone');
+        boxes = [...placed.filter((x) => x.id !== 'play_zone').map((x) => x.box).filter((b): b is Box => b !== null), ...homeObstacles(placed), ...(zone ? playObstacles(zone.pos, play) : [])];
+        zoneBox = zone?.box ?? null;
+        // Кошки подходят к мискам и лотку вплотную и ходят по игровой зоне (мешают только домик и столбик).
         catBoxes = [...placed.filter((x) => x.id !== 'cat_bowl' && x.id !== 'litter' && x.id !== 'play_zone').map((x) => x.box).filter((b): b is Box => b !== null), ...homeObstacles(placed), ...(zone ? playCatBoxes(zone.pos, play) : [])];
         playNow = zone ? playParts(zone.pos, play) : null;
         placedNow = placed;
@@ -847,7 +851,7 @@ export default function LifeScene3D(props: LifeScene3DProps) {
       // Больше половины гостей сидят за столиками (пока есть стулья), остальные — с кошками.
       const chairs = p.scene === 'cafe' ? chairsOf(placedNow) : [];
       const seated = Math.min(chairs.length, Math.ceil(want.length * 0.6));
-      const spots = guestSpots(p.house, boxes, want.length - seated);
+      const spots = guestSpots(p.house, boxes, want.length - seated, zoneBox);
       for (const [id, e] of crew) {
         if (!want.some((w) => w.id === id && lookKey(w) === e.key)) {
           scene.remove(e.root, e.shadow);

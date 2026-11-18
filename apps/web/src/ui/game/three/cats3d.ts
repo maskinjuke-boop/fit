@@ -270,6 +270,11 @@ function blob(r: number, sx: number, sy: number, sz: number, m: THREE.Material, 
   return me;
 }
 
+/** Кошки крупнее жизненного размера рядом с людьми игры (люди в сцене тоже крупнее метра). */
+export const CAT_SCALE = 1.35;
+/** Рост котёнка для размера: самый маленький котёнок — 0,6 взрослой кошки (пропорции — по настоящему росту). */
+export const catSizeOf = (grow: number): number => CAT_SCALE * (0.6 + (0.4 * (Math.max(0.42, Math.min(1, grow)) - 0.42)) / 0.58);
+
 /** Строит кошку породы breed (смотрит на +Z, лапы на полу). */
 export function buildCat(breed: CatBreed, seed = 1, opts: CatLookOpts = {}): Cat3D {
   const mix = opts.mix && opts.mix !== breed ? opts.mix : undefined;
@@ -280,7 +285,7 @@ export function buildCat(breed: CatBreed, seed = 1, opts: CatLookOpts = {}): Cat
   // Реалистичная модель (если загружена): окрас породы на шерсти модели, позы через скелет.
   if (catModelReady()) {
     const key = catLookKey(breed, { mix, grow });
-    const g = buildGlbCat(look, key, seed, grow, young, breed === 'ginger' && !mix);
+    const g = buildGlbCat(look, key, seed, catSizeOf(grow), young, breed === 'ginger' && !mix);
     if (g) {
       const cat: Cat3D = { root: g.root, breed, key, body: g.body, head: g.head, legs: [], tail: [], eyes: [], lids: [], legLen: 1 - 0.1 * young, pose: restPose(), apply: g.apply };
       poseCat(cat, 'idle', 0, 0, 1);
@@ -300,7 +305,7 @@ export function buildCat(breed: CatBreed, seed = 1, opts: CatLookOpts = {}): Cat
   const F = look.fluff;
   const root = new THREE.Group();
   const scaleRoot = new THREE.Group();
-  scaleRoot.scale.setScalar(look.size * grow);
+  scaleRoot.scale.setScalar(look.size * catSizeOf(grow));
   root.add(scaleRoot);
 
   // Корпус: начало координат — у таза (кошка садится, поворачиваясь вокруг него).

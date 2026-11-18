@@ -239,21 +239,17 @@ function oldModel(id: string): THREE.Group | null {
       return g;
     }
     case 'sofa': {
-      // Продавленный выцветший диван с заплаткой и пледом.
-      const c = M.cloth('#8a6b4e', 5, 0.98);
-      g.add(mesh(new THREE.BoxGeometry(2.4, 0.3, 0.95), c, [0, 0.17, 0]));
-      g.add(mesh(new THREE.BoxGeometry(1.15, 0.13, 0.85), c, [-0.58, 0.385, 0.03]));
-      g.add(mesh(new THREE.BoxGeometry(1.15, 0.1, 0.85), c, [0.58, 0.36, 0.03]).rotateZ(-0.04));
-      g.add(mesh(new THREE.BoxGeometry(2.4, 0.6, 0.25), c, [0, 0.62, -0.38]).rotateX(-0.06));
-      for (const x of [-1.15, 1.15]) g.add(mesh(new THREE.BoxGeometry(0.22, 0.48, 0.95), c, [x, 0.48, 0]));
-      g.add(mesh(new THREE.PlaneGeometry(0.28, 0.24), M.cloth('#5d6e7e', 4), [-0.4, 0.68, -0.24]).rotateX(-0.06));
-      g.add(mesh(new THREE.BoxGeometry(0.06, 0.06, 0.06), mat('#d6c7a8', 0.95), [1.1, 0.75, 0.3]));
-      g.add(mesh(new THREE.BoxGeometry(0.9, 0.04, 0.8), M.cloth('#9b3d35', 4), [0.75, 0.62, -0.1]).rotateZ(0.5));
-      // Вместо столика — деревянный ящик.
-      const crate = wood('#a08455');
-      g.add(mesh(new THREE.BoxGeometry(0.7, 0.36, 0.55), crate, [0, 0.18, 1.15]));
-      for (const y of [0.1, 0.24]) g.add(mesh(new THREE.BoxGeometry(0.72, 0.03, 0.57), wood('#7a6038'), [0, y, 1.15]));
-      g.add(mesh(new THREE.CylinderGeometry(0.04, 0.035, 0.1, 12), mat('#e9e4d8', 0.4), [0.15, 0.41, 1.1]));
+      // Простой диван из стартового кафе: светлая обивка, ровные подушки, деревянные ножки,
+      // круглый столик (без изысков — новый диван уютнее).
+      const c = M.cloth('#d9cbb8', 5, 0.95);
+      g.add(mesh(new THREE.BoxGeometry(2.3, 0.28, 0.9), c, [0, 0.28, 0]));
+      for (const x of [-0.56, 0.56]) g.add(mesh(new THREE.BoxGeometry(1.08, 0.12, 0.8), c, [x, 0.48, 0.04]));
+      g.add(mesh(new THREE.BoxGeometry(2.3, 0.5, 0.2), c, [0, 0.66, -0.36]));
+      for (const x of [-1.1, 1.1]) g.add(mesh(new THREE.BoxGeometry(0.16, 0.38, 0.9), c, [x, 0.5, 0]));
+      const leg = wood('#a07a52');
+      for (const x of [-1.05, 1.05]) for (const z of [-0.35, 0.35]) g.add(mesh(new THREE.CylinderGeometry(0.03, 0.025, 0.14, 8), leg, [x, 0.07, z]));
+      g.add(mesh(new THREE.CylinderGeometry(0.38, 0.38, 0.04, 24), wood('#c8a57a'), [0, 0.42, 1.15]));
+      g.add(mesh(new THREE.CylinderGeometry(0.04, 0.05, 0.4, 10), leg, [0, 0.2, 1.15]));
       return g;
     }
     case 'fridge': {
@@ -349,12 +345,6 @@ const KENNEY_SWAP: Partial<Record<string, (g: THREE.Group) => void>> = {
     drop(g, range(0, 6));
     g.add(kenney('bedDouble', [2.15, 1.25, 2.7], [0, 0, -0.03], { carpet: '#5b7fb3' }));
   },
-  sofa: (g) => {
-    // Диван и столик — Kenney.
-    drop(g, range(0, 5));
-    g.add(kenney('loungeSofa', [2.5, 1.0, 1.0], [0, 0, -0.02], { carpet: '#7d8b99' }));
-    g.add(kenney('tableCoffee', [0.95, 0.4, 0.72], [0, 0, 1.15]));
-  },
   fridge: (g) => {
     drop(g, range(0, 4));
     g.add(kenney('kitchenFridgeLarge', [0.88, 1.92, 0.75]));
@@ -376,7 +366,7 @@ const KENNEY_SWAP: Partial<Record<string, (g: THREE.Group) => void>> = {
   },
   armchair: (g) => {
     drop(g, range(0, 9));
-    g.add(kenney('loungeChair', [1.0, 0.95, 0.95], [0, 0, 0.02], { carpet: '#6b8f71' }));
+    g.add(kenney('loungeChair', [1.0, 0.95, 0.95], [0, 0, 0.02], { carpet: '#b7cfbd' }));
   },
   computer: (g) => {
     // Стол, клавиатура и кресло — Kenney; монитор со светящимся экраном — прежний.
@@ -421,12 +411,33 @@ function procModel(id: string): THREE.Group {
       break;
     }
     case 'sofa': {
-      const c = M.cloth('#7d8b99', 5);
-      g.add(mesh(new THREE.BoxGeometry(2.4, 0.45, 0.95), c, [0, 0.25, 0]));
-      g.add(mesh(new THREE.BoxGeometry(2.4, 0.6, 0.25), c, [0, 0.65, -0.38]));
-      for (const x of [-1.15, 1.15]) g.add(mesh(new THREE.BoxGeometry(0.22, 0.5, 0.95), c, [x, 0.5, 0]));
-      // Журнальный столик перед диваном (препятствие — homeObstacles, сесть можно сбоку).
-      g.add(mesh(new THREE.BoxGeometry(0.9, 0.12, 0.7), wood('#a0784a'), [0, 0.32, 1.15]));
+      // Новый диван: округлый, букле нежно-розового цвета, круглые валики-подушки, подушка с
+      // ушками; перед ним — круглый мраморный столик на золотых ножках.
+      const boucle = M.cloth('#efcfc6', 3, 0.98);
+      const deep = M.cloth('#e6bdb2', 3, 0.98);
+      g.add(mesh(new THREE.BoxGeometry(2.1, 0.34, 0.92), boucle, [0, 0.27, 0]));
+      for (const x of [-1.05, 1.05]) g.add(mesh(new THREE.CylinderGeometry(0.46, 0.46, 0.34, 24, 1, false, 0, Math.PI), boucle, [x, 0.27, 0]).rotateY(x < 0 ? Math.PI : 0));
+      for (const x of [-0.52, 0.52]) g.add(mesh(new THREE.BoxGeometry(1.0, 0.13, 0.78), deep, [x, 0.5, 0.06]));
+      // Спинка — три пухлых валика, подлокотники — полукольца.
+      for (const x of [-0.72, 0, 0.72]) g.add(mesh(new THREE.CapsuleGeometry(0.17, 0.5, 6, 14), boucle, [x, 0.72, -0.33]).rotateZ(Math.PI / 2));
+      for (const x of [-1.08, 1.08]) g.add(mesh(new THREE.CapsuleGeometry(0.15, 0.55, 6, 14), boucle, [x, 0.55, 0.02]).rotateX(Math.PI / 2));
+      // Подушка-кошечка.
+      const pillow = new THREE.Group();
+      pillow.add(mesh(new THREE.BoxGeometry(0.36, 0.3, 0.12), M.cloth('#a9c4ae', 3), [0, 0, 0]));
+      for (const x of [-0.12, 0.12]) pillow.add(mesh(new THREE.ConeGeometry(0.06, 0.1, 4), M.cloth('#a9c4ae', 3), [x, 0.19, 0]).rotateY(Math.PI / 4));
+      pillow.position.set(0.55, 0.72, -0.12);
+      pillow.rotation.x = -0.25;
+      g.add(pillow);
+      // Круглый столик: мраморная столешница, золотые ножки (препятствие — homeObstacles).
+      const marble = mat('#f6f3ee', 0.35);
+      g.add(mesh(new THREE.CylinderGeometry(0.4, 0.4, 0.05, 32), marble, [0, 0.42, 1.15]));
+      const gold = mat('#d1a94e', 0.3, 0.85);
+      for (let i = 0; i < 3; i += 1) {
+        const a = (i / 3) * Math.PI * 2;
+        g.add(mesh(new THREE.CylinderGeometry(0.015, 0.012, 0.42, 8), gold, [Math.cos(a) * 0.25, 0.2, 1.15 + Math.sin(a) * 0.25]).rotateZ(Math.cos(a) * 0.25).rotateX(-Math.sin(a) * 0.25));
+      }
+      g.add(mesh(new THREE.TorusGeometry(0.4, 0.012, 6, 32), gold, [0, 0.42, 1.15]).rotateX(Math.PI / 2));
+      g.add(mesh(new THREE.CylinderGeometry(0.06, 0.05, 0.1, 14), mat('#a9c4ae', 0.4), [0.12, 0.5, 1.12]));
       break;
     }
     case 'fridge': {
@@ -477,11 +488,23 @@ function procModel(id: string): THREE.Group {
       break;
     }
     case 'bookshelf': {
-      g.add(mesh(new THREE.BoxGeometry(1.1, 2, 0.4), wood('#8a5a30'), [0, 1, 0]));
-      const colors = ['#c0392b', '#2e86c1', '#27ae60', '#f39c12', '#8e44ad', '#16a085'];
-      for (let shelf = 0; shelf < 4; shelf += 1) {
-        for (let i = 0; i < 7; i += 1) g.add(mesh(new THREE.BoxGeometry(0.11, 0.32, 0.28), paint(colors[(i + shelf) % colors.length]!), [-0.42 + i * 0.14, 0.32 + shelf * 0.46, 0.06]));
+      // Светлый стеллаж с аркой наверху: пастельные книги, растение в горшке, фигурка кошки.
+      const oak = wood('#e2c9a6');
+      g.add(mesh(new THREE.BoxGeometry(1.1, 1.75, 0.06), mat('#f6efe6', 0.6), [0, 0.875, -0.17]));
+      for (const x of [-0.53, 0.53]) g.add(mesh(new THREE.BoxGeometry(0.05, 1.75, 0.4), oak, [x, 0.875, 0]));
+      g.add(mesh(new THREE.CylinderGeometry(0.55, 0.55, 0.4, 24, 1, false, -Math.PI / 2, Math.PI), oak, [0, 1.75, 0]).rotateX(-Math.PI / 2));
+      for (let shelf = 0; shelf < 4; shelf += 1) g.add(mesh(new THREE.BoxGeometry(1.06, 0.04, 0.38), oak, [0, 0.06 + shelf * 0.45, 0]));
+      const colors = ['#f2c6c0', '#b7cfbd', '#f3dca2', '#c9c1e6', '#a9c8e0', '#f7e7d8'];
+      for (let shelf = 0; shelf < 3; shelf += 1) {
+        const n = shelf === 1 ? 4 : 6;
+        for (let i = 0; i < n; i += 1) g.add(mesh(new THREE.BoxGeometry(0.1, 0.28 + ((i * 7 + shelf) % 3) * 0.03, 0.26), paint(colors[(i + shelf * 2) % colors.length]!, 0.7), [-0.42 + i * 0.12, 0.23 + shelf * 0.45 + ((i * 7 + shelf) % 3) * 0.015, 0.04]));
       }
+      // Растение и фигурка кошки на полках.
+      g.add(mesh(new THREE.CylinderGeometry(0.08, 0.06, 0.14, 14), mat('#f7f4ef', 0.4), [0.3, 0.6, 0.02]));
+      for (let k = 0; k < 5; k += 1) g.add(mesh(new THREE.SphereGeometry(0.07, 8, 6), mat('#7fae84', 0.7), [0.3 + Math.cos(k * 1.3) * 0.06, 0.72 + (k % 2) * 0.05, Math.sin(k * 1.3) * 0.05]));
+      g.add(mesh(new THREE.SphereGeometry(0.07, 12, 10), mat('#2b2b2b', 0.5), [0.32, 1.42, 0.04], [1, 0.9, 1]));
+      g.add(mesh(new THREE.SphereGeometry(0.05, 12, 10), mat('#2b2b2b', 0.5), [0.32, 1.53, 0.06]));
+      for (const x of [0.29, 0.35]) g.add(mesh(new THREE.ConeGeometry(0.018, 0.04, 4), mat('#2b2b2b', 0.5), [x, 1.59, 0.06]));
       break;
     }
     case 'yoga_mat': {
@@ -561,28 +584,32 @@ function procModel(id: string): THREE.Group {
       break;
     }
     case 'table': {
-      // Круглый столик кафе на ножке-тумбе и два венских стула по бокам (лицом к столику).
-      const top = wood('#b9875a');
-      g.add(mesh(new THREE.CylinderGeometry(0.46, 0.46, 0.05, 28), top, [0, 0.76, 0]));
-      g.add(mesh(new THREE.CylinderGeometry(0.47, 0.47, 0.02, 28), paint('#6e4a2c', 0.6), [0, 0.73, 0]));
-      g.add(mesh(new THREE.CylinderGeometry(0.045, 0.05, 0.72, 10), M.darkSteel(), [0, 0.37, 0]));
-      g.add(mesh(new THREE.CylinderGeometry(0.26, 0.3, 0.04, 20), M.darkSteel(), [0, 0.02, 0]));
-      // Сахарница и цветок в стаканчике.
-      g.add(mesh(new THREE.CylinderGeometry(0.04, 0.045, 0.08, 12), paint('#f7f1e6', 0.4), [0.05, 0.83, -0.18]));
-      g.add(mesh(new THREE.CylinderGeometry(0.025, 0.03, 0.12, 10), mat('#cfe6ee', 0.1, 0, { transparent: true, opacity: 0.6 }), [-0.08, 0.85, -0.2]));
-      g.add(mesh(new THREE.SphereGeometry(0.035, 10, 8), paint('#e86a8a', 0.6), [-0.08, 0.95, -0.2]));
-      for (const side of [-1, 1]) {
+      // Круглый столик кафе: белый мрамор, золотая ножка; по бокам — пастельные стулья-ракушки
+      // (розовый и шалфейный) на тонких золотых ножках.
+      const gold = mat('#d1a94e', 0.3, 0.85);
+      g.add(mesh(new THREE.CylinderGeometry(0.46, 0.46, 0.04, 32), mat('#f7f4ef', 0.3), [0, 0.76, 0]));
+      g.add(mesh(new THREE.TorusGeometry(0.46, 0.012, 6, 32), gold, [0, 0.74, 0]).rotateX(Math.PI / 2));
+      g.add(mesh(new THREE.CylinderGeometry(0.035, 0.035, 0.72, 10), gold, [0, 0.37, 0]));
+      g.add(mesh(new THREE.CylinderGeometry(0.24, 0.27, 0.03, 24), gold, [0, 0.015, 0]));
+      // Чашка-кошечка и цветок в маленькой вазе.
+      g.add(mesh(new THREE.CylinderGeometry(0.04, 0.035, 0.07, 14), mat('#ffffff', 0.4), [0.12, 0.815, -0.16]));
+      for (const x of [0.1, 0.14]) g.add(mesh(new THREE.ConeGeometry(0.012, 0.025, 4), mat('#ffffff', 0.4), [x, 0.86, -0.16]));
+      g.add(mesh(new THREE.SphereGeometry(0.05, 14, 10), mat('#a9c4ae', 0.3), [-0.1, 0.82, -0.18], [1, 1.2, 1]));
+      g.add(mesh(new THREE.SphereGeometry(0.035, 10, 8), paint('#f5a5b8', 0.6), [-0.1, 0.92, -0.18]));
+      ['#f2c6c0', '#b7cfbd'].forEach((color, k) => {
+        const side = k === 0 ? -1 : 1;
         const ch = new THREE.Group();
-        const seat = wood('#7a4f2e');
-        ch.add(mesh(new THREE.CylinderGeometry(0.21, 0.21, 0.05, 20), seat, [0, 0.45, 0]));
-        for (const [x, z] of [[-0.14, -0.14], [0.14, -0.14], [-0.14, 0.14], [0.14, 0.14]] as const) ch.add(mesh(new THREE.CylinderGeometry(0.018, 0.015, 0.45, 6), seat, [x, 0.22, z]));
-        // Гнутая спинка с дальней от столика стороны (у левого стула — слева; правый повёрнут).
-        ch.add(mesh(new THREE.TorusGeometry(0.17, 0.02, 6, 16, Math.PI), seat, [-0.17, 0.72, 0]).rotateY(Math.PI / 2));
-        for (const z of [-0.17, 0.17]) ch.add(mesh(new THREE.CylinderGeometry(0.018, 0.018, 0.3, 6), seat, [-0.17, 0.6, z]));
+        const shell = mat(color, 0.45);
+        ch.add(mesh(new THREE.CylinderGeometry(0.22, 0.2, 0.06, 24), shell, [0, 0.46, 0]));
+        // Спинка-ракушка: полукольцо сзади (у левого стула — слева; правый повёрнут).
+        const back = mesh(new THREE.CylinderGeometry(0.22, 0.2, 0.32, 24, 1, true, Math.PI * 1.15, Math.PI * 0.7), shell, [0, 0.64, 0]);
+        (back.material as THREE.MeshStandardMaterial).side = THREE.DoubleSide;
+        ch.add(back);
+        for (const [x, z] of [[-0.13, -0.13], [0.13, -0.13], [-0.13, 0.13], [0.13, 0.13]] as const) ch.add(mesh(new THREE.CylinderGeometry(0.012, 0.01, 0.44, 6), gold, [x, 0.22, z]));
         ch.position.x = side * 0.72;
-        if (side > 0) ch.rotation.y = Math.PI;
+        ch.rotation.y = side > 0 ? Math.PI : 0;
         g.add(ch);
-      }
+      });
       break;
     }
     case 'play_zone': {
@@ -596,14 +623,17 @@ function procModel(id: string): THREE.Group {
       // Стойка кафе: корпус, деревянная столешница, светлая полоса спереди, касса,
       // стеклянная витрина с пирожными (их столько, сколько еды на витрине — см. сцену),
       // кофемашина и фигурка «манэки-нэко».
-      g.add(mesh(new THREE.BoxGeometry(1.0, 1.1, 2.4), paint('#f3e3cf', 0.5), [0, 0.55, 0]));
-      g.add(mesh(new THREE.BoxGeometry(1.1, 0.06, 2.5), wood('#a0784a'), [0, 1.13, 0]));
-      g.add(mesh(new THREE.BoxGeometry(0.04, 0.5, 2.2), M.glow('#ff9ac2', 0.7), [0.52, 0.6, 0]));
+      // Корпус нежно-розовый с вертикальными рифлёными рейками, белая «мраморная» столешница,
+      // золотой цоколь.
+      g.add(mesh(new THREE.BoxGeometry(1.0, 1.1, 2.4), paint('#f2cfc8', 0.5), [0, 0.55, 0]));
+      for (let z = -1.12; z <= 1.13; z += 0.09) g.add(mesh(new THREE.CylinderGeometry(0.035, 0.035, 0.92, 10), paint('#f5d9d3', 0.5), [0.5, 0.6, z]));
+      g.add(mesh(new THREE.BoxGeometry(1.1, 0.06, 2.5), mat('#f7f4ef', 0.3), [0, 1.13, 0]));
+      g.add(mesh(new THREE.BoxGeometry(0.03, 0.06, 2.42), mat('#d1a94e', 0.3, 0.85), [0.53, 0.06, 0]));
       // Касса.
       g.add(mesh(new THREE.BoxGeometry(0.45, 0.3, 0.04), paint('#15171b', 0.3), [-0.2, 1.35, 0.3]).rotateY(Math.PI / 2));
       // Витрина: каркас, стекло, две полки с пирожными.
       const vz = -0.6;
-      const frame = wood('#7a4f2e');
+      const frame = mat('#d1a94e', 0.3, 0.85);
       g.add(mesh(new THREE.BoxGeometry(0.8, 0.04, 1.1), frame, [0, 1.18, vz]));
       g.add(mesh(new THREE.BoxGeometry(0.8, 0.03, 1.1), frame, [0, 1.66, vz]));
       for (const z of [vz - 0.53, vz + 0.53]) g.add(mesh(new THREE.BoxGeometry(0.8, 0.48, 0.03), frame, [0, 1.42, z]));
@@ -624,7 +654,7 @@ function procModel(id: string): THREE.Group {
         g.add(cake);
       });
       // Кофемашина и чашки.
-      g.add(mesh(new THREE.BoxGeometry(0.4, 0.42, 0.34), paint('#2c2f34', 0.3), [-0.15, 1.37, 0.85]));
+      g.add(mesh(new THREE.BoxGeometry(0.4, 0.42, 0.34), paint('#f1ece6', 0.35), [-0.15, 1.37, 0.85]));
       g.add(mesh(new THREE.BoxGeometry(0.3, 0.06, 0.3), M.chrome(), [-0.15, 1.6, 0.85]));
       g.add(mesh(new THREE.CylinderGeometry(0.035, 0.03, 0.06, 12), paint('#ffffff', 0.4), [0.1, 1.19, 0.85]));
       // Манэки-нэко на краю.
