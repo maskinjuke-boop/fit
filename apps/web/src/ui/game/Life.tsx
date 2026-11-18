@@ -5,11 +5,14 @@ import {
   actionsAt,
   autoChoice,
   blocker,
+  bondLevel,
+  bondOf,
   catGrowth,
   catMood,
   catName,
   cafeLayout,
   moveBlocker,
+  petOf,
   playBlocker,
   playBoredom,
   playComfort,
@@ -18,31 +21,22 @@ import {
   tomorrowOffer,
   clock,
   comfort,
-  guestAppearance,
-  guestDemand,
-  guestOutfit,
-  guestsNow,
   hasObject,
-  hourlyIncome,
   houseBlocker,
   litterDirty,
   maxCats,
-  maxFood,
   oldStuff,
-  seats,
-  ticket,
   type Blocker,
-  type Guest,
 } from '../../game/life';
 import { Renovation } from './Renovation';
-import { catBreedText, catMeta } from './catText';
-import { BOWL_MAX, FOOD, HOUSES, OBJECTS, PLAY_ITEMS, PLAY_RUGS, PLAY_SIZES, actionById, lifeEventById } from '../../game/lifeContent';
+import { catBloodText, catBreedText, catMeta } from './catText';
+import { BOWL_MAX, HOUSES, OBJECTS, PLAY_ITEMS, PLAY_RUGS, PLAY_SIZES, STARVE_HOURS, STARVE_WARN, actionById, lifeEventById } from '../../game/lifeContent';
 import { demonLayout, movable, onWall, turnable, type P2 } from '../../game/lifeMap';
-import type { ActionDef, ObjectId } from '../../game/lifeTypes';
+import type { ActionDef, Cat, LifeState, ObjectId } from '../../game/lifeTypes';
 import { useI18n, type I18nKey } from '../../i18n';
 import type { ExerciseId } from '../../tracking/exercise';
-import { animFor } from './three/actionAnims';
-import type { Member } from './three/people';
+import { catActMs } from './three/catLife';
+import { catColor } from './three/cats3d';
 import { DemonCard } from './DemonCard';
 
 const LifeScene3D = lazy(() => import('./three/LifeScene3D'));
@@ -57,7 +51,7 @@ interface PointerLike {
 }
 
 const AUTO_KEY = 'fitness-rpg.lifeAuto';
-/** Сим начинает действовать сам, если игрок ничего не трогал столько времени. */
+/** Кошка начинает действовать сама, если игрок ничего не трогал столько времени. */
 const INPUT_GRACE_MS = 15000;
 /** Сим бросает затею, если столько времени не приближается к цели (упёрся), и в любом случае через TASK_MAX_MS. */
 const TASK_STUCK_MS = 6000;
@@ -79,21 +73,14 @@ interface AutoTask {
   moved: number;
   best: number;
 }
-/** Действие с анимацией; free — занятие между делами без результата. */
+/** Действие кошки игрока с анимацией; target — с какой кошкой. */
 interface Perform {
   key: number;
   action: string;
   at: ObjectId | null;
-  free?: boolean;
-  /** Дело выбрал сам сим (после него следующее — сразу). */
+  target?: string | null;
+  /** Дело выбрала сама кошка (после него следующее — сразу). */
   self?: boolean;
-}
-
-const GUEST_COLORS = ['#e85d2a', '#2f6fb5', '#3a9d6a', '#8e44ad', '#d4a017', '#c0392b', '#16a085', '#e84393'];
-
-/** Гость кафе как 3D-персонаж. */
-export function guestMember(g: Guest): Member {
-  return { id: g.id, color: GUEST_COLORS[g.seed % GUEST_COLORS.length]!, appearance: guestAppearance(g), equipped: guestOutfit(g) };
 }
 
 function Joystick({ stick, onInput }: { stick: { current: { x: number; y: number } }; onInput(): void }) {
@@ -142,9 +129,9 @@ const hours = (m: number): string => (m >= 60 ? `${Math.floor(m / 60)} ч${m % 6
 const hoursEn = (m: number): string => (m >= 60 ? `${Math.floor(m / 60)}h${m % 60 ? ` ${m % 60}m` : ''}` : `${m}m`);
 
 /** Кнопка действия у предмета. */
-function ActionButton({ state, a, onRun }: { state: GameState; a: ActionDef; onRun(): void }) {
+function ActionButton({ state, a, target, onRun }: { state: GameState; a: ActionDef; target?: string | null; onRun(): void }) {
   const { t, lang } = useI18n();
-  const b: Blocker = blocker(state, a);
+  const b: Blocker = blocker(state, a, target);
   const dur = lang === 'ru' ? hours(a.minutes) : hoursEn(a.minutes);
   return (
     <button className={`btn life-act ${a.rescue ? 'primary' : ''}`} disabled={b !== null} onClick={onRun}>
@@ -175,7 +162,6 @@ function ResultCard({ state }: { state: GameState }) {
   if (!r) return null;
   const chips: Array<{ text: string; cls: string }> = [];
   if (r.minutes) chips.push({ text: `⏱ ${lang === 'ru' ? hours(r.minutes) : hoursEn(r.minutes)}`, cls: '' });
-  if (r.guests) chips.push({ text: `👥 +${r.guests}`, cls: 'good' });
   if (r.money) chips.push({ text: `◈ ${r.money > 0 ? '+' : ''}${r.money}`, cls: r.money > 0 ? 'good' : 'bad' });
   return (
     <div className={`life-result ${r.ok ? 'ok' : 'fail'}`} role="status">
@@ -231,10 +217,45 @@ function EventCard({ state }: { state: GameState }) {
   );
 }
 
-/** Кафе сейчас: гости, вход, уют, доход; кошки и их потребности; миски и лоток. */
-function CafeStatus({ state }: { state: GameState }) {
+/** Шкала потребности: голод, вода, игра, туалет. */
+function NeedBar({ label, v }: { label: string; v: number }) {
+  return (
+    <div className={`need wide cat-need ${v < 25 ? 'low' : v < 50 ? 'mid' : ''}`}>
+      <span className="need-name">{label}</span>
+      <span className="need-bar">
+        <span style={{ width: `${Math.round(v)}%` }} />
+      </span>
+    </div>
+  );
+}
+
+/** Сколько ещё продержится кошка без еды и воды (часы). */
+const starveLeft = (c: Cat): number => Math.max(0, Math.ceil(STARVE_HOURS - c.starve));
+
+/** Отношения кошки с остальными: значок, имя, уровень. */
+function Bonds({ c, L }: { c: Cat; L: LifeState }) {
+  const { t, lang } = useI18n();
+  const others = L.cats.filter((o) => o.id !== c.id).map((o) => ({ o, v: bondOf(L, c.id, o.id) }));
+  if (!others.length) return null;
+  others.sort((a, b) => b.v - a.v);
+  const icon: Record<ReturnType<typeof bondLevel>, string> = { enemy: '⚡', cold: '😾', known: '🤝', pal: '😺', friend: '💛', love: '💞' };
+  return (
+    <div className="bond-row">
+      {others.map(({ o, v }) => (
+        <span key={o.id} className={`bond-chip ${bondLevel(v)}`} title={t(`bond.${bondLevel(v)}` as I18nKey)}>
+          {icon[bondLevel(v)]} {catName(o)[lang]} {Math.round(v)}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+/** Дом сейчас: кошки (родословная, ценность, потребности, отношения), миски и лоток. */
+function HomeStatus({ state }: { state: GameState }) {
   const { t, tf, lang } = useI18n();
+  const { life } = useGame();
   const L = state.life;
+  const me = petOf(L);
   return (
     <>
       <div className="stat-grid">
@@ -242,26 +263,10 @@ function CafeStatus({ state }: { state: GameState }) {
         <b>
           {L.cats.length}/{maxCats(L)}
         </b>
-        <span>👥 {t('cafe.guestsHour')}</span>
-        <b>
-          {Math.round(guestDemand(L) * 10) / 10}/{seats(L)}
-        </b>
-        <span>🎟️ {t('cafe.ticket')}</span>
-        <b>◈ {ticket(L)}</b>
         <span>✨ {t('life.comfort')}</span>
         <b>{comfort(L)}</b>
-        <span>💰 {t('cafe.income')}</span>
-        <b>◈ {hourlyIncome(L)}</b>
-        <span>🍰 {t('cafe.food')}</span>
-        <b className={L.food === 0 ? 'bad' : ''}>
-          {L.food}/{maxFood(L)}
-        </b>
-        <span>🕙 {t('cafe.hours')}</span>
-        <b>{t('cafe.allDay')}</b>
       </div>
       <p className="muted small">{t('cafe.how')}</p>
-      <p className="muted small">{tf('cafe.foodHow', { price: FOOD.price, cost: FOOD.cost })}</p>
-      {L.food === 0 && L.cats.length > 0 && <p className="bad small">{t('cafe.noFood')}</p>}
       {L.cats.length === 0 && <p className="muted">{t('cafe.noCats')}</p>}
       <ul className="life-list">
         {L.cats.length > 0 && (
@@ -274,28 +279,34 @@ function CafeStatus({ state }: { state: GameState }) {
           </li>
         )}
         {L.cats.map((c) => (
-          <li key={c.id}>
+          <li key={c.id} className={c.id === me?.id ? 'is-pet' : ''}>
             <div>
-              <b>🐈 {catName(c)[lang]}</b>
+              <b>
+                <span className="cat-dot" style={{ background: catColor(c.breed) }} /> {catName(c)[lang]} {c.sex === 'f' ? '♀' : '♂'}
+                {c.id === me?.id ? ` · 🎮 ${t('pet.you')}` : ''}
+              </b>
               <div className="muted small">
                 {catBreedText(c, lang, t)} · {tf('life.catMood', { n: catMood(c, L) })}
               </div>
+              <div className="small">{catBloodText(c, lang)}</div>
               <div className="small">{catMeta(c, L.day, t, tf)}</div>
-              {(['fed', 'play', 'toilet'] as const).map((k) => (
-                <div key={k} className={`need wide ${c[k] < 25 ? 'low' : c[k] < 50 ? 'mid' : ''}`}>
-                  <span className="need-name">{t(k === 'fed' ? 'life.catFed' : k === 'play' ? 'life.catPlay' : 'life.catToilet')}</span>
-                  <span className="need-bar">
-                    <span style={{ width: `${Math.round(c[k])}%` }} />
-                  </span>
-                </div>
-              ))}
+              {c.pregnant && <div className="small good">🤰 {tf('cat.pregnant', { n: Math.max(0, c.pregnant.due - L.day) })}</div>}
+              {c.starve >= STARVE_WARN && <div className="small bad">☠️ {tf('cat.starving', { n: starveLeft(c) })}</div>}
+              <NeedBar label={t('life.catFed')} v={c.fed} />
+              <NeedBar label={t('life.catDrink')} v={c.drink} />
+              <NeedBar label={t('life.catPlay')} v={c.play} />
+              <NeedBar label={t('life.catToilet')} v={c.toilet} />
+              <Bonds c={c} L={L} />
             </div>
+            {c.id !== me?.id && (
+              <button className="btn small" onClick={() => life.setPet(c.id)}>
+                🎮 {t('pet.take')}
+              </button>
+            )}
           </li>
         ))}
       </ul>
-      <p className="muted small">
-        {tf('cafe.stats', { visitors: L.stats.visitors, earned: L.stats.earned, rescued: L.stats.rescued, lost: L.stats.lost, meals: L.stats.meals })}
-      </p>
+      <p className="muted small">{tf('cafe.stats', { rescued: L.stats.rescued, lost: L.stats.lost, born: L.stats.born ?? 0, played: L.stats.played })}</p>
     </>
   );
 }
@@ -315,7 +326,7 @@ function HouseCard({ state }: { state: GameState }) {
           {h.icon} {h.name[lang]}
         </b>
         <div className="small">{h.desc[lang]}</div>
-        <div className="small">{tf('life.houseInfo', { w: h.w, d: h.d, slots: h.slots, cats: h.cats, seats: h.seats, comfort: h.comfort })}</div>
+        <div className="small">{tf('life.houseInfo', { w: h.w, d: h.d, slots: h.slots, cats: h.cats, comfort: h.comfort })}</div>
       </div>
       {next ? (
         <div className="card inner">
@@ -323,7 +334,7 @@ function HouseCard({ state }: { state: GameState }) {
             {next.icon} {tf('life.houseNext', { name: next.name[lang] })}
           </b>
           <div className="small">{next.desc[lang]}</div>
-          <div className="small">{tf('life.houseInfo', { w: next.w, d: next.d, slots: next.slots, cats: next.cats, seats: next.seats, comfort: next.comfort })}</div>
+          <div className="small">{tf('life.houseInfo', { w: next.w, d: next.d, slots: next.slots, cats: next.cats, comfort: next.comfort })}</div>
           <div className={`small ${state.life.cats.length >= next.needCats ? 'good' : 'bad'}`}>{tf('life.houseNeedCats', { n: next.needCats, have: state.life.cats.length })}</div>
           <button className="btn primary small" disabled={b !== null} onClick={() => life.upgradeHouse()}>
             {b === 'cats' ? tf('life.houseNeedCatsBtn', { n: next.needCats }) : tf('life.houseUpgrade', { n: next.cost })}
@@ -456,12 +467,12 @@ function PhoneSheet({ state, tab, setTab }: { state: GameState; tab: PhoneTab; s
           </button>
         ))}
       </div>
-      <div className="phone-body">{tab === 'status' ? <CafeStatus state={state} /> : tab === 'play' ? <PlayZoneCard state={state} /> : <FurnitureList state={state} />}</div>
+      <div className="phone-body">{tab === 'status' ? <HomeStatus state={state} /> : tab === 'play' ? <PlayZoneCard state={state} /> : <FurnitureList state={state} />}</div>
     </div>
   );
 }
 
-/** Вкладка «Кафе»: котокафе и лавка демона в 3D, гости, кошки, кошка дня, телефон. */
+/** Вкладка «Дом»: кошачий дом и лавка демона в 3D, кошка игрока, кошка дня, телефон. */
 export function LifeTab({ state, onTrain, onRescue }: { state: GameState; onTrain(): void; onRescue(exercise: ExerciseId): void }) {
   const { t, tf, lang } = useI18n();
   const { life } = useGame();
@@ -473,7 +484,7 @@ export function LifeTab({ state, onTrain, onRescue }: { state: GameState; onTrai
   const stick = useRef({ x: 0, y: 0 });
   const goto = useRef<P2 | null>(null);
 
-  // ── Самостоятельность: без игрока сим сам подходит к предметам и пользуется ими ──
+  // ── Самостоятельность: без игрока кошка сама подходит к предметам и пользуется ими ──
   const [auto, setAuto] = useState(() => {
     try {
       return localStorage.getItem(AUTO_KEY) !== '0';
@@ -487,30 +498,19 @@ export function LifeTab({ state, onTrain, onRescue }: { state: GameState; onTrai
   const recent = useRef<string[]>([]);
   /** До какого момента сим берёт только срочное: прохаживается и потягивается, игровое время стоит. */
   const restUntil = useRef(0);
-  /** Сим только что прошёлся — теперь можно потянуться или погладить кошку. */
-  const strolled = useRef(false);
-  // Действие с анимацией: сначала герой занимает место и двигается, потом результат.
-  // free — занятие без игрового времени и результата (потянуться, погладить кошку между делами).
+  // Действие с анимацией: сначала кошка подходит и начинает, потом результат.
   const [perform, setPerform] = useState<Perform | null>(null);
   const performRef = useRef(perform);
   performRef.current = perform;
   const performKey = useRef(0);
   const settled = useRef<(key: number) => void>(() => {});
   const settleWait = useRef(0);
-  const catSpots = useRef<P2[]>([]);
+  const catSpots = useRef<Array<{ id: string; x: number; z: number }>>([]);
   /** Где герой (сцена пишет каждый кадр) — чтобы видеть, идёт ли он к цели. */
   const heroAt = useRef<P2>({ x: 0, z: 0 });
   const live = useRef({ state, near: null as ObjectId | null, sheet: null as Sheet, auto, failed: false });
-  /** Прервать занятие между делами (игрок взял управление или выбрал действие). */
-  const stopFree = (): void => {
-    if (!performRef.current?.free) return;
-    clearTimeout(settleWait.current);
-    performRef.current = null;
-    setPerform(null);
-  };
   const playerInput = (): void => {
     lastInput.current = performance.now();
-    stopFree();
     if (taskRef.current) {
       taskRef.current = null;
       setAutoTask(null);
@@ -520,20 +520,7 @@ export function LifeTab({ state, onTrain, onRescue }: { state: GameState; onTrai
   // Таймер действия не переживает вкладку.
   useEffect(() => () => clearTimeout(settleWait.current), []);
 
-  const heroLook = useMemo(
-    () => ({ color: state.character.color, appearance: state.character.appearance, equipped: state.equipped }),
-    [state.character.color, state.character.appearance, state.equipped],
-  );
   const pets = useMemo(() => ({ bowl: L.bowl, water: L.water, litter: L.litter }), [L.bowl, L.water, L.litter]);
-  const foodMax = maxFood(L);
-  const food = useMemo(() => ({ n: L.food, max: foodMax }), [L.food, foodMax]);
-  // Гости в кафе: меняются по часам (внешность — по номеру гостя).
-  const guestKey = L.scene === 'cafe' ? guestsNow(L).map((g) => g.id).join(',') : '';
-  const guests = useMemo(
-    () => (L.scene === 'cafe' ? guestsNow(L).map(guestMember) : []),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [guestKey],
-  );
 
   // Перестановка: режим, выбранный предмет (ключ раскладки) и подсказка («сюда нельзя»).
   const [editing, setEditing] = useState(false);
@@ -568,15 +555,14 @@ export function LifeTab({ state, onTrain, onRescue }: { state: GameState; onTrai
     settleWait.current = window.setTimeout(finish, ms + 6000);
   };
 
-  /** Выполнить действие: с анимацией у предмета, если она есть, иначе сразу. self — дело выбрал сам сим: после него передышка. */
+  /** Выполнить действие: кошка подходит и делает (результат — после анимации); экраны и спасение — сразу. self — дело выбрала сама кошка: после него передышка. */
   const doAction = (a: ActionDef, self = false): void => {
-    stopFree();
     if (performRef.current) return;
-    const spec = animFor(a.id);
     const st = stateRef.current;
+    const target = a.at === 'cat' ? (catSpots.current[0]?.id ?? null) : null;
     lastInput.current = performance.now();
-    if (!spec || a.train || a.rescue || a.open || a.go || blocker(st, a) || st.life.event) {
-      const out = lifeRef.current.act(a.id);
+    if (a.train || a.rescue || a.open || blocker(st, a, target) || st.life.event || !st.life.cats.length) {
+      const out = lifeRef.current.act(a.id, target);
       if (out.train) onTrain();
       if (out.rescue) onRescue(out.rescue);
       if (out.open === 'demon') setSheet('demon');
@@ -588,23 +574,14 @@ export function LifeTab({ state, onTrain, onRescue }: { state: GameState; onTrai
     }
     performKey.current += 1;
     recent.current = [...recent.current.slice(-11), a.id];
-    play({ key: performKey.current, action: a.id, at: a.at, self }, spec.ms ?? 2600, () => {
-      lifeRef.current.act(a.id);
-      // Дело съело игровое время — до следующего несрочного дела сим прохаживается (время стоит).
+    play({ key: performKey.current, action: a.id, at: a.at, target, self }, catActMs(a.id), () => {
+      lifeRef.current.act(a.id, target);
+      // Дело съело игровое время — до следующего несрочного дела кошка отдыхает (время стоит).
       if (self) restUntil.current = performance.now() + Math.min(REST_MAX_MS, Math.max(REST_MIN_MS, a.minutes * REST_MS_PER_MINUTE));
     });
   };
-  /** Занятие между делами: без игрового времени и последствий. */
-  const doFree = (id: string): void => {
-    const spec = animFor(id);
-    if (!spec || performRef.current) return;
-    performKey.current += 1;
-    play({ key: performKey.current, action: id, at: spec.place === 'cat' ? 'cat' : null, free: true, self: true }, spec.ms ?? 2600, () => {});
-  };
   const doActionRef = useRef(doAction);
   doActionRef.current = doAction;
-  const doFreeRef = useRef(doFree);
-  doFreeRef.current = doFree;
   const taskRef = useRef<AutoTask | null>(null);
   const choiceMemo = useRef<{ st: GameState | null; urgent: boolean; recent: readonly string[] | null; choice: ReturnType<typeof autoChoice> }>({ st: null, urgent: false, recent: null, choice: null });
   const setTask = (t: AutoTask | null): void => {
@@ -656,23 +633,14 @@ export function LifeTab({ state, onTrain, onRescue }: { state: GameState; onTrai
       if (memo.st !== st || memo.urgent !== urgent || memo.recent !== recent.current) choiceMemo.current = { st, urgent, recent: recent.current, choice: autoChoice(st, recent.current, urgent) };
       const choice = choiceMemo.current.choice;
       if (!choice) {
-        // Досуг пока не нужен или делать нечего — прохаживается, потягивается, гладит кошку.
-        if (goto.current) return;
-        if (strolled.current && Math.random() < 0.65) {
-          strolled.current = false;
-          const near = catSpots.current[0];
-          const petting = st.life.scene === 'cafe' && near && Math.hypot(near.x - hero.x, near.z - hero.z) < 4 && Math.random() < 0.5;
-          doFreeRef.current(petting ? 'free_pet' : 'free_look');
-          return;
-        }
+        // Делать нечего — иногда прогуливается по дому (а в остальное время сидит, умывается, дремлет).
+        if (goto.current || Math.random() < 0.85) return;
         const spots = layoutOf(st);
         const p = spots[Math.floor(Math.random() * spots.length)];
         if (p) goto.current = { x: p.use.x + (Math.random() - 0.5), z: p.use.z + (Math.random() - 0.5) };
-        strolled.current = true;
         return;
       }
       const a = choice.action;
-      strolled.current = false;
       let target: P2;
       if (a.at === 'cat') {
         const c = catSpots.current[0];
@@ -707,7 +675,7 @@ export function LifeTab({ state, onTrain, onRescue }: { state: GameState; onTrai
   const run = (a: ActionDef): void => doAction(a);
 
   let panel: ReactNode = null;
-  if (perform && !perform.free) {
+  if (perform) {
     const a = actionById(perform.action);
     panel = (
       <div className="life-panel performing">
@@ -732,16 +700,17 @@ export function LifeTab({ state, onTrain, onRescue }: { state: GameState; onTrai
         </div>
         <div className="life-acts">
           {acts.map((a) => (
-            <ActionButton key={a.id} state={state} a={a} onRun={() => run(a)} />
+            <ActionButton key={a.id} state={state} a={a} target={near === 'cat' ? catSpots.current[0]?.id : null} onRun={() => run(a)} />
           ))}
         </div>
       </div>
     );
   }
 
-  const cafeHint = L.cats.length === 0 ? t('life.hintNoCats') : L.bowl === 0 ? t('life.bowlEmpty') : L.water <= 0 ? t('life.waterEmpty') : litterDirty(L) ? t('life.litterDirty') : L.food === 0 ? t('cafe.noFood') : t('life.hintHome');
+  const me = petOf(L);
+  const dying = L.cats.find((c) => c.starve >= STARVE_WARN);
+  const cafeHint = L.cats.length === 0 ? t('life.hintNoCats') : dying ? tf('cat.starvingHint', { name: catName(dying)[lang], n: starveLeft(dying) }) : L.bowl === 0 ? t('life.bowlEmpty') : L.water <= 0 ? t('life.waterEmpty') : litterDirty(L) ? t('life.litterDirty') : t('life.hintHome');
   const hint = L.scene === 'cafe' ? cafeHint : t('life.hintDemon');
-  const callCat = actionById('call_cat');
   const catsView = useMemo(() => L.cats.map((c) => ({ ...c, grow: catGrowth(c, L.day) })), [L.cats, L.day]);
   const offer = L.demon;
   const offerView = useMemo(() => (L.scene === 'demon' && offer?.status === 'waiting' ? { breed: offer.breed, mix: offer.mix, grow: catGrowth({ born: L.day - offer.age }, L.day) } : null), [L.scene, offer?.status, offer?.breed, offer?.mix, offer?.age, L.day]);
@@ -855,8 +824,7 @@ export function LifeTab({ state, onTrain, onRescue }: { state: GameState; onTrai
               house={L.house}
               home={{ decor: L.decor, kit: L.kit }}
               minute={L.minute}
-              hero={heroLook}
-              guests={guests}
+              pet={me?.id ?? null}
               offer={offerView}
               tomorrow={tomorrow}
               graves={graves}
@@ -865,14 +833,14 @@ export function LifeTab({ state, onTrain, onRescue }: { state: GameState; onTrai
               onNear={setNear}
               onInput={playerInput}
               onSettled={(k: number) => settled.current(k)}
-              cats={L.scene === 'cafe' ? catsView : []}
+              bond={(a: string, b: string) => bondOf(stateRef.current.life, a, b)}
+              cats={catsView}
               pets={pets}
               play={L.play}
               moved={L.moved}
               editing={editing}
               onEditTap={onEditTap}
               editMark={editMark}
-              food={food}
               perform={perform}
               catSpots={catSpots}
               heroAt={heroAt}
@@ -888,8 +856,32 @@ export function LifeTab({ state, onTrain, onRescue }: { state: GameState; onTrai
             <span title={t('cafe.cats')}>
               🐈 {L.cats.length}/{maxCats(L)}
             </span>
-            {L.scene === 'cafe' && <span title={t('cafe.guestsNow')}>{`👥 ${L.guests}`}</span>}
           </div>
+          {me && (
+            <div className="pet-card">
+              <div className="pet-name">
+                <span className="cat-dot" style={{ background: catColor(me.breed) }} /> <b>{catName(me)[lang]}</b> {me.sex === 'f' ? '♀' : '♂'}
+              </div>
+              <div className="pet-needs">
+                {(
+                  [
+                    ['🍗', me.fed],
+                    ['💧', me.drink],
+                    ['🧶', me.play],
+                    ['🚽', me.toilet],
+                  ] as const
+                ).map(([ic, v]) => (
+                  <span key={ic} className={`pet-need ${v < 25 ? 'low' : v < 50 ? 'mid' : ''}`} title={ic}>
+                    {ic}
+                    <span className="need-bar">
+                      <span style={{ width: `${Math.round(v)}%` }} />
+                    </span>
+                  </span>
+                ))}
+              </div>
+              {me.starve >= STARVE_WARN && <div className="pet-warn">☠️ {tf('cat.starving', { n: starveLeft(me) })}</div>}
+            </div>
+          )}
           {offer && offer.status === 'waiting' && (
             <button className="demon-chip" onClick={() => setSheet('demon')}>
               😈 {catName(offer)[lang]}: {offer.progress}/{offer.target}
@@ -902,7 +894,7 @@ export function LifeTab({ state, onTrain, onRescue }: { state: GameState; onTrai
         {L.scene === 'cafe' && !editing && (
           <button
             className="edit-btn"
-            disabled={!!perform && !perform.free}
+            disabled={!!perform}
             onClick={() => {
               setEditing(true);
               setSel(null);
@@ -916,7 +908,7 @@ export function LifeTab({ state, onTrain, onRescue }: { state: GameState; onTrai
           </button>
         )}
         {travel && (
-          <button className="travel-btn" disabled={!!perform && !perform.free} onClick={() => doAction(travel)} title={travel.label[lang]}>
+          <button className="travel-btn" disabled={!!perform} onClick={() => doAction(travel)} title={travel.label[lang]}>
             {L.scene === 'cafe' ? `😈 ${t('life.toDemon')}` : `🏠 ${t('life.toCafe')}`}
           </button>
         )}
@@ -928,10 +920,15 @@ export function LifeTab({ state, onTrain, onRescue }: { state: GameState; onTrai
             💭 {actionById(autoTask.action)?.icon} {actionById(autoTask.action)?.label[lang]}
           </div>
         )}
-        {L.scene === 'cafe' && L.cats.length > 0 && callCat && (!perform || perform.free) && (
-          <button className="btn ghost small call-cat-btn" onClick={() => doAction(callCat)} title={callCat.label[lang]}>
-            🐈 {t('life.callCat')}
-          </button>
+        {L.cats.length > 1 && !editing && (
+          <div className="pet-switch" role="group" aria-label={t('pet.switch')}>
+            {L.cats.map((c) => (
+              <button key={c.id} className={`pet-chip ${c.id === me?.id ? 'on' : ''}`} disabled={!!perform} onClick={() => life.setPet(c.id)} title={catName(c)[lang]}>
+                <span className="cat-dot" style={{ background: catColor(c.breed) }} />
+                {catName(c)[lang]}
+              </button>
+            ))}
+          </div>
         )}
         <Joystick stick={stick} onInput={playerInput} />
         <div className="life-actions">{editPanel ?? panel ?? <span className="world-note">{hint}</span>}</div>

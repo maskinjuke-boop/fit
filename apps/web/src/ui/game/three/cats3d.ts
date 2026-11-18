@@ -55,7 +55,11 @@ export type CatMode =
   // На руках у человека: лапки свисают, мурлычет.
   | 'held'
   // Охотится за своим хвостом (крутится на месте).
-  | 'chase';
+  | 'chase'
+  // Сидит и мяукает: голова запрокинута, мордочка кверху, хвост трубой.
+  | 'meow'
+  // Шипит: встала на прямых лапах, голова опущена вперёд, хвост торчком и подрагивает.
+  | 'hiss';
 
 interface Look {
   base: string;
@@ -83,6 +87,12 @@ const LOOKS: Record<CatBreed, Look> = {
   persian: { base: '#f3f1ec', dark: '#dcd6cc', light: '#ffffff', eyes: '#d77a2a', pattern: 'solid', white: 0, size: 1.02, fluff: 1.32, tail: 1.75, ears: 'normal', flat: true, hairless: false },
   maine_coon: { base: '#7c5a3c', dark: '#2b1d12', light: '#e9dcc7', eyes: '#a8b833', pattern: 'tabby', white: 0.6, size: 1.3, fluff: 1.22, tail: 1.8, ears: 'tufts', flat: false, hairless: false },
   sphynx: { base: '#e1b29a', dark: '#b98a76', light: '#eec7b3', eyes: '#7cc24a', pattern: 'solid', white: 0, size: 0.95, fluff: 0.82, tail: 0.55, ears: 'big', flat: false, hairless: true },
+  ragdoll: { base: '#f1e7d8', dark: '#6b5446', light: '#fbf6ee', eyes: '#3d8fd6', pattern: 'points', white: 0.6, size: 1.16, fluff: 1.26, tail: 1.5, ears: 'normal', flat: false, hairless: false },
+  russian_blue: { base: '#878d95', dark: '#70767e', light: '#a2a8ae', eyes: '#46b04a', pattern: 'solid', white: 0, size: 0.98, fluff: 0.96, tail: 1.05, ears: 'big', flat: false, hairless: false },
+  abyssinian: { base: '#c07a3c', dark: '#6e3e1c', light: '#ecc597', eyes: '#c9a227', pattern: 'tabby', white: 0.15, size: 0.96, fluff: 0.92, tail: 1.1, ears: 'big', flat: false, hairless: false },
+  norwegian: { base: '#9c9085', dark: '#3a322c', light: '#f2ede6', eyes: '#8fae3a', pattern: 'tabby', white: 0.75, size: 1.2, fluff: 1.32, tail: 1.75, ears: 'tufts', flat: false, hairless: false },
+  siberian: { base: '#8f7d68', dark: '#3e3328', light: '#efe3d2', eyes: '#c9a227', pattern: 'tabby', white: 0.55, size: 1.16, fluff: 1.34, tail: 1.6, ears: 'normal', flat: false, hairless: false },
+  devon_rex: { base: '#e3cfae', dark: '#a4835c', light: '#f5ead8', eyes: '#c9a227', pattern: 'tabby', white: 0.4, size: 0.9, fluff: 0.86, tail: 0.95, ears: 'big', flat: false, hairless: false },
 };
 
 /** Основной цвет породы (для значков). */
@@ -790,6 +800,7 @@ function target(mode: CatMode, t: number, speed: number, look: number, tilt: num
       return p;
     }
     case 'sit':
+    case 'meow':
     case 'groom': {
       p.hipY = 0.075;
       p.hipZ = -0.1;
@@ -814,6 +825,16 @@ function target(mode: CatMode, t: number, speed: number, look: number, tilt: num
         p.headY = -0.25;
         p.headZ = -0.15;
         p.eye = 0.35;
+      }
+      if (mode === 'meow') {
+        // Мяу: голова кверху рывками (на каждый «мяу»), глаза прищурены, хвост поднят.
+        const m = Math.max(0, Math.sin(t * 4.2));
+        p.headX = 0.15 - 0.3 * m;
+        p.headY = 0.1 * Math.sin(t * 0.9);
+        p.headZ = 0.06 * m;
+        p.eye = 0.55 - 0.15 * m;
+        p.tail = p.tail.map((_, i) => [i === 0 ? 0.55 : i < 4 ? 0.12 : -0.15, Math.sin(t * 2 + i) * 0.06] as [number, number]);
+        p.breath = 1.5 * m;
       }
       return p;
     }
@@ -860,6 +881,18 @@ function target(mode: CatMode, t: number, speed: number, look: number, tilt: num
         p.eye = blink * 0.75;
       }
       return p;
+    }
+    case 'hiss': {
+      const q = target('idle', t, 0, look, 0);
+      const shiver = Math.sin(t * 38) * 0.015;
+      q.hipY = 0.19 + shiver * 0.3;
+      q.pitch = 0.08;
+      q.headX = 0.38 + shiver;
+      q.headY = look * 0.5;
+      q.headZ = 0;
+      q.tail = q.tail.map((_, i) => [i === 0 ? 1.05 : i < 4 ? 0.12 : 0.05, Math.sin(t * 9 + i) * 0.05] as [number, number]);
+      q.eye = 0.7;
+      return q;
     }
     case 'idle':
     default: {

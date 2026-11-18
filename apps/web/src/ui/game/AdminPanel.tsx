@@ -9,13 +9,13 @@ import { downloadJson } from '../feedback';
 import { eventText } from './text';
 import {
   adminAddCat,
+  adminAddMix,
+  adminBonds,
   adminBuyAll,
-  adminBuzz,
   adminCatNeeds,
   adminDropCat,
   adminEvent,
   adminFillCats,
-  adminFood,
   adminGraves,
   adminRemoveCats,
   adminRerollOffer,
@@ -132,7 +132,7 @@ export function AdminPanel({ onClose }: { onClose(): void }) {
 
         <h3>🐾 {t('adm.cafe')}</h3>
         <p className="muted small">
-          {tf('adm.cafeNow', { cats: L.cats.length, max: HOUSES[L.house]!.cats, tier: L.house, guests: L.guests, food: L.food, graves: L.graves.length, hh: String(Math.floor(L.minute / 60)).padStart(2, '0') })}
+          {tf('adm.cafeNow', { cats: L.cats.length, max: HOUSES[L.house]!.cats, tier: L.house, graves: L.graves.length, hh: String(Math.floor(L.minute / 60)).padStart(2, '0') })}
         </p>
         <div className="admin-row">
           <span>{t('adm.house')}</span>
@@ -166,9 +166,11 @@ export function AdminPanel({ onClose }: { onClose(): void }) {
           <button className="btn" onClick={() => admin.apply((st) => adminCatNeeds(st, { play: 5 }))}>{t('adm.bored')}</button>
           <button className="btn" onClick={() => admin.apply((st) => adminCatNeeds(st, { fed: 10 }))}>{t('adm.hungry')}</button>
           <button className="btn" onClick={() => admin.apply((st) => adminCatNeeds(st, { toilet: 10 }))}>{t('adm.toilet')}</button>
-          <button className="btn" onClick={() => admin.apply((st) => adminFood(st, true))}>{t('adm.foodFull')}</button>
-          <button className="btn" onClick={() => admin.apply((st) => adminFood(st, false))}>{t('adm.foodEmpty')}</button>
-          <button className="btn" onClick={() => admin.apply((st) => adminBuzz(st, 5))}>{t('adm.buzz')}</button>
+          <button className="btn" onClick={() => admin.apply((st) => adminCatNeeds(st, { drink: 8 }))}>{t('adm.thirsty')}</button>
+          <button className="btn" onClick={() => admin.apply((st) => adminCatNeeds(st, { fed: 0, starve: 22 }))}>{t('adm.dying')}</button>
+          <button className="btn" onClick={() => admin.apply((st) => adminBonds(st, 80))}>{t('adm.friends')}</button>
+          <button className="btn" onClick={() => admin.apply((st) => adminBonds(st, null))}>{t('adm.strangers')}</button>
+          <button className="btn" onClick={() => admin.apply((st) => adminAddMix(st, breed, CAT_BREEDS[(CAT_BREEDS.findIndex((b) => b.id === breed) + 3) % CAT_BREEDS.length]!.id))}>{t('adm.addMix')}</button>
           <button className="btn" onClick={() => admin.apply(adminBuyAll)}>{t('adm.buyAll')}</button>
         </div>
         <div className="admin-row">

@@ -59,9 +59,9 @@ export const ACHIEVEMENTS: readonly AchievementDef[] = [
   { id: 'quests_10', icon: '📜', name: t('Искатель заданий', 'Quest seeker'), desc: t('Выполните 10 квестов', 'Complete 10 quests'), progress: (s) => [doneQuests(s), 10], reward: { xp: 300, gold: 120 } },
   { id: 'life_cat', icon: '🐈', name: t('Первая спасённая', 'First rescue'), desc: t('Спасите кошку у демона', 'Save a cat from the demon'), progress: (s) => [s.life.stats.rescued, 1], reward: { xp: 50, gold: 30 } },
   { id: 'life_cats', icon: '🐾', name: t('Кошачий ангел', 'Cat angel'), desc: t('Спасите 10 кошек', 'Save 10 cats'), progress: (s) => [s.life.stats.rescued, 10], reward: { xp: 600, gold: 300 }, title: 'workaholic' },
-  { id: 'life_group', icon: '👥', name: t('Полный зал', 'Full house'), desc: t('Примите 100 гостей', 'Welcome 100 guests'), progress: (s) => [s.life.stats.visitors, 100], reward: { xp: 300, gold: 150 }, title: 'social' },
-  { id: 'life_gym', icon: '👑', name: t('Котодворец', 'Cat palace'), desc: t('Расширьте кафе до котодворца', 'Grow the café into a cat palace'), progress: (s) => [s.life.house, HOUSES.length - 1], reward: { xp: 800, gold: 0 }, title: 'tycoon' },
-  { id: 'life_rich', icon: '💰', name: t('Хозяин кафе', 'Café owner'), desc: t('Заработайте 5000 на гостях', 'Earn 5,000 from guests'), progress: (s) => [s.life.stats.earned, 5000], reward: { xp: 500, gold: 250 }, title: 'career' },
+  { id: 'life_group', icon: '🧶', name: t('Игривый хвост', 'Playful tail'), desc: t('Поиграйте своей кошкой 100 раз', 'Play 100 times as your cat'), progress: (s) => [s.life.stats.played, 100], reward: { xp: 300, gold: 150 }, title: 'social' },
+  { id: 'life_gym', icon: '👑', name: t('Кошачий дворец', 'Cat palace'), desc: t('Расширьте дом до кошачьего дворца', 'Grow the home into a cat palace'), progress: (s) => [s.life.house, HOUSES.length - 1], reward: { xp: 800, gold: 0 }, title: 'tycoon' },
+  { id: 'life_rich', icon: '💰', name: t('Кошачья копилка', 'Cat piggy bank'), desc: t('Заработайте 5000 на упражнениях', 'Earn 5,000 from exercises'), progress: (s) => [s.life.stats.repMoney, 5000], reward: { xp: 500, gold: 250 }, title: 'career' },
 ];
 
 const ACHIEVEMENT_TITLES: Record<string, Txt> = {

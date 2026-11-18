@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { FURNITURE } from '../src/game/lifeContent';
 import { PETS, bounds, homeLayout, homeObstacles, playCatBoxes, playParts, type Box } from '../src/game/lifeMap';
 import type { PlayItemId } from '../src/game/lifeTypes';
-import { createCatLife, perchSpots, type CatHeroAct, type CatWorld } from '../src/ui/game/three/catLife';
+import { createCatLife, perchSpots, type CatWorld } from '../src/ui/game/three/catLife';
 
 /** Дом со всей мебелью и кошачьим хозяйством; кошки живут rounds секунд (без отрисовки поз). */
 function home(needs: { fed: number; play: number; toilet: number }, pets = { bowl: 4, water: 80, litter: 20 }) {
@@ -12,7 +12,7 @@ function home(needs: { fed: number; play: number; toilet: number }, pets = { bow
   const b = bounds('cafe', 1);
   const boxes: Box[] = [...placed.filter((x) => x.id !== 'cat_bowl' && x.id !== 'litter').map((x) => x.box).filter((x): x is Box => x !== null), ...homeObstacles()];
   const hero = { x: -2, z: 2 };
-  const world: CatWorld = { bounds: b, boxes, perches: perchSpots(placed, b, boxes), litterSurface: 0.07, hero, act: null, pets, need: () => needs };
+  const world: CatWorld = { bounds: b, boxes, perches: perchSpots(placed, b, boxes), litterSurface: 0.07, hero, pets, need: () => needs };
   const life = createCatLife(new Group(), () => new Object3D());
   life.sync(
     [
@@ -34,7 +34,7 @@ describe('кошки в доме', () => {
     const zone = placed.find((x) => x.id === 'play_zone')!;
     const boxes: Box[] = [...placed.filter((x) => x.id !== 'cat_bowl' && x.id !== 'litter' && x.id !== 'play_zone').map((x) => x.box).filter((x): x is Box => x !== null), ...homeObstacles(), ...playCatBoxes(zone.pos, play)];
     const parts = playParts(zone.pos, play);
-    const world: CatWorld = { bounds: b, boxes, perches: perchSpots(placed, b, boxes), litterSurface: 0.07, hero: { x: 3, z: 3 }, act: null, pets: { bowl: 6, water: 100, litter: 0 }, need: () => ({ fed: 90, play: 15, toilet: 95 }), play: parts };
+    const world: CatWorld = { bounds: b, boxes, perches: perchSpots(placed, b, boxes), litterSurface: 0.07, hero: { x: 3, z: 3 }, pets: { bowl: 6, water: 100, litter: 0 }, need: () => ({ fed: 90, play: 15, toilet: 95 }), play: parts };
     const life = createCatLife(new Group(), () => new Object3D());
     life.sync(['ginger', 'black', 'siamese', 'bengal', 'persian', 'british'].map((breed, i) => ({ id: `cat${i + 1}`, breed: breed as 'ginger' })), world);
     const dt = 1 / 20;
@@ -139,77 +139,80 @@ describe('кошки в доме', () => {
     expect(seen.litter).toBe(true);
   });
 
-  it('на ласку мурлычет, на зов бежит к герою', () => {
+  it('кошка игрока: идёт по стику, по касанию; без дела сидит рядом, а не бродит', () => {
     const { life, world } = home({ fed: 90, play: 90, toilet: 90 });
+    world.pet = 'cat1';
+    const me = life.cats.get('cat1')!;
+    life.place('cat1', { x: -2, z: 2 }, 0);
     const dt = 1 / 20;
-    const cat = life.cats.get('cat1')!;
-    const act: CatHeroAct = { key: 1, motion: 'crouch:pet', cat: 'cat1', settledAt: 0, at: { x: 0, z: 0 } };
-    world.act = act;
-    for (let i = 0; i < 20; i += 1) life.update(1 + i * dt, dt, world, false);
-    expect(['purr', 'belly']).toContain(cat.mode);
-    world.act = { key: 2, motion: 'crouch:call', cat: null, settledAt: 2, at: { x: 0, z: 0 } };
-    // Каждая кошка прибегает к герою (обходя мебель) и трётся о ноги.
-    const closest = new Map<string, number>();
-    for (let i = 0; i < 20 * 12; i += 1) {
-      life.update(2 + i * dt, dt, world, false);
-      for (const c of life.cats.values()) closest.set(c.id, Math.min(closest.get(c.id) ?? Infinity, Math.hypot(c.pos.x - world.hero.x, c.pos.z - world.hero.z)));
-    }
-    for (const d of closest.values()) expect(d).toBeLessThan(0.8);
+    // Стик вправо: кошка поворачивает и идёт (до упора — бегом).
+    life.steer(1, 0, 1);
+    for (let i = 0; i < 40; i += 1) life.update(i * dt, dt, world, false);
+    expect(me.pos.x).toBeGreaterThan(-1.2);
+    expect(me.mode).toBe('trot');
+    life.steer(0, 0, 0);
+    // Касание пола: дошла.
+    life.goTo('cat1', { x: -4, z: 3 }, world, 3);
+    for (let i = 0; i < 20 * 12; i += 1) life.update(3 + i * dt, dt, world, false);
+    expect(Math.hypot(me.pos.x + 4, me.pos.z - 3)).toBeLessThan(0.4);
+    expect(life.walking('cat1')).toBe(false);
+    // Без дела — на месте (сидит, умывается, дремлет).
+    const at = { ...me.pos };
+    for (let i = 0; i < 20 * 60; i += 1) life.update(20 + i * dt, dt, world, false);
+    expect(Math.hypot(me.pos.x - at.x, me.pos.z - at.z)).toBeLessThan(0.05);
   });
 
-  it('герой садится в кресло, где лежит кошка, — она спрыгивает и туда больше не ложится', () => {
+  it('действие кошки игрока: подходит, начинает (сообщает сцене), другая кошка отвечает', () => {
     const { life, world } = home({ fed: 90, play: 90, toilet: 90 });
-    const chair = homeLayout(['armchair'], true).find((p) => p.id === 'armchair')!;
-    const perch = [...world.perches].sort((a, b) => Math.hypot(a.pos.x - chair.pos.x, a.pos.z - chair.pos.z) - Math.hypot(b.pos.x - chair.pos.x, b.pos.z - chair.pos.z))[0]!;
-    const cat = life.cats.get('cat1')!;
-    cat.pos = { ...perch.pos };
-    cat.y = perch.y;
-    cat.edge = { ...perch.edge };
-    cat.plan = [{ k: 'pose', mode: 'sleep', dur: 60 }];
-    cat.stepAt = -1;
-    const seat = { ...perch.pos };
-    world.hero = seat;
-    world.act = { key: 3, motion: 'sit:read', cat: null, settledAt: 0, at: seat };
+    world.pet = 'cat1';
+    const acted: number[] = [];
+    world.onAct = (k) => acted.push(k);
+    life.place('cat1', { x: -3, z: 2.5 }, 0);
+    life.place('cat2', { x: 0, z: 2.5 }, 0);
     const dt = 1 / 20;
-    for (let i = 0; i < 20 * 3; i += 1) life.update(i * dt, dt, world, false);
-    expect(cat.y).toBeLessThan(0.05);
-    for (let i = 0; i < 20 * 240; i += 1) {
-      life.update(3 + i * dt, dt, world, false);
-      for (const c of life.cats.values()) if (!c.jump) expect(c.y > 0.05 && Math.hypot(c.pos.x - seat.x, c.pos.z - seat.z) < 0.5).toBe(false);
+    life.perform('cat1', { key: 7, action: 'rub_cat', at: null, target: 'cat2' }, world, 0);
+    const other = life.cats.get('cat2')!;
+    const modes = new Set<string>();
+    for (let i = 0; i < 20 * 8; i += 1) {
+      life.update(i * dt, dt, world, false);
+      modes.add(other.mode);
     }
+    expect(acted).toEqual([7]);
+    expect(['purr', 'belly'].some((m) => modes.has(m))).toBe(true);
+    const me = life.cats.get('cat1')!;
+    expect(Math.hypot(me.pos.x - other.pos.x, me.pos.z - other.pos.z)).toBeLessThan(1.2);
+    life.endJob();
+    expect(life.jobKey()).toBe(null);
+    // Поспать на диване: запрыгивает на лежанку дивана и засыпает.
+    life.perform('cat1', { key: 8, action: 'nap_sofa', at: null, target: null }, world, 10);
+    for (let i = 0; i < 20 * 15; i += 1) life.update(10 + i * dt, dt, world, false);
+    expect(acted).toContain(8);
+    expect(me.y).toBeGreaterThan(0.3);
+    expect(['knead', 'sleep']).toContain(me.mode);
+    life.endJob();
   });
+
 });
 
 describe('взаимодействие с кошками', () => {
-  it('к присевшим гостям подходят кошки; на руках у героя кошка у груди, потом спрыгивает; свои забавы', () => {
-    const { life, world } = home({ fed: 90, play: 30, toilet: 95 });
-    world.guests = [
-      { pos: { x: -4, z: 2.5 }, face: Math.PI / 2, motion: 'crouch:pet' },
-      { pos: { x: 3, z: 3 }, face: -Math.PI / 2, motion: 'crouch:play' },
-    ];
-    const dt = 1 / 20;
-    let near = 0;
-    const modes = new Set<string>();
-    for (let i = 0; i < 20 * 900; i += 1) {
-      life.update(i * dt, dt, world, false);
-      for (const c of life.cats.values()) {
-        modes.add(c.mode);
-        for (const g of world.guests!) if (Math.hypot(c.pos.x - g.pos.x, c.pos.z - g.pos.z) < 0.8) near += 1;
+  it('свои забавы; друзья трутся друг о друга, недруги шипят', () => {
+    const run = (bond: number) => {
+      const { life, world } = home({ fed: 90, play: 30, toilet: 95 });
+      world.bond = () => bond;
+      const dt = 1 / 20;
+      const modes = new Set<string>();
+      for (let i = 0; i < 20 * 900; i += 1) {
+        life.update(i * dt, dt, world, false);
+        for (const c of life.cats.values()) modes.add(c.mode);
       }
-    }
-    const log = [...life.cats.values()].map((c) => c.log);
-    expect(log.some((l) => l.guest > 0)).toBe(true);
-    expect(near).toBeGreaterThan(0);
-    expect(log.reduce((a, l) => a + l.fun, 0)).toBeGreaterThan(0);
-    expect(['sniff', 'roll', 'chase', 'stretch', 'knead'].filter((m) => modes.has(m)).length).toBeGreaterThanOrEqual(4);
-    // На руках.
-    const cat = life.cats.get('cat1')!;
-    world.carry = { id: 'cat1', pos: { x: 0, z: 2 }, y: 1.3, heading: 1, drop: { x: 0, z: 2.6 } };
-    for (let i = 0; i < 40; i += 1) life.update(2000 + i * dt, dt, world, false);
-    expect(cat.mode).toBe('held');
-    expect(Math.abs(cat.y - 1.3)).toBeLessThan(0.05);
-    world.carry = null;
-    for (let i = 0; i < 20 * 20; i += 1) life.update(2002 + i * dt, dt, world, false);
-    expect(cat.y).toBeLessThan(0.05);
+      return { modes, log: [...life.cats.values()].map((c) => c.log) };
+    };
+    const friends = run(90);
+    expect(friends.log.reduce((a, l) => a + l.rub, 0)).toBeGreaterThan(0);
+    expect(friends.log.reduce((a, l) => a + l.fun, 0)).toBeGreaterThan(0);
+    expect(['sniff', 'roll', 'chase', 'stretch', 'knead'].filter((m) => friends.modes.has(m)).length).toBeGreaterThanOrEqual(4);
+    expect(friends.modes.has('hiss')).toBe(false);
+    const enemies = run(-90);
+    expect(enemies.modes.has('hiss')).toBe(true);
   });
 });

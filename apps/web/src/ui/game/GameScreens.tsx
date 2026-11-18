@@ -1,4 +1,4 @@
-import { guestDemand, hourlyIncome, maxCats } from '../../game/life';
+import { maxCats } from '../../game/life';
 import { HOUSES } from '../../game/lifeContent';
 import { DemonCard } from './DemonCard';
 import { useState, type ChangeEvent, type ReactNode } from 'react';
@@ -177,7 +177,7 @@ export function HomeTab({ state, onTrain, onRescue, onCafe }: { state: GameState
           <b>
             {HOUSES[L.house]!.icon} {HOUSES[L.house]!.name[lang]}
           </b>
-          <div className="muted small">{tf('cafe.summary', { cats: L.cats.length, max: maxCats(L), guests: Math.round(guestDemand(L)), income: hourlyIncome(L) })}</div>
+          <div className="muted small">{tf('cafe.summary', { cats: L.cats.length, max: maxCats(L) })}</div>
         </div>
         <button className="btn small" onClick={onCafe}>
           🐾 {t('cafe.open')}

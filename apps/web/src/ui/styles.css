@@ -2542,3 +2542,118 @@ button {
 }
 .edit-panel .edit-row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
 .edit-panel .edit-row .btn { min-width: 40px; }
+
+/* ── Кошка игрока: карточка с потребностями, смена кошки, отношения ── */
+.pet-card {
+  justify-self: start;
+  display: grid;
+  gap: 4px;
+  padding: 6px 10px;
+  border-radius: 14px;
+  background: rgba(15, 17, 20, 0.78);
+  font-size: 13px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+}
+.pet-name {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.pet-needs {
+  display: flex;
+  gap: 8px;
+}
+.pet-need {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 12px;
+}
+.pet-need .need-bar {
+  width: 30px;
+}
+.pet-need.mid .need-bar > span {
+  background: #ffb020;
+}
+.pet-need.low .need-bar > span {
+  background: var(--bad);
+}
+.pet-warn {
+  color: #ff8a7a;
+  font-weight: 700;
+  font-size: 12px;
+}
+.cat-dot {
+  display: inline-block;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  border: 1.5px solid rgba(255, 255, 255, 0.85);
+  flex: none;
+  vertical-align: -1px;
+}
+.pet-switch {
+  position: absolute;
+  left: 8px;
+  bottom: 188px;
+  z-index: 2;
+  display: flex;
+  gap: 6px;
+  max-width: calc(100% - 16px);
+  overflow-x: auto;
+  scrollbar-width: none;
+  padding: 2px;
+}
+.pet-switch::-webkit-scrollbar {
+  display: none;
+}
+.pet-chip {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex: none;
+  padding: 5px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: rgba(15, 17, 20, 0.8);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.pet-chip.on {
+  border-color: #7ff0d0;
+  box-shadow: 0 0 0 2px rgba(127, 240, 208, 0.35);
+}
+.pet-chip:disabled {
+  opacity: 0.6;
+}
+.life-list li.is-pet {
+  outline: 2px solid rgba(127, 240, 208, 0.45);
+  border-radius: 12px;
+}
+.bond-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 4px;
+}
+.bond-chip {
+  padding: 2px 7px;
+  border-radius: 999px;
+  font-size: 11px;
+  background: #ffffff14;
+}
+.bond-chip.friend,
+.bond-chip.love {
+  background: rgba(255, 120, 170, 0.18);
+}
+.bond-chip.cold,
+.bond-chip.enemy {
+  background: rgba(255, 90, 70, 0.18);
+}
+.need.wide.cat-need {
+  grid-template-columns: 76px 1fr;
+  margin: 2px 0;
+  font-size: 13px;
+}

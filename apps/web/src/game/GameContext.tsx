@@ -21,7 +21,7 @@ import {
 import type { Slot } from './items';
 import { createState, type Appearance, type Character, type GameState } from './state';
 import { clearGame, loadGame, saveGame } from './storage';
-import { act, answerEvent, applyFinish, buyFurniture, moveCafeItem, resetMoved, upgradeKit, dismissResult, placePlayItem, removePlayItem, sellFurniture, setPlayRug, upgradeHouse, upgradePlaySize, type LifeOutcome } from './life';
+import { act, answerEvent, applyFinish, buyFurniture, moveCafeItem, resetMoved, upgradeKit, dismissResult, placePlayItem, removePlayItem, sellFurniture, setPet, setPlayRug, upgradeHouse, upgradePlaySize, type LifeOutcome } from './life';
 import type { ItemSpot, ObjectId, PlayItemId } from './lifeTypes';
 
 /** Действия режима администратора. */
@@ -45,7 +45,9 @@ export interface AdminActions {
 
 /** Действия симулятора жизни. Действие может попросить открыть тренировку или экран. */
 export interface LifeActions {
-  act(actionId: string): LifeOutcome;
+  act(actionId: string, target?: string | null): LifeOutcome;
+  /** Взять под управление другую кошку. */
+  setPet(id: string): void;
   answer(choiceId: string): void;
   upgradeHouse(): void;
   /** Ремонт: поставить отделку (купить, если ещё нет) и заменить старую мебель. */
@@ -58,7 +60,7 @@ export interface LifeActions {
   removePlay(id: PlayItemId): void;
   upgradePlay(): void;
   setRug(id: string): void;
-  /** Перестановка: передвинуть или повернуть предмет кафе, вернуть на место (null — все). */
+  /** Перестановка: передвинуть или повернуть предмет дома, вернуть на место (null — все). */
   move(key: string, at: ItemSpot): void;
   resetMove(key: string | null): void;
   dismiss(): void;
@@ -233,7 +235,8 @@ export function GameProvider({ children }: { children: ReactNode }) {
       lifeRun((s) => ({ state: fn(s) }));
     };
     const life: LifeActions = {
-      act: (id) => lifeRun((s) => act(s, id)),
+      act: (id, target) => lifeRun((s) => act(s, id, target ?? undefined)),
+      setPet: (id) => plain((s) => setPet(s, id)),
       answer: (id) => plain((s) => answerEvent(s, id)),
       upgradeHouse: () => plain(upgradeHouse),
       applyFinish: (id) => plain((s) => applyFinish(s, id)),

@@ -8,17 +8,14 @@ export interface Txt {
   en: string;
 }
 
-/** Две локации: своё котокафе и лавка демона. */
+/** Две локации: дом кошек (id «cafe» — из прежних версий) и лавка демона. */
 export type SceneId = 'cafe' | 'demon';
 
 /** Предметы, у которых есть действия (в кафе и в лавке). */
 export type ObjectId =
   // Кафе: всегда есть.
   | 'door'
-  | 'counter'
   | 'sofa'
-  // Столики для гостей (несколько одинаковых — по размеру кафе).
-  | 'table'
   // Игровая зона для кошек (домик-когтеточка, столбик, тоннель, помпон).
   | 'play_zone'
   // Мебель, техника и декор из магазина.
@@ -65,10 +62,10 @@ export interface LifeEffect {
   catFed?: number;
   /** Всем кошкам — игра. */
   catsPlay?: number;
-  /** Гости кафе: прибавка к числу гостей на сегодня (реклама, событие). */
-  buzz?: number;
-  /** Порции еды для гостей на витрине. */
-  food?: number;
+  /** Кошке, которой управляет игрок: сытость, игра, туалет, вода (до 100). */
+  self?: { fed?: number; play?: number; toilet?: number; drink?: number };
+  /** Отношения кошки игрока с выбранной кошкой (−100…100). */
+  bond?: number;
 }
 
 export interface ActionDef {
@@ -85,12 +82,38 @@ export interface ActionDef {
   train?: boolean;
   /** Переход в другую локацию. */
   go?: SceneId;
-  /** Открыть экран: кафе (мебель, расширение), игровая зона или кошка дня. */
+  /** Открыть экран: дом (мебель, расширение), игровая зона или кошка дня. */
   open?: 'cafe' | 'play' | 'demon';
+  /** Нужна игрушка в игровой зоне. */
+  needItem?: PlayItemId;
+  /** Нужна еда в миске. */
+  needBowl?: boolean;
+  /** Нужна другая кошка рядом (не та, которой управляет игрок). */
+  needOther?: boolean;
+  /** Завести котят: взрослые кот и кошка, дружат, в доме есть место. */
+  needMate?: boolean;
 }
 
 /** Породы кошек. */
-export type CatBreed = 'ginger' | 'black' | 'british' | 'siamese' | 'scottish_fold' | 'bengal' | 'persian' | 'maine_coon' | 'sphynx';
+export type CatBreed =
+  | 'ginger'
+  | 'black'
+  | 'british'
+  | 'siamese'
+  | 'scottish_fold'
+  | 'bengal'
+  | 'persian'
+  | 'maine_coon'
+  | 'sphynx'
+  | 'ragdoll'
+  | 'russian_blue'
+  | 'abyssinian'
+  | 'norwegian'
+  | 'siberian'
+  | 'devon_rex';
+
+/** Кровь кошки: доли пород (в сумме 1). Чистокровная — одна порода целиком. */
+export type Blood = Partial<Record<CatBreed, number>>;
 
 export interface Cat {
   id: string;
@@ -103,12 +126,22 @@ export interface Cat {
   fed: number;
   play: number;
   toilet: number;
+  /** Напоенность 0…100 (0 — мучает жажда). */
+  drink: number;
+  /** Сколько игровых часов кошка без еды или без воды (с суток — умирает). */
+  starve: number;
   /** Пол: кошка или кот. */
   sex: 'f' | 'm';
   /** Игровой день рождения: один игровой день — месяц жизни кошки. */
   born: number;
-  /** Вторая порода у метиса (помесь). */
+  /** Вторая порода у метиса (помесь) — для внешности. */
   mix?: CatBreed;
+  /** Родословная: доли пород (breed — главная, mix — вторая по доле). */
+  blood: Blood;
+  /** Беременна: от кого, к какому игровому дню котята и их кровь. */
+  pregnant?: { father: string; due: number };
+  /** Родители (если родилась дома). */
+  parents?: [string, string];
 }
 
 /**
@@ -120,6 +153,8 @@ export interface DemonOffer {
   day: string;
   breed: CatBreed;
   mix?: CatBreed;
+  /** Родословная (у метиса — две породы). */
+  blood?: Blood;
   sex: 'f' | 'm';
   name: number;
   /** Возраст в месяцах. */
@@ -155,6 +190,8 @@ export interface Grave {
   mix?: CatBreed;
   sex: 'f' | 'm';
   day: string;
+  /** Отчего: упала в жерло (по умолчанию), умерла от голода или от жажды. */
+  cause?: 'belt' | 'hunger' | 'thirst';
 }
 
 /** Итог последнего действия — для всплывающей карточки. */
@@ -164,7 +201,6 @@ export interface LifeResult {
   ok: boolean;
   money: number;
   minutes: number;
-  guests?: number;
   notes: Txt[];
 }
 
@@ -177,9 +213,9 @@ export interface LifeState {
   day: number;
   minute: number;
   scene: SceneId;
-  /** Купленная мебель, техника и декор для кафе. */
+  /** Купленная мебель, техника и декор для дома. */
   furniture: ObjectId[];
-  /** Кошки кафе. */
+  /** Кошки дома. */
   cats: Cat[];
   /** Порций корма в кошачьей миске. */
   bowl: number;
@@ -187,23 +223,21 @@ export interface LifeState {
   water: number;
   /** Грязь в лотке 0…100. */
   litter: number;
-  /** Ступень кафе 0…4 (0 — тесный котоуголок). */
+  /** Ступень дома 0…4 (0 — комнатка). */
   house: number;
-  /** Отделка кафе: что выбрано в каждом разделе. */
+  /** Отделка дома: что выбрано в каждом разделе. */
   decor: Decor;
   /** Купленная отделка (её можно вернуть бесплатно). */
   finishes: string[];
   /** Базовая мебель: 0 — старьё, 1 — новая. */
   kit: Kit;
-  /** Порции еды для гостей на витрине (гости заказывают и платят сверху входа). */
-  food: number;
-  /** Гости в кафе сейчас. */
-  guests: number;
-  /** Сегодняшняя прибавка к гостям (реклама, события), гаснет к новому дню. */
-  buzz: number;
+  /** Кошка, которой управляет игрок (id). */
+  pet: string;
+  /** Отношения между кошками: ключ «id1|id2» (по алфавиту) → −100 (враги) … 100 (не разлей вода). */
+  bonds: Record<string, number>;
   /** Кошка дня в лавке демона. */
   demon: DemonOffer | null;
-  /** Могилки кошек, которых не успели спасти (последние). */
+  /** Могилки кошек, которых не успели спасти или которые умерли от голода и жажды (последние). */
   graves: Grave[];
   /** Игровая зона для кошек. */
   play: PlayZoneState;
@@ -211,7 +245,7 @@ export interface LifeState {
   moved: Record<string, ItemSpot>;
   event: ActiveEvent | null;
   last: LifeResult | null;
-  stats: { visitors: number; earned: number; rescued: number; lost: number; repMoney: number; meals: number };
+  stats: { rescued: number; lost: number; repMoney: number; played: number; born?: number };
 }
 
 export type { ExerciseId, StatId };

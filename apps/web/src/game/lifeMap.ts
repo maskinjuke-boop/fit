@@ -142,16 +142,12 @@ export function homeObstacles(placed?: readonly Placed[]): Box[] {
   return [box(sofa.pos.x + c.x, sofa.pos.z + c.z, q ? 0.35 : 0.45, q ? 0.45 : 0.35)];
 }
 
-/** Столик для гостей: стулья слева и справа (смотрят на столик), где сидят и едят гости. */
-export const TABLE = { chair: 0.72, hw: 1.0, hd: 0.42 } as const;
-
-/** Что в кафе занято всегда: стойка, диван, миски, лоток, проход от двери, места мебели и где у неё стоят. */
+/** Что в доме занято всегда: диван, миски, лоток, проход от двери, места мебели и где у неё стоят. */
 function fixedKeep(tier: number, slots = true): Box[] {
-  const { L, R, B } = houseRect(tier);
+  const { L } = houseRect(tier);
   const P = petsAt(tier);
   const door = { x: L + 0.06, z: frontOf(tier) - 1.3 };
   const keep: Box[] = [
-    box(R - 1.7, B + 0.6, 1.25, 1.6),
     box(0.4, 0.9, 1.6, 1.3),
     box(P.bowls.pos.x, P.bowls.pos.z, 1.1, 0.8),
     box(P.litter.pos.x, P.litter.pos.z, 0.9, 1.0),
@@ -204,15 +200,13 @@ export function playZoneAt(tier: number, size = 0): P2 {
   return best ?? { x: L + hw + 0.12, z: F - hd - 0.6 };
 }
 
-/** Можно ли поставить зону размера size в кафе ступени tier (влезает, не мешая столикам и мебели). */
+/** Можно ли поставить зону размера size в доме ступени tier (влезает, не мешая мебели). */
 export function playSizeFits(tier: number, size: number): boolean {
   const { L, R, B, F } = houseRect(tier);
   const { w, d } = playSize(size);
   const p = playZoneAt(tier, size);
   const me = box(p.x, p.z, w / 2, d / 2);
-  if (!(me.x0 >= L && me.x1 <= R && me.z0 >= B && me.z1 <= F) || fixedKeep(tier, false).some((k) => overlaps(box(p.x, p.z, w / 2 + 0.2, d / 2 + 0.2), k))) return false;
-  // Столики помещаются рядом с зоной.
-  return cafeTables(tier, size).length >= HOUSES[Math.max(0, Math.min(HOUSES.length - 1, tier))]!.tables;
+  return me.x0 >= L && me.x1 <= R && me.z0 >= B && me.z1 <= F && !fixedKeep(tier, false).some((k) => overlaps(box(p.x, p.z, w / 2 + 0.2, d / 2 + 0.2), k));
 }
 
 /** Препятствия игрушек зоны для людей (сама зона — проходная: в неё можно зайти). */
@@ -306,40 +300,6 @@ export function playCatBoxes(zone: P2, play: PlayZoneState = PLAY_START): Box[] 
   return out;
 }
 
-/**
- * Места столиков кафе ступени tier (сколько — по ступени): свободные точки зала поближе к
- * стойке с витриной, не на местах мебели, не у мисок, лотка, двери и игровой зоны, с проходами.
- */
-export function cafeTables(tier: number, playSizeIdx = 0): P2[] {
-  const n = HOUSES[Math.max(0, Math.min(HOUSES.length - 1, tier))]!.tables;
-  const { L, R, B, F } = houseRect(tier);
-  const z0 = playZoneAt(tier, playSizeIdx);
-  const ps = playSize(playSizeIdx);
-  const keep = [...fixedKeep(tier), box(z0.x, z0.z, ps.w / 2 + 0.3, ps.d / 2 + 0.3)];
-  const cand: P2[] = [];
-  for (let x = R - 2.0; x >= L + 1.6; x -= 0.25) for (let z = B + 2.0; z <= F - 1.2; z += 0.25) cand.push({ x, z });
-  const goal = { x: R - 4.2, z: B + 4.0 };
-  cand.sort((a, b) => dist(a, goal) - dist(b, goal));
-  const out: P2[] = [];
-  const pad = 0.45;
-  for (const c of cand) {
-    if (out.length >= n) break;
-    const me = box(c.x, c.z, TABLE.hw + pad, TABLE.hd + pad);
-    if (keep.some((k) => overlaps(me, k))) continue;
-    if (out.some((o) => Math.abs(o.x - c.x) < 2 * TABLE.hw + 1.0 && Math.abs(o.z - c.z) < 2 * TABLE.hd + 1.1)) continue;
-    out.push(c);
-  }
-  return out;
-}
-
-/** Стулья у столиков: точка стула и куда смотрит сидящий (на столик). */
-export function tableChairs(tier: number, playSizeIdx = 0): Array<{ pos: P2; face: number; table: number }> {
-  return cafeTables(tier, playSizeIdx).flatMap((t, i) => [
-    { pos: { x: t.x - TABLE.chair, z: t.z }, face: Math.PI / 2, table: i },
-    { pos: { x: t.x + TABLE.chair, z: t.z }, face: -Math.PI / 2, table: i },
-  ]);
-}
-
 export interface PlacedHome extends Placed {
   /** Высота на стене (для настенных предметов). */
   y: number;
@@ -369,12 +329,10 @@ export function homeLayout(furniture: readonly ObjectId[], pets = false, tier = 
 
 /** Где что стоит по умолчанию (без перестановок игрока). */
 export function defaultLayout(furniture: readonly ObjectId[], pets = false, tier = 0, play: PlayZoneState = PLAY_START): PlacedHome[] {
-  const { L, R, B } = houseRect(tier);
+  const { L } = houseRect(tier);
   // Дверь остаётся у прежней передней части зала (рядом с лотком).
   const F = frontOf(tier);
   const base: Placed[] = [
-    // Стойка с витриной у задней стены справа.
-    { id: 'counter', pos: { x: R - 1.7, z: B + 0.6 }, rot: -Math.PI / 2, use: { x: R - 1.9, z: B + 1.85 }, box: box(R - 1.7, B + 0.6, 1.25, 0.55) },
     // Перед диваном — столик: подходят к дивану сбоку от него.
     { id: 'sofa', pos: { x: 0.4, z: 1.4 }, rot: Math.PI, use: { x: -0.6, z: 0.6 }, box: box(0.4, 1.4, 1.25, 0.5) },
     { id: 'door', pos: { x: L + 0.06, z: F - 1.3 }, rot: Math.PI / 2, use: { x: L + 1.1, z: F - 1.3 }, box: null },
@@ -383,11 +341,9 @@ export function defaultLayout(furniture: readonly ObjectId[], pets = false, tier
   const pz = playZoneAt(tier, play.size);
   const ps = playSize(play.size);
   base.push({ id: 'play_zone', pos: pz, rot: 0, use: { x: pz.x + 0.2, z: pz.z + ps.d / 2 + 0.55 }, box: box(pz.x, pz.z, ps.w / 2, ps.d / 2) });
-  // Столики: подходят к ним спереди (со стороны зрителя).
-  cafeTables(tier, play.size).forEach((tb, i) => base.push({ id: 'table', key: `table:${i}`, pos: tb, rot: 0, use: { x: tb.x, z: tb.z + TABLE.hd + 0.75 }, box: box(tb.x, tb.z, TABLE.hw, TABLE.hd) }));
   const out: PlacedHome[] = base.map((p) => ({ ...p, key: p.key ?? p.id, y: 0 }));
-  // Места мебели под игровой зоной и под столиками заняты — мебель встаёт в остальные.
-  const busy: Box[] = base.filter((p) => p.id === 'play_zone' || p.id === 'table').map((p) => p.box!);
+  // Места мебели под игровой зоной заняты — мебель встаёт в остальные.
+  const busy: Box[] = base.filter((p) => p.id === 'play_zone').map((p) => p.box!);
   const freeSlot = (sl: Slot): boolean => !busy.some((b) => overlaps(box(sl.pos.x, sl.pos.z, 0.6, 0.6), box((b.x0 + b.x1) / 2, (b.z0 + b.z1) / 2, (b.x1 - b.x0) / 2 + 0.2, (b.z1 - b.z0) / 2 + 0.2)) || blocked(sl.use, [b], 0.1));
   const pools: Record<'slot' | 'wall' | 'floor', Slot[]> = {
     slot: furnitureSlots(tier).filter(freeSlot).slice(0, slotsFor('slot', tier)),
@@ -526,18 +482,6 @@ export function placeBlocker(layout: readonly Placed[], key: string, at: ItemSpo
   return null;
 }
 
-/** Стулья у столиков раскладки: точка стула и куда смотрит сидящий (на столик). */
-export function chairsOf(layout: readonly Placed[]): Array<{ pos: P2; face: number; table: number }> {
-  return layout
-    .filter((p) => p.id === 'table')
-    .flatMap((t, i) =>
-      [-1, 1].map((side) => {
-        const o = turn(side * TABLE.chair, 0, t.rot);
-        return { pos: { x: t.pos.x + o.x, z: t.pos.z + o.z }, face: t.rot + (side < 0 ? Math.PI / 2 : -Math.PI / 2), table: i };
-      }),
-    );
-}
-
 /**
  * Лавка демона: демон в кресле у задней стены (на коленях — завтрашняя кошка), лента, по которой
  * сегодняшняя кошка весь день едет к жерлу, могилки не спасённых кошек справа спереди, выход слева.
@@ -568,35 +512,6 @@ export const beltSpot = (f: number): P2 => ({ x: BELT.x0 + (BELT.x1 - BELT.x0) *
 export const GRAVES_AT: P2 = { x: 3.0, z: 2.35 };
 export const GRAVES_SHOWN = 10;
 export const graveSpot = (i: number): P2 => ({ x: GRAVES_AT.x + ((i % 5) - 2) * 0.95, z: GRAVES_AT.z - 0.55 + Math.floor(i / 5) * 1.05 });
-
-/**
- * Места гостей в кафе: свободные точки зала (не в мебели и не у дверей), сначала ближе к
- * середине, где играют кошки.
- */
-export function guestSpots(tier: number, boxes: readonly Box[], n: number, zone: Box | null = null): P2[] {
-  const { L, R, B, F, cx, cz } = houseRect(tier);
-  const out: P2[] = [];
-  const cand: P2[] = [];
-  for (let x = L + 1.6; x <= R - 1.6; x += 1.5) for (let z = B + 2.2; z <= F - 1.4; z += 1.5) cand.push({ x, z });
-  // Игровая зона: точки на её коврике — гости заходят туда играть с кошками (каждый второй — там).
-  const inZone: P2[] = [];
-  if (zone) for (let x = zone.x0 + 0.6; x <= zone.x1 - 0.6; x += 0.8) for (let z = zone.z0 + 0.7; z <= zone.z1 - 0.5; z += 0.8) inZone.push({ x, z });
-  cand.sort((a, b) => Math.hypot(a.x - cx, a.z - cz) - Math.hypot(b.x - cx, b.z - cz));
-  const zc = zone ? { x: (zone.x0 + zone.x1) / 2, z: (zone.z0 + zone.z1) / 2 } : null;
-  if (zc) inZone.sort((a, b) => Math.hypot(a.x - zc.x, a.z - zc.z) - Math.hypot(b.x - zc.x, b.z - zc.z));
-  for (const p of inZone) {
-    if (out.length >= Math.ceil(n / 2)) break;
-    if (blocked(p, boxes, 0.45) || out.some((q) => Math.hypot(q.x - p.x, q.z - p.z) < 1.2)) continue;
-    out.push(p);
-  }
-  for (const p of cand) {
-    if (out.length >= n) break;
-    if (blocked(p, boxes, 0.55)) continue;
-    if (out.some((q) => Math.hypot(q.x - p.x, q.z - p.z) < 1.3)) continue;
-    out.push(p);
-  }
-  return out;
-}
 
 /** Где можно ходить: в кафе ступени house или в лавке демона. */
 export const bounds = (scene: SceneId, tier?: number): Box => {

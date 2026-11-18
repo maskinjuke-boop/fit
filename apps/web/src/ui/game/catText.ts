@@ -1,15 +1,22 @@
 import { catAge, isKitten } from '../../game/life';
 import { CAT_AGE, catBreedById } from '../../game/lifeContent';
-import type { Cat } from '../../game/lifeTypes';
+import type { Blood, Cat } from '../../game/lifeTypes';
+import { bloodClass, catValue, pedigree, pureBred, purity } from '../../game/catBlood';
 import type { I18nKey, Lang } from '../../i18n';
 
 type T = (k: I18nKey) => string;
 type TF = (k: I18nKey, vars: Record<string, string | number>) => string;
 
-/** Порода кошки: у метиса — обе породы. */
-export function catBreedText(c: Pick<Cat, 'breed' | 'mix'>, lang: Lang, t: T): string {
+/** Порода кошки: у метиса — породы с долями крови. */
+export function catBreedText(c: Pick<Cat, 'breed' | 'mix'> & { blood?: Blood }, lang: Lang, t: T): string {
+  if (c.blood && !pureBred(c.blood)) return `${t('cat.mix')}: ${pedigree(c.blood, lang)}`;
   const a = catBreedById(c.breed).name[lang];
   return c.mix ? `${t('cat.mix')}: ${a} × ${catBreedById(c.mix).name[lang]}` : a;
+}
+
+/** Чистота крови и ценность: «чистокровная 100% · ◈ 450». */
+export function catBloodText(c: { blood: Blood }, lang: Lang): string {
+  return `🧬 ${bloodClass(c.blood)[lang]} ${Math.round(purity(c.blood) * 100)}% · ◈ ${catValue(c.blood)}`;
 }
 
 /** Возраст: месяцы до года, дальше — годы. */
