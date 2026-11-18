@@ -130,6 +130,13 @@ export interface DemonOffer {
   status: 'waiting' | 'saved' | 'lost';
 }
 
+/** Куда игрок переставил предмет кафе: точка на полу и поворот (кратно 90°). */
+export interface ItemSpot {
+  x: number;
+  z: number;
+  rot: number;
+}
+
 /** Что стоит в игровой зоне для кошек. */
 export type PlayItemId = 'tree' | 'post' | 'tunnel' | 'hammock' | 'boxes' | 'tower' | 'wheel' | 'track';
 
@@ -200,6 +207,8 @@ export interface LifeState {
   graves: Grave[];
   /** Игровая зона для кошек. */
   play: PlayZoneState;
+  /** Перестановка: куда игрок передвинул предметы кафе (ключ — Placed.key). */
+  moved: Record<string, ItemSpot>;
   event: ActiveEvent | null;
   last: LifeResult | null;
   stats: { visitors: number; earned: number; rescued: number; lost: number; repMoney: number; meals: number };

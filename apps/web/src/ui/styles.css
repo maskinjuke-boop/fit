@@ -2526,3 +2526,19 @@ button {
 .rug-row { display: flex; gap: 8px; margin: 6px 0 10px; flex-wrap: wrap; }
 .rug-chip { width: 34px; height: 34px; border-radius: 10px; border: 3px solid; cursor: pointer; padding: 0; }
 .rug-chip.on { outline: 3px solid var(--accent, #ffb02e); outline-offset: 2px; }
+
+/* Перестановка вещей в кафе. */
+.edit-btn {
+  position: absolute;
+  top: 60px;
+  right: 8px;
+  width: 46px;
+  height: 46px;
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  background: rgba(15, 17, 20, 0.8);
+  font-size: 22px;
+  cursor: pointer;
+}
+.edit-panel .edit-row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.edit-panel .edit-row .btn { min-width: 40px; }

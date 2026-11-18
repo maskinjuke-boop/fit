@@ -46,6 +46,8 @@ export interface CatWorld {
   litterSurface: number;
   /** Где стоит лоток (по умолчанию — как в обычной квартире). */
   litter?: P2;
+  /** Где миски с кормом и водой (их можно переставить). */
+  bowls?: { food: P2; water: P2 };
   hero: P2;
   act: CatHeroAct | null;
   pets: { bowl: number; water: number; litter: number };
@@ -168,6 +170,8 @@ export function createCatLife(parent: THREE.Object3D, shadow: () => THREE.Object
   /** Точка перед миской (кошка стоит мордой к ней, на +x). */
   const bowlFront = (bowl: P2, c: CatAI): P2 => ({ x: bowl.x - 0.3 * c.size, z: bowl.z });
   let litterAt: P2 = PETS.litter.pos;
+  const food = (w: CatWorld): P2 => w.bowls?.food ?? PETS.food;
+  const water = (w: CatWorld): P2 => w.bowls?.water ?? PETS.water;
   const litterIn = (): P2 => ({ x: litterAt.x, z: litterAt.z + 0.02 });
   const litterOut = (): P2 => ({ x: litterAt.x, z: litterAt.z - 0.6 });
 
@@ -203,14 +207,14 @@ export function createCatLife(parent: THREE.Object3D, shadow: () => THREE.Object
       opts.push([
         need.fed < 55 ? 10 : 1,
         () => [
-          { k: 'go', to: bowlFront(PETS.food, c), run: need.fed < 40 && dist(c.pos, PETS.food) > 4 },
+          { k: 'go', to: bowlFront(food(w), c), run: need.fed < 40 && dist(c.pos, food(w)) > 4 },
           { k: 'turn', heading: Math.PI / 2 },
           { k: 'pose', mode: 'eat', dur: 6 + rand() * 4, tag: 'eat' },
-          ...(rand() < 0.6 && w.pets.water > 0 ? ([{ k: 'go', to: bowlFront(PETS.water, c) }, { k: 'turn', heading: Math.PI / 2 }, { k: 'pose', mode: 'eat', dur: 3, tag: 'drink' }] as Step[]) : []),
+          ...(rand() < 0.6 && w.pets.water > 0 ? ([{ k: 'go', to: bowlFront(water(w), c) }, { k: 'turn', heading: Math.PI / 2 }, { k: 'pose', mode: 'eat', dur: 3, tag: 'drink' }] as Step[]) : []),
           { k: 'pose', mode: 'groom', dur: 3 },
         ],
       ]);
-    if (t - c.drankAt > 70 && w.pets.water > 0) opts.push([0.8, () => [{ k: 'go', to: bowlFront(PETS.water, c) }, { k: 'turn', heading: Math.PI / 2 }, { k: 'pose', mode: 'eat', dur: 3.5, tag: 'drink' }]]);
+    if (t - c.drankAt > 70 && w.pets.water > 0) opts.push([0.8, () => [{ k: 'go', to: bowlFront(water(w), c) }, { k: 'turn', heading: Math.PI / 2 }, { k: 'pose', mode: 'eat', dur: 3.5, tag: 'drink' }]]);
     if (toys.length) opts.push([0.8 + (100 - need.play) / 22, () => [{ k: 'hunt', toy: pick(toys), left: 2 + Math.floor(rand() * 3), phase: 'chase' }, { k: 'pose', mode: 'sit', dur: 2 }]]);
     if (dist(w.hero, c.pos) < 6 && !w.act) opts.push([1.2, () => [{ k: 'go', to: w.hero, run: dist(w.hero, c.pos) > 2.5, near: 0.45 }, { k: 'rub', dur: 3.5 + rand() * 2.5, angle: rand() * 6 }, { k: 'pose', mode: 'sit', dur: 2 }]]);
     opts.push([2, () => [{ k: 'go', to: randomSpot(w) }]]);

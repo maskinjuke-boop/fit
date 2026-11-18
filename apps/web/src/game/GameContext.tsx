@@ -21,8 +21,8 @@ import {
 import type { Slot } from './items';
 import { createState, type Appearance, type Character, type GameState } from './state';
 import { clearGame, loadGame, saveGame } from './storage';
-import { act, answerEvent, applyFinish, buyFurniture, upgradeKit, dismissResult, placePlayItem, removePlayItem, sellFurniture, setPlayRug, upgradeHouse, upgradePlaySize, type LifeOutcome } from './life';
-import type { ObjectId, PlayItemId } from './lifeTypes';
+import { act, answerEvent, applyFinish, buyFurniture, moveCafeItem, resetMoved, upgradeKit, dismissResult, placePlayItem, removePlayItem, sellFurniture, setPlayRug, upgradeHouse, upgradePlaySize, type LifeOutcome } from './life';
+import type { ItemSpot, ObjectId, PlayItemId } from './lifeTypes';
 
 /** Действия режима администратора. */
 export interface AdminActions {
@@ -58,6 +58,9 @@ export interface LifeActions {
   removePlay(id: PlayItemId): void;
   upgradePlay(): void;
   setRug(id: string): void;
+  /** Перестановка: передвинуть или повернуть предмет кафе, вернуть на место (null — все). */
+  move(key: string, at: ItemSpot): void;
+  resetMove(key: string | null): void;
   dismiss(): void;
 }
 
@@ -241,6 +244,8 @@ export function GameProvider({ children }: { children: ReactNode }) {
       removePlay: (id) => plain((s) => removePlayItem(s, id)),
       upgradePlay: () => plain(upgradePlaySize),
       setRug: (id) => plain((s) => setPlayRug(s, id)),
+      move: (key, at) => plain((s) => moveCafeItem(s, key, at)),
+      resetMove: (key) => plain((s) => resetMoved(s, key)),
       dismiss: () => plain(dismissResult),
     };
     return {

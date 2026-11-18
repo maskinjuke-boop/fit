@@ -1,5 +1,5 @@
 import { HOUSES, PLAY_DEFAULT, PLAY_SIZES, mountOf, slotsFor, playItemById } from './lifeContent';
-import type { ObjectId, PlayItemId, PlayZoneState, SceneId } from './lifeTypes';
+import type { ItemSpot, ObjectId, PlayItemId, PlayZoneState, SceneId } from './lifeTypes';
 
 /**
  * Раскладка двух локаций: котокафе (зал в разрезе, предметы у стен, гости среди кошек)
@@ -28,6 +28,8 @@ export interface Placed {
   /** Где встать, чтобы пользоваться. */
   use: P2;
   box: Box | null;
+  /** Ключ для перестановки (у одинаковых предметов — свой у каждого: «table:1»). */
+  key?: string;
 }
 
 export const HOUSE = { w: 15, d: 11 };
@@ -128,9 +130,16 @@ function floorSlots(tier: number): Slot[] {
   return out;
 }
 
-/** Препятствия кафе без действий: журнальный столик перед диваном (из модели дивана). */
-export function homeObstacles(): Box[] {
-  return [box(0.4, 0.25, 0.45, 0.35)];
+/** Повернуть точку (x, z) предмета на угол a вокруг Y (как поворот модели в сцене). */
+export const turn = (x: number, z: number, a: number): P2 => ({ x: x * Math.cos(a) + z * Math.sin(a), z: -x * Math.sin(a) + z * Math.cos(a) });
+
+/** Препятствия кафе без действий: журнальный столик перед диваном (из модели дивана: на 1,15 м перед ним). */
+export function homeObstacles(placed?: readonly Placed[]): Box[] {
+  const sofa = placed?.find((p) => p.id === 'sofa');
+  if (!sofa) return [box(0.4, 0.25, 0.45, 0.35)];
+  const c = turn(0, 1.15, sofa.rot);
+  const q = Math.abs(Math.sin(sofa.rot)) > 0.5;
+  return [box(sofa.pos.x + c.x, sofa.pos.z + c.z, q ? 0.35 : 0.45, q ? 0.45 : 0.35)];
 }
 
 /** Столик для гостей: стулья слева и справа (смотрят на столик), где сидят и едят гости. */
@@ -332,7 +341,12 @@ export const petsAt = (tier = 1) => {
 export const PETS = petsAt(1);
 
 /** Предметы дома: базовые на своих местах, купленные — по свободным местам своего вида; pets — есть кошки (миски и лоток). */
-export function homeLayout(furniture: readonly ObjectId[], pets = false, tier = 0, play: PlayZoneState = PLAY_START): PlacedHome[] {
+export function homeLayout(furniture: readonly ObjectId[], pets = false, tier = 0, play: PlayZoneState = PLAY_START, moved: Readonly<Record<string, ItemSpot>> = {}): PlacedHome[] {
+  return defaultLayout(furniture, pets, tier, play).map((p) => moveItem(p, moved[p.key ?? ''], tier));
+}
+
+/** Где что стоит по умолчанию (без перестановок игрока). */
+export function defaultLayout(furniture: readonly ObjectId[], pets = false, tier = 0, play: PlayZoneState = PLAY_START): PlacedHome[] {
   const { L, R, B } = houseRect(tier);
   // Дверь остаётся у прежней передней части зала (рядом с лотком).
   const F = frontOf(tier);
@@ -348,8 +362,8 @@ export function homeLayout(furniture: readonly ObjectId[], pets = false, tier = 
   const ps = playSize(play.size);
   base.push({ id: 'play_zone', pos: pz, rot: 0, use: { x: pz.x + 0.2, z: pz.z + ps.d / 2 + 0.55 }, box: box(pz.x, pz.z, ps.w / 2, ps.d / 2) });
   // Столики: подходят к ним спереди (со стороны зрителя).
-  for (const tb of cafeTables(tier, play.size)) base.push({ id: 'table', pos: tb, rot: 0, use: { x: tb.x, z: tb.z + TABLE.hd + 0.75 }, box: box(tb.x, tb.z, TABLE.hw, TABLE.hd) });
-  const out: PlacedHome[] = base.map((p) => ({ ...p, y: 0 }));
+  cafeTables(tier, play.size).forEach((tb, i) => base.push({ id: 'table', key: `table:${i}`, pos: tb, rot: 0, use: { x: tb.x, z: tb.z + TABLE.hd + 0.75 }, box: box(tb.x, tb.z, TABLE.hw, TABLE.hd) }));
+  const out: PlacedHome[] = base.map((p) => ({ ...p, key: p.key ?? p.id, y: 0 }));
   const pools: Record<'slot' | 'wall' | 'floor', Slot[]> = {
     slot: furnitureSlots(tier).slice(0, slotsFor('slot', tier)),
     wall: wallSlots(tier).slice(0, slotsFor('wall', tier)),
@@ -361,23 +375,118 @@ export function homeLayout(furniture: readonly ObjectId[], pets = false, tier = 
     if (mount === 'free') {
       // Робот-пылесос: станция у стены возле двери, сам ездит по дому.
       const z = tier <= 0 ? F - 0.4 : 2.75;
-      out.push({ id, pos: { x: L + 0.35, z }, rot: Math.PI / 2, use: { x: L + 1.3, z }, box: null, y: 0 });
+      out.push({ id, key: id, pos: { x: L + 0.35, z }, rot: Math.PI / 2, use: { x: L + 1.3, z }, box: null, y: 0 });
       continue;
     }
     const sl = pools[mount][used[mount]];
     if (!sl) continue;
     used[mount] += 1;
     const hw = mount === 'slot' ? 0.55 : 0.28;
-    out.push({ id, pos: sl.pos, rot: sl.rot, use: sl.use, box: mount === 'wall' ? null : box(sl.pos.x, sl.pos.z, hw, hw), y: sl.y ?? 0 });
+    out.push({ id, key: id, pos: sl.pos, rot: sl.rot, use: sl.use, box: mount === 'wall' ? null : box(sl.pos.x, sl.pos.z, hw, hw), y: sl.y ?? 0 });
   }
   if (pets) {
     const P = petsAt(tier);
     const b = P.bowls;
-    out.push({ id: 'cat_bowl', pos: { ...b.pos }, rot: b.rot, use: { ...b.use }, box: box(b.pos.x, b.pos.z, 0.18, 0.4), y: 0 });
+    out.push({ id: 'cat_bowl', key: 'cat_bowl', pos: { ...b.pos }, rot: b.rot, use: { ...b.use }, box: box(b.pos.x, b.pos.z, 0.18, 0.4), y: 0 });
     const l = P.litter;
-    out.push({ id: 'litter', pos: { ...l.pos }, rot: l.rot, use: { ...l.use }, box: box(l.pos.x, l.pos.z, 0.3, 0.24), y: 0 });
+    out.push({ id: 'litter', key: 'litter', pos: { ...l.pos }, rot: l.rot, use: { ...l.use }, box: box(l.pos.x, l.pos.z, 0.3, 0.24), y: 0 });
   }
   return out;
+}
+
+// ─── Перестановка ──────────────────────────────────────────────────────
+
+/** Что можно переставлять: всё, кроме двери и станции пылесоса. Поворачивать — кроме игровой зоны, мисок и лотка. */
+export const movable = (p: Placed): boolean => p.id !== 'door' && p.id !== 'robot_vacuum';
+export const turnable = (p: Placed): boolean => movable(p) && p.id !== 'play_zone' && p.id !== 'cat_bowl' && p.id !== 'litter';
+/** Предмет на стене (картины, часы, неон, кондиционер). */
+export const onWall = (p: Placed): boolean => mountOf(p.id) === 'wall' && p.box === null;
+
+/** Предмет p в новом месте at (поворот — кратно 90°): коробка и место использования переезжают вместе с ним. */
+export function moveItem<T extends Placed>(p: T, at: ItemSpot | undefined, tier = 0): T {
+  if (!at || !movable(p)) return p;
+  let rot = turnable(p) ? at.rot : p.rot;
+  let pos = { x: at.x, z: at.z };
+  // Настенные — на ближайшей стене (задней, левой или правой) и лицом в зал.
+  if (onWall(p)) {
+    const w = wallSnap(pos, tier);
+    pos = w.pos;
+    rot = w.rot;
+  }
+  const dr = rot - p.rot;
+  const u = turn(p.use.x - p.pos.x, p.use.z - p.pos.z, dr);
+  let bx: Box | null = null;
+  if (p.box) {
+    const c = turn((p.box.x0 + p.box.x1) / 2 - p.pos.x, (p.box.z0 + p.box.z1) / 2 - p.pos.z, dr);
+    const q = Math.abs(Math.sin(dr)) > 0.5;
+    const hw = (q ? p.box.z1 - p.box.z0 : p.box.x1 - p.box.x0) / 2;
+    const hd = (q ? p.box.x1 - p.box.x0 : p.box.z1 - p.box.z0) / 2;
+    bx = box(pos.x + c.x, pos.z + c.z, hw, hd);
+  }
+  return { ...p, pos, rot, use: { x: pos.x + u.x, z: pos.z + u.z }, box: bx };
+}
+
+/** Ближайшее место на стене кафе: точка у стены и поворот лицом в зал. */
+export function wallSnap(p: P2, tier: number): { pos: P2; rot: number } {
+  const { L, R, B, F } = houseRect(tier);
+  const x = Math.max(L + 0.6, Math.min(R - 0.6, p.x));
+  const z = Math.max(B + 0.6, Math.min(F - 0.8, p.z));
+  const dB = Math.abs(p.z - B);
+  const dL = Math.abs(p.x - L);
+  const dR = Math.abs(p.x - R);
+  if (dB <= dL && dB <= dR) return { pos: { x, z: B + 0.04 }, rot: 0 };
+  if (dL <= dR) return { pos: { x: L + 0.04, z }, rot: Math.PI / 2 };
+  return { pos: { x: R - 0.04, z }, rot: -Math.PI / 2 };
+}
+
+/** Почему сюда нельзя: вне зала, налезает на другой предмет, к нему не подойти, загораживает дверь. */
+export type PlaceBlocker = 'out' | 'overlap' | 'reach' | 'door' | null;
+
+/**
+ * Можно ли поставить предмет key из раскладки layout в точку at (раскладка — текущая, с уже
+ * переставленными предметами). Настенные проверяются на стене: не ближе 0,9 м к другим.
+ */
+export function placeBlocker(layout: readonly Placed[], key: string, at: ItemSpot, tier: number): PlaceBlocker {
+  const cur = layout.find((p) => p.key === key);
+  if (!cur || !movable(cur)) return 'out';
+  // Позицию считаем от исходного предмета этой раскладки (cur уже может быть переставлен).
+  const moved = moveItem(cur, at, tier);
+  const others = layout.filter((p) => p.key !== key);
+  if (onWall(cur)) {
+    const clash = others.some((o) => onWall(o) && Math.abs(o.rot - moved.rot) < 0.01 && dist(o.pos, moved.pos) < 0.9);
+    return clash ? 'overlap' : null;
+  }
+  const { L, R, B, F } = houseRect(tier);
+  const room: Box = { x0: L + 0.05, x1: R - 0.05, z0: B + 0.05, z1: F - 0.05 };
+  const b = moved.box;
+  if (b && (b.x0 < room.x0 || b.x1 > room.x1 || b.z0 < room.z0 || b.z1 > room.z1)) return 'out';
+  const withSofa = (list: readonly Placed[]): Box[] => [...list.map((o) => o.box).filter((x): x is Box => x !== null), ...homeObstacles(list)];
+  const obstacles = withSofa(others);
+  const mine = moved.id === 'sofa' ? homeObstacles([moved]) : [];
+  if (b && [...obstacles].some((o) => overlaps(b, o))) return 'overlap';
+  if (mine.some((m) => others.some((o) => o.box && overlaps(m, o.box)))) return 'overlap';
+  // Проход от двери свободен.
+  const door = layout.find((p) => p.id === 'door');
+  if (door && b && overlaps(b, box(door.use.x, door.use.z, 0.7, 0.7))) return 'door';
+  // К предмету можно подойти, и он не встал на чужое место подхода.
+  const bounds0: Box = { x0: L + 0.35, x1: R - 0.35, z0: B + 0.35, z1: F - 0.2 };
+  const all = [...obstacles, ...(b ? [b] : []), ...mine];
+  const u = moved.use;
+  if (u.x < bounds0.x0 || u.x > bounds0.x1 || u.z < bounds0.z0 || u.z > bounds0.z1 || blocked(u, all, 0.2)) return 'reach';
+  if (b && others.some((o) => !onWall(o) && blocked(o.use, [b], 0.15))) return 'reach';
+  return null;
+}
+
+/** Стулья у столиков раскладки: точка стула и куда смотрит сидящий (на столик). */
+export function chairsOf(layout: readonly Placed[]): Array<{ pos: P2; face: number; table: number }> {
+  return layout
+    .filter((p) => p.id === 'table')
+    .flatMap((t, i) =>
+      [-1, 1].map((side) => {
+        const o = turn(side * TABLE.chair, 0, t.rot);
+        return { pos: { x: t.pos.x + o.x, z: t.pos.z + o.z }, face: t.rot + (side < 0 ? Math.PI / 2 : -Math.PI / 2), table: i };
+      }),
+    );
 }
 
 /**

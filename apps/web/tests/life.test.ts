@@ -627,3 +627,49 @@ describe('игровая зона: расширение и игрушки', () =
     expect(migrateLife({ ...s.life, play: undefined } as unknown as Parameters<typeof migrateLife>[0]).play.items).toEqual(['tree', 'post', 'tunnel']);
   });
 });
+
+describe('перестановка вещей в кафе', () => {
+  it('двигать и поворачивать можно, на чужое место, за стены, на вход и вплотную — нельзя', async () => {
+    const m = await import('../src/game/life');
+    const map = await import('../src/game/lifeMap');
+    let s = cafe(4);
+    s.life.furniture = ['armchair', 'painting', 'house_plant'];
+    const lay = m.cafeLayout(s.life);
+    const keys = lay.map((p) => p.key);
+    for (const k of ['counter', 'sofa', 'play_zone', 'table:0', 'cat_bowl', 'litter', 'armchair', 'painting', 'door']) expect(keys).toContain(k);
+    // Стол — в свободное место, повернуть на 90°: коробка поворачивается вместе.
+    const t0 = lay.find((p) => p.key === 'table:0')!;
+    const free = { x: -3.0, z: 2.6, rot: Math.PI / 2 };
+    expect(m.moveBlocker(s.life, 'table:0', free)).toBe(null);
+    s = m.moveCafeItem(s, 'table:0', free);
+    const t1 = m.cafeLayout(s.life).find((p) => p.key === 'table:0')!;
+    expect(t1.pos).toEqual({ x: -3, z: 2.6 });
+    expect(t1.box!.x1 - t1.box!.x0).toBeCloseTo(t0.box!.z1 - t0.box!.z0, 5);
+    // Стулья у повёрнутого столика — по его бокам (по z).
+    const ch = map.chairsOf(m.cafeLayout(s.life)).filter((c) => c.table === 0);
+    expect(Math.abs(ch[0]!.pos.x - t1.pos.x)).toBeLessThan(0.01);
+    // На стойку — нельзя; за стену — нельзя; на вход — нельзя.
+    const counter = lay.find((p) => p.key === 'counter')!;
+    expect(m.moveBlocker(s.life, 'sofa', { x: counter.pos.x, z: counter.pos.z, rot: Math.PI })).toBe('overlap');
+    expect(m.moveBlocker(s.life, 'armchair', { x: 50, z: 0, rot: 0 })).toBe('out');
+    const door = lay.find((p) => p.key === 'door')!;
+    expect(m.moveBlocker(s.life, 'armchair', { x: door.use.x, z: door.use.z, rot: 0 })).not.toBe(null);
+    expect(m.moveCafeItem(s, 'door', { x: 0, z: 0, rot: 0 })).toBe(s);
+    // Картина вешается на ближайшую стену.
+    s = m.moveCafeItem(s, 'painting', { x: m.cafeLayout(s.life).find((p) => p.key === 'door')!.pos.x + 0.3, z: -1.5, rot: 0 });
+    const pic = m.cafeLayout(s.life).find((p) => p.key === 'painting')!;
+    expect(pic.rot).toBeCloseTo(Math.PI / 2, 5);
+    // Миски переехали — кошки едят там (позиция мисок из раскладки).
+    const bowls0 = lay.find((p) => p.key === 'cat_bowl')!;
+    expect(m.moveBlocker(s.life, 'cat_bowl', { x: bowls0.pos.x, z: bowls0.pos.z + 1.2, rot: 0 })).toBe(null);
+    // Вернуть на место и сохранение.
+    s = m.resetMoved(s, 'table:0');
+    expect(s.life.moved['table:0']).toBe(undefined);
+    expect(migrateLife({ ...s.life, moved: { sofa: { x: 1, z: 2, rot: 1.6 }, bad: { x: 'a' } } } as unknown as Parameters<typeof migrateLife>[0]).moved).toEqual({ sofa: { x: 1, z: 2, rot: Math.PI / 2 } });
+    expect(m.resetMoved(s, null).life.moved).toEqual({});
+    // Проданная вещь забывает своё место.
+    s = m.moveCafeItem(s, 'armchair', { x: -3.0, z: 2.6, rot: 0 });
+    expect(s.life.moved.armchair).toBeTruthy();
+    expect(m.sellFurniture(s, 'armchair').life.moved.armchair).toBe(undefined);
+  });
+});

@@ -8,6 +8,8 @@ import {
   catGrowth,
   catMood,
   catName,
+  cafeLayout,
+  moveBlocker,
   playBlocker,
   playBoredom,
   playComfort,
@@ -35,7 +37,7 @@ import {
 import { Renovation } from './Renovation';
 import { catBreedText, catMeta } from './catText';
 import { BOWL_MAX, FOOD, HOUSES, OBJECTS, PLAY_ITEMS, PLAY_RUGS, PLAY_SIZES, actionById, lifeEventById } from '../../game/lifeContent';
-import { demonLayout, homeLayout, type P2 } from '../../game/lifeMap';
+import { demonLayout, movable, onWall, turnable, type P2 } from '../../game/lifeMap';
 import type { ActionDef, ObjectId } from '../../game/lifeTypes';
 import { useI18n, type I18nKey } from '../../i18n';
 import type { ExerciseId } from '../../tracking/exercise';
@@ -46,7 +48,7 @@ import { DemonCard } from './DemonCard';
 const LifeScene3D = lazy(() => import('./three/LifeScene3D'));
 
 /** Предметы текущей локации (для похода сима к ним). */
-const layoutOf = (st: GameState) => (st.life.scene === 'cafe' ? homeLayout(st.life.furniture, st.life.cats.length > 0, st.life.house, st.life.play) : demonLayout());
+const layoutOf = (st: GameState) => (st.life.scene === 'cafe' ? cafeLayout(st.life) : demonLayout());
 
 /** Нужные поля события указателя (общие для React и DOM). */
 interface PointerLike {
@@ -533,7 +535,11 @@ export function LifeTab({ state, onTrain, onRescue }: { state: GameState; onTrai
     [guestKey],
   );
 
-  live.current = { state, near, sheet, auto, failed };
+  // Перестановка: режим, выбранный предмет (ключ раскладки) и подсказка («сюда нельзя»).
+  const [editing, setEditing] = useState(false);
+  const [sel, setSel] = useState<string | null>(null);
+  const [editMsg, setEditMsg] = useState<string | null>(null);
+  live.current = { state, near, sheet: editing ? 'phone' : sheet, auto, failed };
   const lifeRef = useRef(life);
   lifeRef.current = life;
   const stateRef = useRef(state);
@@ -748,6 +754,84 @@ export function LifeTab({ state, onTrain, onRescue }: { state: GameState; onTrai
   }, [L.scene, state.today, state.character.id]);
   const graves = useMemo(() => L.graves.map((g) => ({ key: `${g.day}:${g.name}`, breed: g.breed, mix: g.mix, name: catName(g)[lang] })), [L.graves, lang]);
   const travel = actionById(L.scene === 'cafe' ? 'go_demon' : 'go_cafe');
+  // ─── Перестановка ───
+  const layoutNow = editing ? cafeLayout(L) : [];
+  const selItem = sel ? layoutNow.find((p) => p.key === sel) : undefined;
+  const editMark = useMemo(() => (selItem ? { box: selItem.box ?? { x0: selItem.pos.x - 0.35, x1: selItem.pos.x + 0.35, z0: selItem.pos.z - 0.25, z1: selItem.pos.z + 0.25 }, ok: true } : null), [selItem?.box?.x0, selItem?.box?.z0, selItem?.box?.x1, selItem?.box?.z1, selItem?.pos.x, selItem?.pos.z]);
+  const blockText = (b: string): string => t(`move.no.${b}` as I18nKey);
+  const tryMove = (key: string, at: { x: number; z: number; rot: number }): void => {
+    const b = moveBlocker(stateRef.current.life, key, at);
+    if (b) {
+      setEditMsg(blockText(b));
+      return;
+    }
+    setEditMsg(null);
+    life.move(key, at);
+  };
+  const onEditTap = (p: P2, key: string | null): void => {
+    const lay = cafeLayout(stateRef.current.life);
+    const hit = key ? lay.find((x) => x.key === key && movable(x)) : undefined;
+    // Касание другого предмета — выбрать его; касание пола — переставить выбранный туда.
+    if (hit && hit.key !== sel) {
+      setSel(hit.key!);
+      setEditMsg(null);
+      return;
+    }
+    if (!sel) {
+      if (key && !hit) setEditMsg(t('move.fixed'));
+      return;
+    }
+    const cur = lay.find((x) => x.key === sel);
+    if (!cur) return;
+    tryMove(sel, { x: p.x, z: p.z, rot: cur.rot });
+  };
+  const rotateSel = (): void => {
+    if (!selItem) return;
+    tryMove(selItem.key!, { x: selItem.pos.x, z: selItem.pos.z, rot: selItem.rot + Math.PI / 2 });
+  };
+  const nudge = (dx: number, dz: number): void => {
+    if (!selItem) return;
+    tryMove(selItem.key!, { x: selItem.pos.x + dx, z: selItem.pos.z + dz, rot: selItem.rot });
+  };
+  const editPanel = editing ? (
+    <div className="life-panel edit-panel">
+      <div className="life-panel-title">
+        🖐️ {selItem ? OBJECTS[selItem.id].name[lang] : t('move.title')}
+      </div>
+      <p className="small muted">{editMsg ?? (selItem ? (onWall(selItem) ? t('move.hintWall') : t('move.hintPlace')) : t('move.hintPick'))}</p>
+      {selItem && (
+        <div className="edit-row">
+          <button className="btn small" onClick={() => nudge(-0.25, 0)} aria-label="←">←</button>
+          <button className="btn small" onClick={() => nudge(0, -0.25)} aria-label="↑">↑</button>
+          <button className="btn small" onClick={() => nudge(0, 0.25)} aria-label="↓">↓</button>
+          <button className="btn small" onClick={() => nudge(0.25, 0)} aria-label="→">→</button>
+          {turnable(selItem) && !onWall(selItem) && (
+            <button className="btn small" onClick={rotateSel}>
+              ⟳ {t('move.rotate')}
+            </button>
+          )}
+          <button className="btn small ghost" disabled={!L.moved[selItem.key!]} onClick={() => life.resetMove(selItem.key!)}>
+            ↺ {t('move.reset')}
+          </button>
+        </div>
+      )}
+      <div className="edit-row">
+        <button className="btn ghost small" disabled={!Object.keys(L.moved).length} onClick={() => life.resetMove(null)}>
+          {t('move.resetAll')}
+        </button>
+        <button
+          className="btn primary small"
+          onClick={() => {
+            setEditing(false);
+            setSel(null);
+            setEditMsg(null);
+          }}
+        >
+          ✓ {t('move.done')}
+        </button>
+      </div>
+    </div>
+  ) : null;
   return (
     <div className="world-tab life-tab">
       <div className={`world-view life-view ${L.scene === 'demon' ? 'demon-view' : ''} `}>
@@ -784,6 +868,10 @@ export function LifeTab({ state, onTrain, onRescue }: { state: GameState; onTrai
               cats={L.scene === 'cafe' ? catsView : []}
               pets={pets}
               play={L.play}
+              moved={L.moved}
+              editing={editing}
+              onEditTap={onEditTap}
+              editMark={editMark}
               food={food}
               perform={perform}
               catSpots={catSpots}
@@ -811,6 +899,22 @@ export function LifeTab({ state, onTrain, onRescue }: { state: GameState; onTrai
         <button className="phone-btn" onClick={() => setSheet('phone')} aria-label={t('life.phone')}>
           📱
         </button>
+        {L.scene === 'cafe' && !editing && (
+          <button
+            className="edit-btn"
+            disabled={!!perform && !perform.free}
+            onClick={() => {
+              setEditing(true);
+              setSel(null);
+              setEditMsg(null);
+              goto.current = null;
+            }}
+            title={t('move.title')}
+            aria-label={t('move.title')}
+          >
+            🖐️
+          </button>
+        )}
         {travel && (
           <button className="travel-btn" disabled={!!perform && !perform.free} onClick={() => doAction(travel)} title={travel.label[lang]}>
             {L.scene === 'cafe' ? `😈 ${t('life.toDemon')}` : `🏠 ${t('life.toCafe')}`}
@@ -830,7 +934,7 @@ export function LifeTab({ state, onTrain, onRescue }: { state: GameState; onTrai
           </button>
         )}
         <Joystick stick={stick} onInput={playerInput} />
-        <div className="life-actions">{panel ?? <span className="world-note">{hint}</span>}</div>
+        <div className="life-actions">{editPanel ?? panel ?? <span className="world-note">{hint}</span>}</div>
         <ResultCard state={state} />
       </div>
       <p className="muted small world-help">{t('life.controls')}</p>

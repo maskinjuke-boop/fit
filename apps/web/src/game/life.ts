@@ -40,8 +40,8 @@ import {
 import { APARTMENT_DECOR, CAFE_DECOR, DECOR_KINDS, FINISHES, KITS, NEW_KIT, OLD_KIT, OLD_KIT_COMFORT, finishById, kitById, type KitId } from './homeDecor';
 import { rng } from './random';
 import { FACE_PARTS, type Appearance, type FacePart, type GameState, type HairStyle } from './state';
-import type { ActionDef, Cat, CatBreed, DemonOffer, Grave, LifeEffect, LifeResult, LifeState, ObjectId, PlayItemId, PlayZoneState, SceneId, Txt } from './lifeTypes';
-import { PLAY_START, playLayout, playSizeFits } from './lifeMap';
+import type { ActionDef, Cat, CatBreed, DemonOffer, Grave, ItemSpot, LifeEffect, LifeResult, LifeState, ObjectId, PlayItemId, PlayZoneState, SceneId, Txt } from './lifeTypes';
+import { PLAY_START, homeLayout, placeBlocker, playLayout, playSizeFits, type PlaceBlocker, type PlacedHome } from './lifeMap';
 import { addDays } from './dates';
 
 /**
@@ -85,6 +85,7 @@ export function newLife(): LifeState {
     demon: null,
     graves: [],
     play: structuredClone(PLAY_START),
+    moved: {},
     event: null,
     last: null,
     stats: { visitors: 0, earned: 0, rescued: 0, lost: 0, repMoney: 0, meals: 0 },
@@ -168,6 +169,15 @@ function migratePlay(raw: unknown): PlayZoneState {
   return { size: clamp(Math.round(num(r.size, 0)), 0, PLAY_SIZES.length - 1), items, owned, rug: PLAY_RUGS.some((x) => x.id === r.rug) ? r.rug! : PLAY_START.rug };
 }
 
+function migrateMoved(raw: unknown): Record<string, ItemSpot> {
+  const out: Record<string, ItemSpot> = {};
+  if (!raw || typeof raw !== 'object') return out;
+  for (const [k, v] of Object.entries(raw as Record<string, Partial<ItemSpot>>)) {
+    if (v && Number.isFinite(v.x) && Number.isFinite(v.z)) out[k] = { x: v.x!, z: v.z!, rot: Math.round(num(v.rot, 0) / (Math.PI / 2)) * (Math.PI / 2) };
+  }
+  return out;
+}
+
 function migrateOffer(o: unknown): DemonOffer | null {
   const d = o as Partial<DemonOffer> | null;
   if (!d || typeof d.day !== 'string' || !isBreed(d.breed) || !DEMON_EXERCISES.some(([e]) => e === d.exercise)) return null;
@@ -217,6 +227,7 @@ export function migrateLife(raw: Partial<LifeState> | undefined): LifeState {
     demon: migrateOffer(r.demon),
     graves: migrateGraves(r.graves, migrateOffer(r.demon)),
     play: migratePlay(r.play),
+    moved: migrateMoved(r.moved),
     event: r.event && lifeEventById(r.event.id) ? r.event : null,
     last: null,
     stats: {
@@ -358,6 +369,8 @@ export function upgradePlaySize(state: GameState): GameState {
   const s = structuredClone(state);
   s.life.play.size += 1;
   s.gold -= PLAY_SIZES[s.life.play.size]!.cost;
+  // Зона стала больше — встаёт на своё место заново (переставить можно снова).
+  delete s.life.moved.play_zone;
   return s;
 }
 
@@ -365,6 +378,32 @@ export function upgradePlaySize(state: GameState): GameState {
 export function setPlayRug(state: GameState, rug: string): GameState {
   if (!PLAY_RUGS.some((x) => x.id === rug) || state.life.play.rug === rug) return state;
   return { ...state, life: { ...state.life, play: { ...state.life.play, rug } } };
+}
+
+// ─── Перестановка ──────────────────────────────────────────────────────
+
+/** Раскладка кафе с перестановками игрока. */
+export const cafeLayout = (life: LifeState): PlacedHome[] => homeLayout(life.furniture, life.cats.length > 0, life.house, life.play, life.moved);
+
+/** Можно ли переставить предмет key в at (поворот кратно 90°). */
+export const moveBlocker = (life: LifeState, key: string, at: ItemSpot): PlaceBlocker => placeBlocker(cafeLayout(life), key, at, life.house);
+
+/** Переставить предмет кафе (бесплатно), если туда можно. */
+export function moveCafeItem(state: GameState, key: string, at: ItemSpot): GameState {
+  const spot = { x: Math.round(at.x * 20) / 20, z: Math.round(at.z * 20) / 20, rot: Math.round(at.rot / (Math.PI / 2)) * (Math.PI / 2) };
+  if (moveBlocker(state.life, key, spot)) return state;
+  const s = structuredClone(state);
+  s.life.moved[key] = spot;
+  return s;
+}
+
+/** Вернуть предмет на место по умолчанию (all — все предметы). */
+export function resetMoved(state: GameState, key: string | null): GameState {
+  if (key ? !state.life.moved[key] : !Object.keys(state.life.moved).length) return state;
+  const s = structuredClone(state);
+  if (key) delete s.life.moved[key];
+  else s.life.moved = {};
+  return s;
 }
 
 // ─── Возраст кошек ─────────────────────────────────────────────────────
@@ -738,8 +777,9 @@ export function buyFurniture(state: GameState, id: ObjectId): GameState {
 export function sellFurniture(state: GameState, id: ObjectId): GameState {
   if (!state.life.furniture.includes(id)) return state;
   const s = structuredClone(state);
-  // Убранная вещь ничего не возвращает.
+  // Убранная вещь ничего не возвращает (и забывает, куда её переставили).
   s.life.furniture = s.life.furniture.filter((x) => x !== id);
+  delete s.life.moved[id];
   return s;
 }
 

@@ -2,8 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { actionsAt, dayFraction } from '../../../game/life';
 import { BOWL_MAX } from '../../../game/lifeContent';
-import { PLAY_START, BELT, DEMON_FACE, DEMON_ROOM, DEMON_SPOT, GRAVES_SHOWN, REACH, beltSpot, demonLayout, graveSpot, guestSpots, houseRect, playCatBoxes, playParts, tableChairs, type PlayParts, STICK_WALK, WALK_SPEED, bounds as sceneBounds, blocked, detourPoint, dist, freeSpot, homeLayout, homeObstacles, petsAt, resolve, spawn, stickSpeed, type Box, type P2, type Placed } from '../../../game/lifeMap';
-import type { PlayZoneState, CatBreed, ObjectId, SceneId } from '../../../game/lifeTypes';
+import { PLAY_START, BELT, DEMON_FACE, DEMON_ROOM, DEMON_SPOT, GRAVES_SHOWN, REACH, beltSpot, demonLayout, graveSpot, guestSpots, houseRect, playCatBoxes, playParts, chairsOf, type PlayParts, STICK_WALK, WALK_SPEED, bounds as sceneBounds, blocked, detourPoint, dist, freeSpot, homeLayout, homeObstacles, petsAt, resolve, spawn, stickSpeed, type Box, type P2, type Placed } from '../../../game/lifeMap';
+import type { ItemSpot, PlayZoneState, CatBreed, ObjectId, SceneId } from '../../../game/lifeTypes';
 import { animFor } from './actionAnims';
 import { disposeObject, type CharacterParts } from './buildCharacter';
 import { addOutlines } from './outline';
@@ -63,6 +63,13 @@ export interface LifeScene3DProps {
   pets?: { bowl: number; water: number; litter: number };
   /** Игровая зона для кошек: размер, игрушки, коврик. */
   play?: PlayZoneState;
+  /** Куда игрок переставил предметы кафе. */
+  moved?: Record<string, ItemSpot>;
+  /** Режим перестановки: касание пола или предмета — onEditTap (герой не идёт); выбранный предмет подсвечен. */
+  editing?: boolean;
+  onEditTap?(p: P2, key: string | null): void;
+  /** Подсветка выбранного предмета: прямоугольник на полу; ok — можно ли туда. */
+  editMark?: { box: Box; ok: boolean } | null;
   /** Еда на витрине: сколько порций и сколько помещается (пирожные за стеклом). */
   food?: { n: number; max: number };
   /** Герой выполняет действие у предмета (анимация до результата). */
@@ -261,6 +268,7 @@ function addPlaced(g: THREE.Group, placed: ReadonlyArray<Placed & { y?: number }
       const made = p.id === 'cat_bowl' ? buildBowls() : buildLitter();
       made.group.position.set(p.pos.x, 0, p.pos.z);
       made.group.rotation.y = p.rot;
+      made.group.userData.placedKey = p.key;
       g.add(made.group);
       if (pets) {
         pets.current = {
@@ -280,6 +288,7 @@ function addPlaced(g: THREE.Group, placed: ReadonlyArray<Placed & { y?: number }
     const m = custom ?? objectModel(p.id, old);
     m.position.set(p.pos.x, p.y ?? 0, p.pos.z);
     m.rotation.y = p.rot;
+    m.userData.placedKey = p.key;
     g.add(m);
     if (p.box && !p.y) {
       const sh = contactShadow((p.box.x1 - p.box.x0) * 1.45, (p.box.z1 - p.box.z0) * 1.45, 0.75);
@@ -649,6 +658,15 @@ export default function LifeScene3D(props: LifeScene3DProps) {
     let ticks: HomeAnim[] = [];
     /** Игровая зона кафе для кошек (в лавке демона — нет). */
     let playNow: PlayParts | null = null;
+    // Подсветка предмета в режиме перестановки: зелёный — можно, красный — нельзя.
+    const markMat = new THREE.MeshBasicMaterial({ color: '#3ddc84', transparent: true, opacity: 0.32, depthWrite: false });
+    const mark = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), markMat);
+    mark.rotation.x = -Math.PI / 2;
+    mark.renderOrder = 5;
+    const markLine = new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(-0.5, 0.5, 0), new THREE.Vector3(0.5, 0.5, 0), new THREE.Vector3(0.5, -0.5, 0), new THREE.Vector3(-0.5, -0.5, 0)]), new THREE.LineBasicMaterial({ color: '#3ddc84' }));
+    mark.add(markLine);
+    mark.visible = false;
+    scene.add(mark);
     /** Пирожные в витрине стойки (видно столько, сколько еды на витрине). */
     let cakes: THREE.Object3D[] = [];
     /** Беговые колёса игровой зоны: крутятся, пока в них бегает кошка. */
@@ -667,12 +685,12 @@ export default function LifeScene3D(props: LifeScene3DProps) {
       petModels.current = null;
       if (p.scene === 'cafe') {
         const play = p.play ?? PLAY_START;
-        const placed = homeLayout(p.furniture, p.cats.length > 0, p.house, play);
+        const placed = homeLayout(p.furniture, p.cats.length > 0, p.house, play, p.moved ?? {});
         world.add(house(placed, night, petModels, p.house, p.home ?? DEFAULT_LOOK, play));
-        boxes = [...placed.map((x) => x.box).filter((b): b is Box => b !== null), ...homeObstacles()];
+        boxes = [...placed.map((x) => x.box).filter((b): b is Box => b !== null), ...homeObstacles(placed)];
         // Кошки подходят к мискам и лотку вплотную и ходят по игровой зоне (мешают только домик и столбик).
         const zone = placed.find((x) => x.id === 'play_zone');
-        catBoxes = [...placed.filter((x) => x.id !== 'cat_bowl' && x.id !== 'litter' && x.id !== 'play_zone').map((x) => x.box).filter((b): b is Box => b !== null), ...homeObstacles(), ...(zone ? playCatBoxes(zone.pos, play) : [])];
+        catBoxes = [...placed.filter((x) => x.id !== 'cat_bowl' && x.id !== 'litter' && x.id !== 'play_zone').map((x) => x.box).filter((b): b is Box => b !== null), ...homeObstacles(placed), ...(zone ? playCatBoxes(zone.pos, play) : [])];
         playNow = zone ? playParts(zone.pos, play) : null;
         placedNow = placed;
       } else {
@@ -749,7 +767,10 @@ export default function LifeScene3D(props: LifeScene3DProps) {
       world0.boxes = catBoxes;
       world0.perches = perches;
       world0.litterSurface = petModels.current?.surface ?? 0.07;
-      world0.litter = petsAt(p.house).litter.pos;
+      const lit = placedNow.find((x) => x.id === 'litter');
+      world0.litter = lit ? lit.pos : petsAt(p.house).litter.pos;
+      const bw = placedNow.find((x) => x.id === 'cat_bowl');
+      world0.bowls = bw ? { food: { x: bw.pos.x, z: bw.pos.z - 0.2 }, water: { x: bw.pos.x, z: bw.pos.z + 0.2 } } : undefined;
       world0.pets = p.pets ?? world0.pets;
       world0.play = playNow;
       if (act) {
@@ -824,7 +845,7 @@ export default function LifeScene3D(props: LifeScene3DProps) {
       const p = propsRef.current;
       const want = p.scene === 'cafe' ? p.guests : [];
       // Больше половины гостей сидят за столиками (пока есть стулья), остальные — с кошками.
-      const chairs = p.scene === 'cafe' ? tableChairs(p.house, p.play?.size ?? 0) : [];
+      const chairs = p.scene === 'cafe' ? chairsOf(placedNow) : [];
       const seated = Math.min(chairs.length, Math.ceil(want.length * 0.6));
       const spots = guestSpots(p.house, boxes, want.length - seated);
       for (const [id, e] of crew) {
@@ -1091,6 +1112,20 @@ export default function LifeScene3D(props: LifeScene3DProps) {
       const r = canvas.getBoundingClientRect();
       ray.setFromCamera(new THREE.Vector2(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1), camera);
       const hit = ray.intersectObject(ground, false)[0];
+      if (propsRef.current.editing) {
+        // Перестановка: какой предмет под пальцем (первый задетый) и точка пола.
+        let key: string | null = null;
+        for (const h of ray.intersectObject(world, true)) {
+          let o: THREE.Object3D | null = h.object;
+          while (o && o !== world && typeof o.userData.placedKey !== 'string') o = o.parent;
+          if (o && o !== world) {
+            key = o.userData.placedKey as string;
+            break;
+          }
+        }
+        if (hit || key) propsRef.current.onEditTap?.({ x: hit?.point.x ?? 0, z: hit?.point.z ?? 0 }, key);
+        return;
+      }
       if (hit) {
         propsRef.current.onInput?.();
         propsRef.current.goto.current = { x: hit.point.x, z: hit.point.z };
@@ -1583,6 +1618,20 @@ export default function LifeScene3D(props: LifeScene3DProps) {
         p.catSpots.current = [...cats.values()].sort((a, b) => dist(pos, a.pos) - dist(pos, b.pos)).map((c) => ({ ...c.pos }));
       }
       // Миска и лоток показывают состояние: сколько корма и грязи.
+      {
+        const em = p.editing ? p.editMark : null;
+        mark.visible = !!em;
+        if (em) {
+          const w = Math.max(0.3, em.box.x1 - em.box.x0);
+          const d = Math.max(0.3, em.box.z1 - em.box.z0);
+          mark.position.set((em.box.x0 + em.box.x1) / 2, 0.035, (em.box.z0 + em.box.z1) / 2);
+          mark.scale.set(w, d, 1);
+          const c = em.ok ? '#3ddc84' : '#ff4a4a';
+          markMat.color.set(c);
+          (markLine.material as THREE.LineBasicMaterial).color.set(c);
+          markMat.opacity = 0.25 + 0.12 * Math.sin(t * 5);
+        }
+      }
       if (wheels.length) {
         wheelSpeed += ((catLife.inWheel() > 0 ? 3.2 : 0) - wheelSpeed) * Math.min(1, dt * 1.5);
         for (const w of wheels) w.rotation.z += wheelSpeed * dt;
@@ -1638,7 +1687,7 @@ export default function LifeScene3D(props: LifeScene3DProps) {
 
   // Перестройка сцены: другое место, мебель, уровень зала, смена дня и ночи.
   const night = isNight(props.minute);
-  const sceneKey = JSON.stringify([props.scene, props.furniture, props.house, props.home, night, props.cats.length > 0, props.play]);
+  const sceneKey = JSON.stringify([props.scene, props.furniture, props.house, props.home, night, props.cats.length > 0, props.play, props.moved]);
   const firstScene = useRef(sceneKey);
   useEffect(() => {
     if (sceneKey === firstScene.current) return;
