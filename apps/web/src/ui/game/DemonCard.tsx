@@ -1,28 +1,29 @@
 import { useEffect, useState } from 'react';
-import { catGrowth, catName, maxCats, offerLeftMs } from '../../game/life';
+import { catGrowth, catName, dayFraction, maxCats, offerLeftMs, tomorrowOffer } from '../../game/life';
 import type { GameState } from '../../game/state';
 import { useI18n, type I18nKey } from '../../i18n';
 import type { ExerciseId } from '../../tracking/exercise';
 import { catBreedText } from './catText';
 import { CatImage } from './Renders';
 
-/** Сколько осталось до полуночи: «5 ч 12 мин». */
-function useLeft(): number {
+/** Сколько осталось до полуночи (мс) и сколько кошка проехала по ленте (доля суток). */
+function useLeft(): [number, number] {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     const id = window.setInterval(() => setNow(Date.now()), 30000);
     return () => clearInterval(id);
   }, []);
-  return offerLeftMs(new Date(now));
+  return [offerLeftMs(new Date(now)), dayFraction(new Date(now))];
 }
 
 /**
- * Кошка дня в лавке демона: кто сидит в клетке, какое упражнение и сколько повторов
- * демон просит, сколько осталось времени. Кнопка открывает упражнение перед камерой.
+ * Кошка дня в лавке демона: кто едет по ленте к жерлу, какое упражнение и сколько повторов
+ * демон просит, сколько осталось до полуночи (тогда кошка упадёт в жерло). Ниже — завтрашняя
+ * кошка у демона на коленях и сколько могилок. Кнопка открывает упражнение перед камерой.
  */
 export function DemonCard({ state, onRescue, compact = false }: { state: GameState; onRescue(exercise: ExerciseId): void; compact?: boolean }) {
   const { t, tf, lang } = useI18n();
-  const left = useLeft();
+  const [left, belt] = useLeft();
   const o = state.life.demon;
   if (!o) return null;
   const name = catName(o)[lang];
@@ -69,7 +70,37 @@ export function DemonCard({ state, onRescue, compact = false }: { state: GameSta
           </button>
         </>
       )}
+      {o.status === 'waiting' && (
+        <div className="need wide demon-belt">
+          <span className="need-name">{t('demon.belt')}</span>
+          <span className="need-bar">
+            <span style={{ width: `${Math.round(belt * 100)}%` }} />
+          </span>
+          <span className="need-val">🔥</span>
+        </div>
+      )}
+      {!compact && <Tomorrow state={state} />}
+      {!compact && state.life.graves.length > 0 && <p className="muted small">{tf('demon.graves', { n: state.life.graves.length })}</p>}
       {!compact && <p className="muted small">{t('demon.rules')}</p>}
     </section>
+  );
+}
+
+/** Завтрашняя кошка: уже сидит у демона на коленях. */
+function Tomorrow({ state }: { state: GameState }) {
+  const { t, lang } = useI18n();
+  if (!state.today) return null;
+  const o = tomorrowOffer(state);
+  const grow = catGrowth({ born: state.life.day - o.age }, state.life.day);
+  return (
+    <div className="demon-cat demon-tomorrow">
+      <CatImage breed={o.breed} mix={o.mix} grow={grow} size={56} />
+      <div>
+        <b className="small">{t('demon.tomorrow')}</b>
+        <div className="muted small">
+          {catBreedText(o, lang, t)} · {t(o.sex === 'f' ? 'cat.f' : 'cat.m')}
+        </div>
+      </div>
+    </div>
   );
 }

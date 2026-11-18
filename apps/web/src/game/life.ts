@@ -14,6 +14,7 @@ import {
   DEMON_STEP,
   FOOD,
   FURNITURE,
+  GRAVES_MAX,
   GUESTS_PER_CAT,
   GUEST_NAMES,
   HOME_OBJECTS,
@@ -34,7 +35,8 @@ import {
 import { APARTMENT_DECOR, CAFE_DECOR, DECOR_KINDS, KITS, NEW_KIT, OLD_KIT, OLD_KIT_COMFORT, finishById, kitById, type KitId } from './homeDecor';
 import { rng } from './random';
 import { FACE_PARTS, type Appearance, type FacePart, type GameState, type HairStyle } from './state';
-import type { ActionDef, Cat, CatBreed, DemonOffer, LifeEffect, LifeResult, LifeState, ObjectId, SceneId, Txt } from './lifeTypes';
+import type { ActionDef, Cat, CatBreed, DemonOffer, Grave, LifeEffect, LifeResult, LifeState, ObjectId, SceneId, Txt } from './lifeTypes';
+import { addDays } from './dates';
 
 /**
  * Котокафе. Две локации — своё кафе и лавка демона. Каждый реальный день у демона
@@ -75,6 +77,7 @@ export function newLife(): LifeState {
     guests: 0,
     buzz: 0,
     demon: null,
+    graves: [],
     event: null,
     last: null,
     stats: { visitors: 0, earned: 0, rescued: 0, lost: 0, repMoney: 0, meals: 0 },
@@ -128,6 +131,26 @@ function migrateCat(c: Partial<Cat> & { id: string; breed: CatBreed }, day: numb
   return out;
 }
 
+function migrateGraves(raw: unknown, offer: DemonOffer | null): Grave[] {
+  const list = Array.isArray(raw) ? (raw as Partial<Grave>[]) : [];
+  const out: Grave[] = [];
+  for (const g of list) {
+    if (!g || !isBreed(g.breed) || typeof g.day !== 'string') continue;
+    const x: Grave = { name: num(g.name, 0), breed: g.breed, sex: g.sex === 'm' ? 'm' : 'f', day: g.day };
+    if (isBreed(g.mix) && g.mix !== g.breed) x.mix = g.mix;
+    out.push(x);
+  }
+  // Кошка, пропавшая до появления могилок, тоже получает свою.
+  if (!out.length && offer?.status === 'lost') out.push(graveOf(offer));
+  return out.slice(-GRAVES_MAX);
+}
+
+const graveOf = (o: DemonOffer): Grave => {
+  const g: Grave = { name: o.name, breed: o.breed, sex: o.sex, day: o.day };
+  if (o.mix) g.mix = o.mix;
+  return g;
+};
+
 function migrateOffer(o: unknown): DemonOffer | null {
   const d = o as Partial<DemonOffer> | null;
   if (!d || typeof d.day !== 'string' || !isBreed(d.breed) || !DEMON_EXERCISES.some(([e]) => e === d.exercise)) return null;
@@ -175,6 +198,7 @@ export function migrateLife(raw: Partial<LifeState> | undefined): LifeState {
     guests: 0,
     buzz: clamp(num(r.buzz, 0), -5, 20),
     demon: migrateOffer(r.demon),
+    graves: migrateGraves(r.graves, migrateOffer(r.demon)),
     event: r.event && lifeEventById(r.event.id) ? r.event : null,
     last: null,
     stats: {
@@ -401,7 +425,7 @@ export type Blocker = 'money' | 'missing' | 'enough' | 'empty' | 'nocat' | 'save
 /** Есть ли предмет в текущей локации. */
 export function hasObject(s: GameState, id: ObjectId): boolean {
   const life = s.life;
-  if (life.scene === 'demon') return id === 'demon' || id === 'demon_door' || (id === 'cage' && life.demon?.status === 'waiting');
+  if (life.scene === 'demon') return id === 'demon' || id === 'demon_door' || (id === 'belt' && life.demon?.status === 'waiting') || (id === 'graves' && life.graves.length > 0);
   if (id === 'cat' || id === 'cat_bowl' || id === 'litter') return life.cats.length > 0;
   return HOME_OBJECTS.includes(id) || life.furniture.includes(id);
 }
@@ -506,6 +530,18 @@ export function offerLeftMs(now: Date): number {
   return Math.max(0, end.getTime() - now.getTime());
 }
 
+/** Доля прошедших суток (0 — полночь, 1 — следующая полночь): столько проехала кошка по ленте. */
+export function dayFraction(now: Date): number {
+  const start = new Date(now);
+  start.setHours(0, 0, 0, 0);
+  const end = new Date(start);
+  end.setDate(end.getDate() + 1);
+  return Math.min(1, Math.max(0, (now.getTime() - start.getTime()) / (end.getTime() - start.getTime())));
+}
+
+/** Завтрашняя кошка (сидит у демона на коленях): порода, пол и возраст — как у завтрашнего предложения. */
+export const tomorrowOffer = (s: GameState): DemonOffer => makeOffer(s, addDays(s.today, 1));
+
 /** Спасти кошку дня: она появляется в кафе (s уже скопировано). */
 function saveCat(s: GameState, events: GameEvent[]): void {
   const life = s.life;
@@ -551,8 +587,10 @@ export function lifeRepMoney(s: GameState, amount: number): void {
 export function lifeNewRealDay(s: GameState, prev: string, today: string, events: GameEvent[]): void {
   const o = s.life.demon;
   if (o && o.day !== today && o.status === 'waiting') {
+    // Доехала по ленте до конца и упала в жерло — ей ставят могилку с фото.
     o.status = 'lost';
     s.life.stats.lost += 1;
+    s.life.graves = [...s.life.graves, graveOf(o)].slice(-GRAVES_MAX);
     events.push({ kind: 'catLost', name: o.name, breed: o.breed });
   }
   if (!s.life.demon || s.life.demon.day !== today) s.life.demon = makeOffer(s, today);

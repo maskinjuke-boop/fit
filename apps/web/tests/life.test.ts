@@ -9,6 +9,7 @@ import {
   buyFurniture,
   catMood,
   comfort,
+  dayFraction,
   demonTarget,
   finishBlocker,
   furnitureBlocker,
@@ -24,6 +25,7 @@ import {
   offerLeftMs,
   oldStuff,
   ticket,
+  tomorrowOffer,
   upgradeHouse,
   upgradeKit,
 } from '../src/game/life';
@@ -170,6 +172,18 @@ describe('кошка дня в лавке демона', () => {
     expect(next.state.life.stats.lost).toBe(1);
     expect(next.state.life.demon!.day).not.toBe(s.life.demon!.day);
     expect(next.state.life.demon!.status).toBe('waiting');
+    // Упавшей в жерло кошке ставят могилку (порода и имя — её); завтрашняя кошка демона
+    // (на коленях) — это и есть кошка следующего дня.
+    expect(next.state.life.graves.length).toBe(1);
+    expect(next.state.life.graves[0]!.breed).toBe(s.life.demon!.breed);
+    expect(next.state.life.graves[0]!.name).toBe(s.life.demon!.name);
+    expect(tomorrowOffer(s).breed).toBe(next.state.life.demon!.breed);
+    expect(tomorrowOffer(s).sex).toBe(next.state.life.demon!.sex);
+    expect(hasObject({ ...next.state, life: { ...next.state.life, scene: 'demon' } }, 'graves')).toBe(true);
+    expect(hasObject({ ...s, life: { ...s.life, scene: 'demon' } }, 'graves')).toBe(false);
+    // Лента: в полдень кошка на середине пути, к полуночи — у жерла.
+    expect(dayFraction(new Date(2026, 10, 5, 12, 0, 0))).toBeCloseTo(0.5, 3);
+    expect(dayFraction(new Date(2026, 10, 5, 23, 59, 59))).toBeGreaterThan(0.999);
     // Спасённая вчера — не «пропала», а следующая просит больше повторов.
     let saved = reps(s, s.life.demon!.exercise, s.life.demon!.target);
     saved = ensureDay(saved, tomorrow).state;
@@ -197,7 +211,7 @@ describe('кошка дня в лавке демона', () => {
     s = act(s, 'go_demon').state;
     expect(s.life.scene).toBe('demon');
     expect(hasObject(s, 'demon')).toBe(true);
-    expect(hasObject(s, 'cage')).toBe(true);
+    expect(hasObject(s, 'belt')).toBe(true);
     expect(hasObject(s, 'sofa')).toBe(false);
     const out = act(s, 'rescue');
     expect(out.rescue).toBe(s.life.demon!.exercise);
@@ -502,7 +516,7 @@ describe('раскладка', () => {
 
   it('лавка демона: демон за прилавком, клетка и выход; герой появляется у двери', () => {
     const placed = demonLayout();
-    expect(placed.map((p) => p.id).sort()).toEqual(['cage', 'demon', 'demon_door']);
+    expect(placed.map((p) => p.id).sort()).toEqual(['belt', 'demon', 'demon_door', 'graves']);
     const b = bounds('demon');
     const sp = spawn('demon');
     expect(sp.x).toBeGreaterThan(b.x0);

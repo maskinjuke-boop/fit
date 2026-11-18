@@ -2512,3 +2512,7 @@ button {
   bottom: auto;
   z-index: 4;
 }
+
+/* Лента к жерлу и завтрашняя кошка в карточке демона. */
+.demon-belt .need-bar span { background: linear-gradient(90deg, #ffb347, #ff4a1f); }
+.demon-tomorrow { margin-top: 8px; opacity: 0.9; }

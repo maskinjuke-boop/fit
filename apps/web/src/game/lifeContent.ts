@@ -54,8 +54,9 @@ export const OBJECTS: Record<ObjectId, ObjectDef> = {
   cat: { id: 'cat', icon: '🐈', name: t('Кошка', 'Cat') },
   cat_bowl: { id: 'cat_bowl', icon: '🥣', name: t('Миски', 'Bowls') },
   litter: { id: 'litter', icon: '🧻', name: t('Кошачий лоток', 'Litter box') },
-  demon: { id: 'demon', icon: '😈', name: t('Демон-лавочник', 'The demon shopkeeper') },
-  cage: { id: 'cage', icon: '🐾', name: t('Клетка с кошкой', 'The cat’s cage') },
+  demon: { id: 'demon', icon: '😈', name: t('Демон в кресле', 'The demon in his armchair') },
+  belt: { id: 'belt', icon: '🐾', name: t('Лента к жерлу', 'The belt to the pit') },
+  graves: { id: 'graves', icon: '🪦', name: t('Могилки', 'The graves') },
   demon_door: { id: 'demon_door', icon: '🚪', name: t('Выход из лавки', 'Shop exit') },
 };
 
@@ -170,6 +171,8 @@ export const DEMON_EXERCISES: ReadonlyArray<[ExerciseId, number]> = [
   ['jumping_jack', 40],
   ['high_knees', 40],
 ];
+/** Сколько могилок помнит лавка (последние). */
+export const GRAVES_MAX = 24;
 /** На сколько дорожает каждая следующая кошка (доля от начальной цены) и предел роста. */
 export const DEMON_STEP = 0.2;
 export const DEMON_MAX_FACTOR = 4;
@@ -230,7 +233,8 @@ export const ACTIONS: readonly ActionDef[] = [
   // Лавка демона.
   { id: 'rescue', icon: '🏋️', label: t('Спасти кошку (упражнение)', 'Save the cat (exercise)'), at: 'demon', minutes: 0, rescue: true, effect: fx({}) },
   { id: 'demon_info', icon: '📜', label: t('Условия демона', 'The demon’s terms'), at: 'demon', minutes: 0, open: 'demon', effect: fx({}) },
-  { id: 'comfort_cat', icon: '🤲', label: t('Погладить через прутья', 'Pet through the bars'), at: 'cage', minutes: 5, effect: fx({}) },
+  { id: 'comfort_cat', icon: '🤲', label: t('Погладить кошку на ленте', 'Pet the cat on the belt'), at: 'belt', minutes: 5, effect: fx({}) },
+  { id: 'mourn', icon: '💐', label: t('Положить цветы на могилки', 'Lay flowers on the graves'), at: 'graves', minutes: 10, effect: fx({}) },
   { id: 'go_cafe', icon: '🏠', label: t('Вернуться в кафе', 'Back to the café'), at: 'demon_door', minutes: 20, go: 'cafe', effect: fx({}) },
 ];
 

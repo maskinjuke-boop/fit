@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
-import { actionsAt } from '../../../game/life';
+import { actionsAt, dayFraction } from '../../../game/life';
 import { BOWL_MAX } from '../../../game/lifeContent';
-import { DEMON_ROOM, DEMON_SPOT, REACH, demonLayout, guestSpots, houseRect, playCatBoxes, playParts, tableChairs, type PlayParts, STICK_WALK, WALK_SPEED, bounds as sceneBounds, blocked, detourPoint, dist, freeSpot, homeLayout, homeObstacles, petsAt, resolve, spawn, stickSpeed, type Box, type P2, type Placed } from '../../../game/lifeMap';
+import { BELT, DEMON_FACE, DEMON_ROOM, DEMON_SPOT, GRAVES_SHOWN, REACH, beltSpot, demonLayout, graveSpot, guestSpots, houseRect, playCatBoxes, playParts, tableChairs, type PlayParts, STICK_WALK, WALK_SPEED, bounds as sceneBounds, blocked, detourPoint, dist, freeSpot, homeLayout, homeObstacles, petsAt, resolve, spawn, stickSpeed, type Box, type P2, type Placed } from '../../../game/lifeMap';
 import type { CatBreed, ObjectId, SceneId } from '../../../game/lifeTypes';
 import { animFor } from './actionAnims';
 import { disposeObject, type CharacterParts } from './buildCharacter';
@@ -51,8 +51,12 @@ export interface LifeScene3DProps {
   hero: Look;
   /** Гости кафе (пусто в лавке демона). */
   guests: Member[];
-  /** Кошка дня в клетке у демона (null — клетка пуста). */
+  /** Кошка дня: едет по ленте к жерлу (null — спасена). */
   offer: { breed: CatBreed; mix?: CatBreed; grow: number } | null;
+  /** Завтрашняя кошка — у демона на коленях. */
+  tomorrow?: { breed: CatBreed; mix?: CatBreed; grow: number } | null;
+  /** Могилки не спасённых кошек (старые — первыми): фото и имя. */
+  graves?: Array<{ key: string; breed: CatBreed; mix?: CatBreed; name: string }>;
   /** Кошки кафе и их потребности 0…100 (сытость, игра, туалет). */
   cats: Array<{ id: string; breed: CatBreed; mix?: CatBreed; grow?: number; fed?: number; play?: number; toilet?: number }>;
   /** Корм в миске (порций), вода в миске 0…100 и грязь в лотке 0…100. */
@@ -321,9 +325,33 @@ function house(placed: Array<Placed & { y?: number }>, night: boolean, pets: { c
   return g;
 }
 
-/** Лавка демона: тёмные стены, доски пола, прилавок, полки с банками, свечи, клетка, вывеска. */
+/** Полосы ленты конвейера (текстура прокручивается — лента едет). */
+function beltTexture(): THREE.CanvasTexture {
+  const c = document.createElement('canvas');
+  c.width = 64;
+  c.height = 64;
+  const ctx = c.getContext('2d');
+  if (ctx) {
+    ctx.fillStyle = '#26211f';
+    ctx.fillRect(0, 0, 64, 64);
+    ctx.fillStyle = '#3a3330';
+    for (let x = 0; x < 64; x += 16) ctx.fillRect(x, 0, 6, 64);
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = THREE.RepeatWrapping;
+  t.wrapT = THREE.RepeatWrapping;
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+
+/**
+ * Лавка демона: тёмные стены, доски пола, полки с банками, свечи, кресло демона, лента-конвейер
+ * к огненному жерлу, клочок земли под могилки, дверь и вывеска.
+ */
 function demonRoom(placed: Placed[], night: boolean): THREE.Group {
   const g = new THREE.Group();
+  const tick: HomeAnim[] = [];
+  g.userData.tick = tick;
   const { w, d } = DEMON_ROOM;
   const floor = mesh(new THREE.PlaneGeometry(w, d), mat('#3b2a2a', 0.9), [0, 0, 0]);
   floor.rotation.x = -Math.PI / 2;
@@ -337,58 +365,145 @@ function demonRoom(placed: Placed[], night: boolean): THREE.Group {
   }
   g.add(floor, walls(w, d, '#3d2346', 3.2, '#2a1630'), roomOcclusion(w, d, 0.9));
   const B = -d / 2;
-  const L = -w / 2;
-  // Пентаграмма-ковёр (мягкий круг со звездой) перед прилавком.
-  const rug = mesh(new THREE.CircleGeometry(1.6, 40), mat('#5a1f2c', 0.95), [0, 0.006, B + 3.6]);
+  // Пентаграмма-ковёр посреди лавки.
+  const rug = mesh(new THREE.CircleGeometry(1.3, 40), mat('#5a1f2c', 0.95), [-0.6, 0.006, 1.0]);
   rug.rotation.x = -Math.PI / 2;
   g.add(rug);
-  const ring = mesh(new THREE.RingGeometry(1.35, 1.45, 48), M.glow('#ff5a3c', 0.6), [0, 0.008, B + 3.6]);
+  const ring = mesh(new THREE.RingGeometry(1.1, 1.18, 48), M.glow('#ff5a3c', 0.6), [-0.6, 0.008, 1.0]);
   ring.rotation.x = -Math.PI / 2;
   g.add(ring);
-  // Полки с банками и черепками у задней стены.
-  for (const y of [1.5, 2.2]) {
-    g.add(mesh(new THREE.BoxGeometry(5.4, 0.06, 0.35), mat('#2b1b16', 0.8), [-2.6, y, B + 0.2]));
-    for (let i = 0; i < 7; i += 1) {
+  // Полки с банками у задней стены над лентой.
+  for (const y of [1.6, 2.3]) {
+    g.add(mesh(new THREE.BoxGeometry(4.6, 0.06, 0.35), mat('#2b1b16', 0.8), [2.4, y, B + 0.2]));
+    for (let i = 0; i < 6; i += 1) {
       const c = ['#7fd6a0', '#d65a8f', '#e8c35a', '#7aa0e8'][i % 4]!;
-      g.add(mesh(new THREE.CylinderGeometry(0.1, 0.1, 0.24, 10), mat(c, 0.2, 0, { transparent: true, opacity: 0.75 }), [-4.9 + i * 0.7, y + 0.15, B + 0.2]));
+      g.add(mesh(new THREE.CylinderGeometry(0.1, 0.1, 0.24, 10), mat(c, 0.2, 0, { transparent: true, opacity: 0.75 }), [0.5 + i * 0.75, y + 0.15, B + 0.2]));
     }
   }
-  // Прилавок (демон стоит за ним).
-  const counter = new THREE.Group();
-  counter.add(mesh(new THREE.BoxGeometry(3.0, 1.05, 0.9), mat('#2a1b1f', 0.7), [0, 0.525, 0]));
-  counter.add(mesh(new THREE.BoxGeometry(3.15, 0.08, 1.0), mat('#5b2330', 0.5), [0, 1.09, 0]));
-  counter.add(mesh(new THREE.BoxGeometry(2.6, 0.08, 0.04), M.glow('#ff5a3c', 0.9), [0, 0.8, 0.46]));
-  // Свечи на прилавке.
-  for (const x of [-1.2, 1.25]) {
-    counter.add(mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.22, 10), mat('#efe6d6', 0.6), [x, 1.24, 0.1]));
-    counter.add(mesh(new THREE.SphereGeometry(0.04, 8, 6), M.glow('#ffb347', 2), [x, 1.39, 0.1]));
-  }
+  // Кресло демона: бархат, тёмное дерево, золото, высокая спинка с рожками.
   const dm = placed.find((x) => x.id === 'demon');
   if (dm) {
-    counter.position.set(dm.pos.x, 0, dm.pos.z + 0.35);
-    g.add(counter);
+    const ch = new THREE.Group();
+    const velvet = M.cloth('#8a1528', 3, 0.9);
+    const woodD = mat('#2a1512', 0.6);
+    const gold = mat('#d4a640', 0.35, 0.8);
+    ch.add(mesh(new THREE.BoxGeometry(0.95, 0.32, 0.7), woodD, [0, 0.16, 0]));
+    ch.add(mesh(new THREE.BoxGeometry(0.85, 0.13, 0.62), velvet, [0, 0.385, 0.02]));
+    ch.add(mesh(new THREE.BoxGeometry(0.95, 1.55, 0.14), woodD, [0, 1.0, -0.36]));
+    ch.add(mesh(new THREE.BoxGeometry(0.75, 1.25, 0.06), velvet, [0, 1.0, -0.28]));
+    for (const x of [-0.42, 0.42]) {
+      ch.add(mesh(new THREE.BoxGeometry(0.14, 0.32, 0.66), velvet, [x, 0.5, 0.0]));
+      ch.add(mesh(new THREE.BoxGeometry(0.16, 0.04, 0.7), gold, [x, 0.67, 0.0]));
+      ch.add(mesh(new THREE.ConeGeometry(0.07, 0.32, 10), gold, [x * 0.95, 1.92, -0.36]).rotateZ(-x * 0.9));
+    }
+    ch.add(mesh(new THREE.BoxGeometry(0.99, 0.05, 0.18), gold, [0, 1.78, -0.36]));
+    ch.add(mesh(new THREE.SphereGeometry(0.06, 10, 8), M.glow('#ff3b2f', 1.4), [0, 1.62, -0.28]));
+    ch.position.set(dm.pos.x, 0, dm.pos.z);
+    ch.rotation.y = dm.rot;
+    g.add(ch);
+    // Свечи на подставке рядом с креслом.
+    const stand = new THREE.Group();
+    stand.add(mesh(new THREE.CylinderGeometry(0.18, 0.22, 0.75, 12), woodD, [0, 0.375, 0]));
+    for (const [x, z, h] of [[-0.06, 0.02, 0.26], [0.07, -0.04, 0.2], [0.0, 0.08, 0.16]] as const) {
+      stand.add(mesh(new THREE.CylinderGeometry(0.035, 0.035, h, 10), mat('#efe6d6', 0.6), [x, 0.75 + h / 2, z]));
+      stand.add(mesh(new THREE.SphereGeometry(0.03, 8, 6), M.glow('#ffb347', 2), [x, 0.78 + h, z]));
+    }
+    stand.position.set(dm.pos.x - 1.0, 0, dm.pos.z + 0.1);
+    g.add(stand);
   }
-  // Клетка для кошки дня.
-  const cg = placed.find((x) => x.id === 'cage');
-  if (cg) {
-    const cage = new THREE.Group();
-    cage.add(mesh(new THREE.BoxGeometry(1.1, 0.06, 0.9), mat('#1c1416', 0.6), [0, 0.03, 0]));
-    cage.add(mesh(new THREE.BoxGeometry(1.1, 0.04, 0.9), M.darkSteel(), [0, 0.95, 0]));
-    for (let i = 0; i <= 10; i += 1) {
-      const x = -0.55 + i * 0.11;
-      cage.add(mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.9, 6), M.darkSteel(), [x, 0.5, 0.45]));
-      cage.add(mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.9, 6), M.darkSteel(), [x, 0.5, -0.45]));
+  // Лента-конвейер: рама на ножках, движущаяся лента, валы на концах, жёлто-чёрная полоса у жерла.
+  const P = BELT.pit;
+  const len = BELT.x1 - BELT.x0 + 0.5;
+  const cx = (BELT.x0 + BELT.x1) / 2 + 0.05;
+  const frame = mat('#3a3f46', 0.5, 0.6);
+  const belt = new THREE.Group();
+  belt.add(mesh(new THREE.BoxGeometry(len, 0.1, 0.8), frame, [0, 0.42, 0]));
+  for (const z of [-0.43, 0.43]) belt.add(mesh(new THREE.BoxGeometry(len, 0.08, 0.06), M.darkSteel(), [0, 0.55, z]));
+  for (let x = -len / 2 + 0.2; x <= len / 2 - 0.1; x += 0.9)
+    for (const z of [-0.33, 0.33]) belt.add(mesh(new THREE.BoxGeometry(0.07, 0.4, 0.07), frame, [x, 0.2, z]));
+  for (const x of [-len / 2 + 0.06, len / 2 - 0.06]) belt.add(mesh(new THREE.CylinderGeometry(0.07, 0.07, 0.76, 14), M.chrome(), [x, 0.47, 0]).rotateX(Math.PI / 2));
+  const tex = beltTexture();
+  tex.repeat.set(len * 2.5, 1);
+  const surf = mesh(new THREE.PlaneGeometry(len - 0.1, 0.72), new THREE.MeshStandardMaterial({ map: tex, roughness: 0.9 }), [0, 0.53, 0]);
+  surf.rotation.x = -Math.PI / 2;
+  surf.userData.noOutline = true;
+  belt.add(surf);
+  // Лента едет к жерлу (медленно, просто чтобы было видно движение).
+  tick.push((t) => {
+    tex.offset.x = -t * 0.08;
+  });
+  const hazard = document.createElement('canvas');
+  hazard.width = 64;
+  hazard.height = 16;
+  const hz = hazard.getContext('2d');
+  if (hz) {
+    hz.fillStyle = '#f1c40f';
+    hz.fillRect(0, 0, 64, 16);
+    hz.fillStyle = '#111';
+    for (let x = -16; x < 64; x += 16) {
+      hz.beginPath();
+      hz.moveTo(x, 16);
+      hz.lineTo(x + 8, 0);
+      hz.lineTo(x + 16, 0);
+      hz.lineTo(x + 8, 16);
+      hz.fill();
     }
-    for (let i = 0; i <= 8; i += 1) {
-      const z = -0.45 + i * 0.1125;
-      cage.add(mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.9, 6), M.darkSteel(), [0.55, 0.5, z]));
-      cage.add(mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.9, 6), M.darkSteel(), [-0.55, 0.5, z]));
+  }
+  const hzT = new THREE.CanvasTexture(hazard);
+  hzT.colorSpace = THREE.SRGBColorSpace;
+  belt.add(mesh(new THREE.PlaneGeometry(0.8, 0.12), new THREE.MeshBasicMaterial({ map: hzT }), [len / 2 - 0.4, 0.42, 0.405]));
+  belt.position.set(cx, 0, BELT.z);
+  g.add(belt);
+  // Огненное жерло: каменный край, светящаяся глубина, пламя, искры, мерцающий свет.
+  const pit = new THREE.Group();
+  pit.add(mesh(new THREE.TorusGeometry(P.r, 0.12, 8, 28), mat('#2b2422', 0.95), [0, 0.05, 0]).rotateX(Math.PI / 2));
+  for (let i = 0; i < 12; i += 1) {
+    const a = (i / 12) * Math.PI * 2;
+    pit.add(mesh(new THREE.DodecahedronGeometry(0.11 + (i % 3) * 0.03), mat('#3a302c', 0.95), [Math.cos(a) * (P.r + 0.08), 0.08, Math.sin(a) * (P.r + 0.08)]));
+  }
+  const glow = mesh(new THREE.CircleGeometry(P.r - 0.05, 32), M.glow('#e8380c', 1.1), [0, 0.02, 0]);
+  glow.rotation.x = -Math.PI / 2;
+  glow.userData.noOutline = true;
+  pit.add(glow);
+  const inner = mesh(new THREE.CylinderGeometry(P.r - 0.06, P.r * 0.4, 0.6, 24, 1, true), M.glow('#ff7a1f', 0.9), [0, -0.28, 0]);
+  (inner.material as THREE.Material).side = THREE.BackSide;
+  inner.userData.noOutline = true;
+  pit.add(inner);
+  const flames: THREE.Mesh[] = [];
+  for (let i = 0; i < 7; i += 1) {
+    const f = mesh(new THREE.ConeGeometry(0.1 + (i % 3) * 0.04, 0.45, 8), M.glow(i % 2 ? '#ff4a12' : '#ff9a1f', 1.3), [Math.cos(i * 0.9) * 0.35, 0.2, Math.sin(i * 1.7) * 0.3]);
+    f.userData.noOutline = true;
+    flames.push(f);
+    pit.add(f);
+  }
+  const fire = new THREE.PointLight('#ff6a2a', 9, 6, 1.6);
+  fire.position.set(0, 0.9, 0);
+  pit.add(fire);
+  pit.position.set(P.x, 0, BELT.z);
+  g.add(pit);
+  tick.push((t) => {
+    flames.forEach((f, i) => {
+      const k = 0.75 + 0.35 * Math.sin(t * (5 + i) + i * 1.3);
+      f.scale.set(1, k, 1);
+      f.position.y = 0.12 + 0.22 * k;
+    });
+    fire.intensity = 8 + Math.sin(t * 9) * 1.5 + Math.sin(t * 23) * 0.8;
+  });
+  // Клочок земли под могилки с низкой оградкой.
+  const gv = placed.find((x) => x.id === 'graves');
+  if (gv) {
+    const soil = mesh(new THREE.PlaneGeometry(4.9, 2.5), mat('#2a1d17', 0.98), [gv.pos.x, 0.007, gv.pos.z]);
+    soil.rotation.x = -Math.PI / 2;
+    soil.userData.noOutline = true;
+    g.add(soil);
+    const iron = M.darkSteel();
+    for (const [x0, z0, x1, z1] of [[-2.45, -1.25, 2.45, -1.25], [-2.45, -1.25, -2.45, 1.25], [2.45, -1.25, 2.45, 1.25]] as const) {
+      const n = Math.round(Math.hypot(x1 - x0, z1 - z0) / 0.25);
+      for (let i = 0; i <= n; i += 1) g.add(mesh(new THREE.CylinderGeometry(0.015, 0.015, 0.42, 5), iron, [gv.pos.x + x0 + ((x1 - x0) * i) / n, 0.21, gv.pos.z + z0 + ((z1 - z0) * i) / n]));
+      const rail = mesh(new THREE.BoxGeometry(Math.hypot(x1 - x0, z1 - z0), 0.025, 0.025), iron, [gv.pos.x + (x0 + x1) / 2, 0.38, gv.pos.z + (z0 + z1) / 2]);
+      rail.rotation.y = -Math.atan2(z1 - z0, x1 - x0);
+      g.add(rail);
     }
-    cage.add(mesh(new THREE.TorusGeometry(0.12, 0.015, 6, 16), M.darkSteel(), [0, 1.1, 0]));
-    cage.position.set(cg.pos.x, 0, cg.pos.z);
-    cage.rotation.y = cg.rot;
-    cage.name = 'cage';
-    g.add(cage);
   }
   // Дверь-выход.
   const door = placed.find((x) => x.id === 'demon_door');
@@ -401,15 +516,57 @@ function demonRoom(placed: Placed[], night: boolean): THREE.Group {
     g.add(dg);
   }
   // Вывеска.
-  g.add(mesh(new THREE.PlaneGeometry(3.6, 0.8), new THREE.MeshBasicMaterial({ map: signTexture('😈 ЛАВКА', '#5b1020'), toneMapped: false }), [0, 2.85, B + 0.03]));
-  void L;
+  g.add(mesh(new THREE.PlaneGeometry(3.6, 0.8), new THREE.MeshBasicMaterial({ map: signTexture('😈 ЛАВКА', '#5b1020'), toneMapped: false }), [-2.4, 2.85, B + 0.03]));
   // Свет: тёплые свечные огоньки и багровая подсветка.
-  const red = new THREE.PointLight('#ff4a3a', 10, 9, 1.8);
-  red.position.set(0, 2.4, B + 2.2);
+  const red = new THREE.PointLight('#ff4a3a', 9, 9, 1.8);
+  red.position.set(-2.2, 2.4, B + 2.2);
   const warm = new THREE.PointLight('#ffb36b', night ? 7 : 6, 10, 1.6);
-  warm.position.set(2.8, 2.6, 0.8);
+  warm.position.set(1.5, 2.6, 1.6);
   g.add(red, warm);
   return g;
+}
+
+/** Табличка на могилке: фото кошки в овальной рамке и имя. */
+function graveTexture(name: string): { tex: THREE.CanvasTexture; photo(url: string): void } {
+  const c = document.createElement('canvas');
+  c.width = 128;
+  c.height = 160;
+  const ctx = c.getContext('2d');
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  const draw = (img?: HTMLImageElement): void => {
+    if (!ctx) return;
+    ctx.fillStyle = '#8d8a86';
+    ctx.fillRect(0, 0, 128, 160);
+    ctx.save();
+    ctx.beginPath();
+    ctx.ellipse(64, 62, 44, 54, 0, 0, Math.PI * 2);
+    ctx.fillStyle = '#e9e3d6';
+    ctx.fill();
+    ctx.clip();
+    if (img) ctx.drawImage(img, 14, 2, 100, 116);
+    ctx.restore();
+    ctx.lineWidth = 5;
+    ctx.strokeStyle = '#c9a24a';
+    ctx.beginPath();
+    ctx.ellipse(64, 62, 44, 54, 0, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.fillStyle = '#2b2622';
+    ctx.font = 'bold 22px system-ui, -apple-system, Segoe UI, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(name, 64, 140, 120);
+    tex.needsUpdate = true;
+  };
+  draw();
+  return {
+    tex,
+    photo(url: string) {
+      const img = new Image();
+      img.onload = () => draw(img);
+      img.src = url;
+    },
+  };
 }
 
 // ─── Свет и время ──────────────────────────────────────────────────────
@@ -707,12 +864,28 @@ export default function LifeScene3D(props: LifeScene3DProps) {
     scene.add(demonRoot);
     let demonParts: CharacterParts | null = null;
     let demonLoading = false;
-    let caged: Cat3D | null = null;
-    let cagedKey = '';
+    /** Кошка дня на ленте, завтрашняя — на коленях у демона, падающая в жерло, могилки. */
+    let beltCat: Cat3D | null = null;
+    let lapCat: Cat3D | null = null;
+    let fallCat: { cat: Cat3D; at: number } | null = null;
+    let beltKey = '';
+    let lapKey = '';
+    let gravesKey = '';
+    let gravesSeen = -1;
+    const gravesGroup = new THREE.Group();
+    scene.add(gravesGroup);
+    const dropCat = (c: Cat3D | null): void => {
+      if (!c) return;
+      scene.remove(c.root);
+      disposeObject(c.root);
+    };
+    /** Колени демона: чуть впереди сиденья кресла. */
+    const LAP = { x: DEMON_SPOT.x + Math.sin(DEMON_FACE) * 0.18, z: DEMON_SPOT.z + Math.cos(DEMON_FACE) * 0.18, y: 0.74 };
     const syncDemon = (): void => {
       const p = propsRef.current;
       const show = p.scene === 'demon';
       demonRoot.visible = show;
+      gravesGroup.visible = show;
       if (show && !demonParts && !demonLoading) {
         demonLoading = true;
         void track(loadCharacter(DEMON_LOOK)).then((parts) => {
@@ -724,20 +897,67 @@ export default function LifeScene3D(props: LifeScene3DProps) {
           demonRoot.add(parts.root);
         });
       }
-      const key = show && p.offer ? JSON.stringify(p.offer) : '';
-      if (key === cagedKey) return;
-      cagedKey = key;
-      if (caged) {
-        scene.remove(caged.root);
-        disposeObject(caged.root);
-        caged = null;
+      // Кошка дня на ленте.
+      const bk = show && p.offer ? JSON.stringify(p.offer) : '';
+      if (bk !== beltKey) {
+        beltKey = bk;
+        dropCat(beltCat);
+        beltCat = null;
+        if (bk && p.offer) {
+          beltCat = buildCat(p.offer.breed, 7, { mix: p.offer.mix, grow: p.offer.grow });
+          scene.add(beltCat.root);
+        }
       }
-      if (!key || !p.offer) return;
-      const cage = demonLayout().find((x) => x.id === 'cage')!;
-      caged = buildCat(p.offer.breed, 7, { mix: p.offer.mix, grow: p.offer.grow });
-      caged.root.position.set(cage.pos.x, 0.06, cage.pos.z);
-      caged.root.rotation.y = cage.rot + 0.4;
-      scene.add(caged.root);
+      // Завтрашняя кошка на коленях.
+      const lk = show && p.tomorrow ? JSON.stringify(p.tomorrow) : '';
+      if (lk !== lapKey) {
+        lapKey = lk;
+        dropCat(lapCat);
+        lapCat = null;
+        if (lk && p.tomorrow) {
+          lapCat = buildCat(p.tomorrow.breed, 9, { mix: p.tomorrow.mix, grow: Math.max(0.8, p.tomorrow.grow) });
+          lapCat.root.position.set(LAP.x, LAP.y, LAP.z);
+          lapCat.root.rotation.y = DEMON_FACE + Math.PI / 2;
+          scene.add(lapCat.root);
+        }
+      }
+      // Могилки (последние GRAVES_SHOWN): камень, фото кошки, имя.
+      const graves = p.graves ?? [];
+      // Новая могилка, пока лавка открыта, — кошка на глазах падает с ленты в жерло.
+      if (gravesSeen >= 0 && graves.length > gravesSeen && show) {
+        const last = graves[graves.length - 1]!;
+        if (fallCat) dropCat(fallCat.cat);
+        fallCat = { cat: buildCat(last.breed, 11, { mix: last.mix }), at: -1 };
+        scene.add(fallCat.cat.root);
+      }
+      gravesSeen = graves.length;
+      const gk = show ? graves.map((x) => x.key).join(',') : '';
+      if (gk === gravesKey) return;
+      gravesKey = gk;
+      disposeObject(gravesGroup);
+      gravesGroup.clear();
+      graves.slice(-GRAVES_SHOWN).forEach((gr, i) => {
+        const at = graveSpot(i);
+        const st = new THREE.Group();
+        const stone = mat('#7b7874', 0.95);
+        st.add(mesh(new THREE.BoxGeometry(0.46, 0.5, 0.1), stone, [0, 0.25, 0]));
+        st.add(mesh(new THREE.CylinderGeometry(0.23, 0.23, 0.1, 18, 1, false, -Math.PI / 2, Math.PI), stone, [0, 0.5, 0]).rotateX(Math.PI / 2));
+        st.add(mesh(new THREE.BoxGeometry(0.56, 0.06, 0.2), mat('#5f5c58', 0.95), [0, 0.03, 0.02]));
+        // Холмик.
+        st.add(mesh(new THREE.SphereGeometry(0.28, 14, 8, 0, Math.PI * 2, 0, Math.PI / 2), mat('#3a281e', 0.98), [0, 0, 0.35], [0.9, 0.35, 1.3]));
+        const plate = graveTexture(gr.name);
+        const ph = mesh(new THREE.PlaneGeometry(0.34, 0.42), new THREE.MeshBasicMaterial({ map: plate.tex }), [0, 0.36, 0.052]);
+        ph.userData.noOutline = true;
+        st.add(ph);
+        // Цветок у камня.
+        st.add(mesh(new THREE.SphereGeometry(0.04, 8, 6), M.glow('#ff8fb1', 0.4), [0.18, 0.09, 0.12]));
+        st.position.set(at.x, 0, at.z);
+        st.rotation.y = ((i * 37) % 7) * 0.02 - 0.06;
+        st.scale.setScalar(1.5);
+        gravesGroup.add(st);
+        void import('./snapshot').then((m) => m.renderCat(gr.breed, 128, gr.mix, 1)).then((url) => plate.photo(url)).catch(() => {});
+      });
+      addOutlines(gravesGroup, { thickness: 0.02 });
     };
 
     // Герой.
@@ -1271,16 +1491,47 @@ export default function LifeScene3D(props: LifeScene3DProps) {
         }
       }
       if (demonParts && demonRoot.visible) {
-        // Демон потирает руки и поглядывает на героя.
-        const nearHero = Math.hypot(pos.x - DEMON_SPOT.x, pos.z - DEMON_SPOT.z) < 3.5;
-        animate(demonParts.rig, nearHero ? 'stand:talk' : 'idle', t, (t * 0.4) % 1, 1 - Math.exp(-dt * 5));
+        // Демон сидит в кресле и гладит завтрашнюю кошку на коленях; герой рядом — ухмыляется
+        // и что-то говорит. Таз — на сиденье кресла (стопы впереди).
+        const nearHero = Math.hypot(pos.x - DEMON_SPOT.x, pos.z - DEMON_SPOT.z) < 3.2;
+        const k = -seatOffsets(demonParts.rig).hips;
+        demonRoot.position.set(DEMON_SPOT.x + Math.sin(DEMON_FACE) * k, 0, DEMON_SPOT.z + Math.cos(DEMON_FACE) * k);
+        demonRoot.rotation.y = DEMON_FACE;
+        const talk = nearHero && Math.sin(t * 0.7) > 0.2;
+        animate(demonParts.rig, talk ? 'sit:talk' : 'sit:pet', t, (t * 0.4) % 1, 1 - Math.exp(-dt * 5));
         breathe(demonParts.rig, t, 1.7, 0.8);
-        demonRoot.rotation.y = Math.atan2(pos.x - DEMON_SPOT.x, Math.max(0.5, pos.z - DEMON_SPOT.z)) * 0.6;
         demonParts.face.want(nearHero ? 'smile' : null, 0.8);
         demonParts.face.update(dt);
         for (const f of demonParts.anim) f(t);
       }
-      if (caged) poseCat(caged, Math.sin(t * 0.3) > 0.6 ? 'sit' : 'lie', t, 0, Math.min(1, dt * 4));
+      if (lapCat) poseCat(lapCat, Math.sin(t * 0.2) > 0.4 ? 'purr' : 'lie', t, 0, Math.min(1, dt * 4));
+      if (beltCat) {
+        // Кошка дня едет по ленте весь день: где она — по времени суток (в полночь — у жерла).
+        const f = dayFraction(new Date());
+        const at = beltSpot(f);
+        beltCat.root.position.set(at.x, BELT.y - 0.03, at.z);
+        const near = Math.hypot(pos.x - at.x, pos.z - at.z) < 2.6;
+        const want = near ? Math.atan2(pos.x - at.x, pos.z - at.z) : 0.25;
+        beltCat.root.rotation.y += (want - beltCat.root.rotation.y) * Math.min(1, dt * 2);
+        // Чем ближе к жерлу, тем тревожнее: прижимается и оглядывается.
+        poseCat(beltCat, f > 0.8 ? 'crouch' : Math.sin(t * 0.3) > 0.5 ? 'lie' : 'sit', t, 0, Math.min(1, dt * 4), near ? 0.5 : 0);
+      }
+      if (fallCat) {
+        // С конца ленты — шаг к жерлу, кувырок вниз и огонь.
+        if (fallCat.at < 0) fallCat.at = t;
+        const e = t - fallCat.at;
+        const c = fallCat.cat;
+        const x0 = BELT.x1;
+        const x1 = BELT.pit.x;
+        const s1 = Math.min(1, e / 1.2);
+        c.root.position.set(x0 + (x1 - x0) * s1, BELT.y - 0.03 + 0.25 * Math.sin(Math.PI * s1) - Math.max(0, e - 1.2) ** 2 * 2.5, BELT.z);
+        c.root.rotation.set(Math.max(0, e - 1.0) * 2.2, Math.PI / 2, 0);
+        poseCat(c, e < 1.2 ? 'jump' : 'belly', t, 0, Math.min(1, dt * 6));
+        if (e > 2.6) {
+          dropCat(c);
+          fallCat = null;
+        }
+      }
       // Камера сверху-спереди, комната видна в разрезе.
       // Ближе — камера следует за героем плотнее, дальше — видна вся комната.
       const follow = 1 - 0.45 * Math.min(1, zoom);
@@ -1401,7 +1652,7 @@ export default function LifeScene3D(props: LifeScene3DProps) {
     api.current?.syncClients();
   }, [clientsKey]);
 
-  const offerKey = JSON.stringify(props.offer);
+  const offerKey = JSON.stringify([props.offer, props.tomorrow, props.graves?.map((g) => g.key)]);
   useEffect(() => {
     api.current?.syncDemon();
   }, [offerKey]);

@@ -63,9 +63,10 @@ export const frontOf = (tier = 0): number => Math.min(HOUSE.d / 2, houseRect(tie
 /** Места у стен для мебели и техники (в большом доме — ещё и «островки» посреди новой части). */
 function furnitureSlots(tier: number): Slot[] {
   const { L, R, B, F } = houseRect(tier);
-  // Убитая однушка: два места у задней стены между кроватью и кухней и одно у правой стены.
-  if (tier <= 0) return [1.0, 2.9].map((x) => ({ pos: { x, z: B + 0.5 }, rot: 0, use: { x, z: B + 1.75 } })).concat([{ pos: { x: R - 0.7, z: -0.7 }, rot: -Math.PI / 2, use: { x: R - 2, z: -0.7 } }]);
-  const back = [-3.9, -2.2, -0.5, 1.2, 2.9, 4.4].map((x) => ({ pos: { x, z: B + 0.5 }, rot: 0, use: { x, z: B + 1.75 } }));
+  // Котоуголок: два места у задней стены (левее — игровая зона) и одно у правой стены.
+  // Слева у задней стены — игровая зона для кошек (см. playZoneAt), мебель — правее.
+  if (tier <= 0) return [2.0, 3.6].map((x) => ({ pos: { x, z: B + 0.5 }, rot: 0, use: { x, z: B + 1.75 } })).concat([{ pos: { x: R - 0.7, z: -0.7 }, rot: -Math.PI / 2, use: { x: R - 2, z: -0.7 } }]);
+  const back = [-3.7, -2.2, -0.5, 1.2, 2.9, 4.4].map((x) => ({ pos: { x, z: B + 0.5 }, rot: 0, use: { x, z: B + 1.75 } }));
   // Место у левой стены — сразу за изножьем кровати, не заходя на неё.
   const left = [-2.05, 1.9].map((z) => ({ pos: { x: L + 0.7, z }, rot: Math.PI / 2, use: { x: L + 2, z } }));
   const right = [-2.4, -0.7, 1.0, 2.7].map((z) => ({ pos: { x: R - 0.7, z }, rot: -Math.PI / 2, use: { x: R - 2, z } }));
@@ -73,7 +74,7 @@ function furnitureSlots(tier: number): Slot[] {
   const out: Slot[] = [back[1]!, back[3]!, right[1]!, left[0]!, back[0]!, back[4]!, right[2]!, back[2]!, left[1]!, right[0]!, back[5]!, right[3]!];
   if (tier <= 1) return out;
   // Новая часть дома: задняя стена левее, левая стена ближе к зрителю, островки лицом к зрителю.
-  for (let x = -5.6; x - 0.55 > L + 2.45; x -= 1.7) out.push({ pos: { x, z: B + 0.5 }, rot: 0, use: { x, z: B + 1.75 } });
+  for (let x = -5.6; x - 0.65 > L + 2.95; x -= 1.7) out.push({ pos: { x, z: B + 0.5 }, rot: 0, use: { x, z: B + 1.75 } });
   for (const z of [5.8, 7.5]) if (z + 0.55 < F - 0.5) out.push({ pos: { x: L + 0.7, z }, rot: Math.PI / 2, use: { x: L + 2, z } });
   for (const z of [1.6, 4.6]) {
     if (z + 1.3 > F - 0.4) continue;
@@ -155,8 +156,11 @@ function fixedKeep(tier: number): Box[] {
 
 const overlaps = (a: Box, b: Box): boolean => a.x0 < b.x1 && a.x1 > b.x0 && a.z0 < b.z1 && a.z1 > b.z0;
 
-/** Игровая зона для кошек: коврик, домик-когтеточка с полками, столбик-когтеточка, тоннель. */
-export const PLAY_ZONE = { hw: 1.0, hd: 0.8 } as const;
+/**
+ * Игровая зона для кошек: коврик, домик-когтеточка с полками, столбик-когтеточка, тоннель.
+ * k — во сколько раз модель и места на ней крупнее базовых размеров (коврик 2 × 1,6 м).
+ */
+export const PLAY_ZONE = { k: 1.4, hw: 1.4, hd: 1.12 } as const;
 
 /**
  * Где игровая зона в кафе ступени tier: у задней стены, ближе к левому краю (свободное место
@@ -209,20 +213,23 @@ export interface PlayParts {
 }
 
 export function playParts(zone: P2): PlayParts {
-  const at = (x: number, z: number): P2 => ({ x: zone.x + x, z: zone.z + z });
+  const K = PLAY_ZONE.k;
+  const at = (x: number, z: number): P2 => ({ x: zone.x + x * K, z: zone.z + z * K });
+  const post = at(0.6, -0.45);
   return {
     zone,
     house: at(-0.55, -0.32),
-    houseY: 0.06,
-    door: at(-0.55, 0.12),
-    mid: { pos: at(-0.12, -0.42), y: 0.82 },
-    top: { pos: at(-0.55, -0.32), y: 1.32 },
-    base: at(-0.1, 0.12),
-    post: at(0.6, -0.45),
-    scratch: at(0.6, -0.15),
-    postTop: { pos: at(0.6, -0.45), y: 0.8, edge: at(0.6, 0.05) },
+    houseY: 0.07,
+    door: at(-0.55, 0.14),
+    mid: { pos: at(-0.12, -0.42), y: 0.82 * K },
+    top: { pos: at(-0.55, -0.32), y: 1.32 * K },
+    base: at(-0.08, 0.14),
+    post,
+    // Перед столбиком так, чтобы передние лапы доставали до него.
+    scratch: { x: post.x, z: post.z + 0.33 },
+    postTop: { pos: post, y: 0.8 * K, edge: at(0.6, 0.08) },
     pompom: at(0.0, -0.3),
-    pompomAt: at(0.0, 0.0),
+    pompomAt: { x: zone.x, z: zone.z - 0.3 * K + 0.3 },
     tunnel: [at(-0.48, 0.45), at(0.9, 0.45)],
   };
 }
@@ -337,21 +344,36 @@ export function homeLayout(furniture: readonly ObjectId[], pets = false, tier = 
   return out;
 }
 
-/** Лавка демона: прилавок с демоном у задней стены, клетка с кошкой дня, выход слева. */
+/**
+ * Лавка демона: демон в кресле у задней стены (на коленях — завтрашняя кошка), лента, по которой
+ * сегодняшняя кошка весь день едет к жерлу, могилки не спасённых кошек справа спереди, выход слева.
+ */
 export function demonLayout(): Placed[] {
   const { w, d } = DEMON_ROOM;
   const L = -w / 2;
   const F = d / 2;
-  const B = -d / 2;
+  const P = BELT.pit;
+  const bx0 = BELT.x0 - 0.15;
+  const bx1 = P.x + P.r;
   return [
-    { id: 'demon', pos: { x: 0, z: B + 1.4 }, rot: 0, use: { x: 0, z: B + 3.0 }, box: box(0, B + 1.4, 1.5, 0.55) },
-    { id: 'cage', pos: { x: 3.0, z: B + 1.6 }, rot: -0.35, use: { x: 2.6, z: B + 3.0 }, box: box(3.0, B + 1.6, 0.6, 0.5) },
+    { id: 'demon', pos: { ...DEMON_SPOT }, rot: DEMON_FACE, use: { x: DEMON_SPOT.x + 0.5, z: DEMON_SPOT.z + 1.45 }, box: box(DEMON_SPOT.x, DEMON_SPOT.z, 0.75, 0.65) },
+    { id: 'belt', pos: { x: (BELT.x0 + BELT.x1) / 2, z: BELT.z }, rot: 0, use: { x: (BELT.x0 + BELT.x1) / 2, z: BELT.z + 1.15 }, box: { x0: bx0, x1: bx1, z0: BELT.z - P.r, z1: BELT.z + P.r } },
+    { id: 'graves', pos: { ...GRAVES_AT }, rot: 0, use: { x: GRAVES_AT.x - 1.2, z: GRAVES_AT.z + 1.65 }, box: box(GRAVES_AT.x, GRAVES_AT.z, 2.35, 1.15) },
     { id: 'demon_door', pos: { x: L + 0.06, z: F - 2.0 }, rot: Math.PI / 2, use: { x: L + 1.1, z: F - 2.0 }, box: null },
   ];
 }
 
-/** Где сидит или стоит демон (за прилавком). */
-export const DEMON_SPOT: P2 = { x: 0, z: -DEMON_ROOM.d / 2 + 0.55 };
+/** Кресло демона: где стоит (демон сидит в нём) и куда повёрнуто. */
+export const DEMON_SPOT: P2 = { x: -2.4, z: -DEMON_ROOM.d / 2 + 1.2 };
+export const DEMON_FACE = 0.35;
+/** Лента: высота, по какой линии едет кошка (от x0 до x1), и жерло в её конце. */
+export const BELT = { z: -2.0, x0: -0.6, x1: 3.3, y: 0.56, pit: { x: 4.25, r: 0.72 } } as const;
+/** Где кошка на ленте в долю суток f (0 — полночь, 1 — следующая полночь, край ленты у жерла). */
+export const beltSpot = (f: number): P2 => ({ x: BELT.x0 + (BELT.x1 - BELT.x0) * Math.min(1, Math.max(0, f)), z: BELT.z });
+/** Кладбище могилок: середина и места могилок (по 5 в ряд, задний ряд — старые). */
+export const GRAVES_AT: P2 = { x: 3.0, z: 2.35 };
+export const GRAVES_SHOWN = 10;
+export const graveSpot = (i: number): P2 => ({ x: GRAVES_AT.x + ((i % 5) - 2) * 0.95, z: GRAVES_AT.z - 0.55 + Math.floor(i / 5) * 1.05 });
 
 /**
  * Места гостей в кафе: свободные точки зала (не в мебели и не у дверей), сначала ближе к

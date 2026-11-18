@@ -47,7 +47,8 @@ export type ObjectId =
   | 'litter'
   // Лавка демона.
   | 'demon'
-  | 'cage'
+  | 'belt'
+  | 'graves'
   | 'demon_door';
 
 /** Изменения от действия. */
@@ -129,6 +130,15 @@ export interface DemonOffer {
   status: 'waiting' | 'saved' | 'lost';
 }
 
+/** Могилка кошки, которую не успели спасти: кто это и в какой день упала в жерло. */
+export interface Grave {
+  name: number;
+  breed: CatBreed;
+  mix?: CatBreed;
+  sex: 'f' | 'm';
+  day: string;
+}
+
 /** Итог последнего действия — для всплывающей карточки. */
 export interface LifeResult {
   icon: string;
@@ -175,6 +185,8 @@ export interface LifeState {
   buzz: number;
   /** Кошка дня в лавке демона. */
   demon: DemonOffer | null;
+  /** Могилки кошек, которых не успели спасти (последние). */
+  graves: Grave[];
   event: ActiveEvent | null;
   last: LifeResult | null;
   stats: { visitors: number; earned: number; rescued: number; lost: number; repMoney: number; meals: number };

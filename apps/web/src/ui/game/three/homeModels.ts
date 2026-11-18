@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import type { ObjectId } from '../../../game/lifeTypes';
+import { PLAY_ZONE } from '../../../game/lifeMap';
 import { M, mat, mesh, toonCanvas } from './kit';
 import { furnitureReady, kenney } from './kenney';
 
@@ -633,13 +634,15 @@ function procModel(id: string): THREE.Group {
       // Верхняя лежанка с бортиком.
       g.add(mesh(new THREE.CylinderGeometry(0.3, 0.3, 0.04, 22), carpet, [hx, 1.28, hz]));
       g.add(mesh(new THREE.TorusGeometry(0.25, 0.05, 8, 24), M.cloth('#f2b5c4', 3), [hx, 1.33, hz]).rotateX(Math.PI / 2));
-      // Помпон на верёвочке под краем средней полки (качается).
+      // Помпон на верёвочке под краем средней полки (качается); висит на высоте лапы кошки,
+      // вставшей на задние лапы (≈ 0,45 м при любом масштабе зоны).
       const swing = new THREE.Group();
       swing.position.set(0.0, 0.78, -0.3);
-      const string = mesh(new THREE.CylinderGeometry(0.004, 0.004, 0.33, 4), paint('#f5efe6', 0.8), [0, -0.165, 0]);
+      const hang = 0.78 - 0.45 / PLAY_ZONE.k;
+      const string = mesh(new THREE.CylinderGeometry(0.004, 0.004, hang - 0.04, 4), paint('#f5efe6', 0.8), [0, -(hang - 0.04) / 2, 0]);
       string.userData.noOutline = true;
       swing.add(string);
-      swing.add(mesh(new THREE.SphereGeometry(0.05, 12, 10), M.cloth('#ff6fa3', 2), [0, -0.36, 0]));
+      swing.add(mesh(new THREE.SphereGeometry(0.05, 12, 10), M.cloth('#ff6fa3', 2), [0, -hang, 0]));
       swing.name = 'pompom';
       g.add(swing);
       tick.push((t) => {
@@ -663,6 +666,11 @@ function procModel(id: string): THREE.Group {
       // Пара мячиков на коврике.
       g.add(mesh(new THREE.SphereGeometry(0.04, 12, 10), paint('#f1c40f', 0.5), [-0.85, 0.05, 0.55]));
       g.add(mesh(new THREE.SphereGeometry(0.035, 12, 10), paint('#2ecc71', 0.5), [0.85, 0.045, -0.05]));
+      // Вся зона крупнее базовых размеров (места для кошек — playParts с тем же масштабом).
+      const inner = new THREE.Group();
+      for (const k of [...g.children]) inner.add(k);
+      inner.scale.setScalar(PLAY_ZONE.k);
+      g.add(inner);
       break;
     }
     case 'counter': {

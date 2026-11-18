@@ -8,6 +8,7 @@ import {
   catGrowth,
   catMood,
   catName,
+  tomorrowOffer,
   clock,
   comfort,
   guestAppearance,
@@ -666,6 +667,14 @@ export function LifeTab({ state, onTrain, onRescue }: { state: GameState; onTrai
   const catsView = useMemo(() => L.cats.map((c) => ({ ...c, grow: catGrowth(c, L.day) })), [L.cats, L.day]);
   const offer = L.demon;
   const offerView = useMemo(() => (L.scene === 'demon' && offer?.status === 'waiting' ? { breed: offer.breed, mix: offer.mix, grow: catGrowth({ born: L.day - offer.age }, L.day) } : null), [L.scene, offer?.status, offer?.breed, offer?.mix, offer?.age, L.day]);
+  // Завтрашняя кошка (на коленях у демона) и могилки не спасённых.
+  const tomorrow = useMemo(() => {
+    if (L.scene !== 'demon' || !state.today) return null;
+    const o = tomorrowOffer(state);
+    return { breed: o.breed, mix: o.mix, grow: catGrowth({ born: L.day - o.age }, L.day) };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [L.scene, state.today, state.character.id]);
+  const graves = useMemo(() => L.graves.map((g) => ({ key: `${g.day}:${g.name}`, breed: g.breed, mix: g.mix, name: catName(g)[lang] })), [L.graves, lang]);
   const travel = actionById(L.scene === 'cafe' ? 'go_demon' : 'go_cafe');
   return (
     <div className="world-tab life-tab">
@@ -693,6 +702,8 @@ export function LifeTab({ state, onTrain, onRescue }: { state: GameState; onTrai
               hero={heroLook}
               guests={guests}
               offer={offerView}
+              tomorrow={tomorrow}
+              graves={graves}
               stick={stick}
               goto={goto}
               onNear={setNear}
