@@ -2521,3 +2521,8 @@ button {
 .admin-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin: 6px 0; }
 .admin-grid .btn { padding: 8px 6px; font-size: 13px; }
 .admin-grid > * { min-width: 0; white-space: normal; line-height: 1.2; }
+
+/* Игровая зона: цвета коврика. */
+.rug-row { display: flex; gap: 8px; margin: 6px 0 10px; flex-wrap: wrap; }
+.rug-chip { width: 34px; height: 34px; border-radius: 10px; border: 3px solid; cursor: pointer; padding: 0; }
+.rug-chip.on { outline: 3px solid var(--accent, #ffb02e); outline-offset: 2px; }

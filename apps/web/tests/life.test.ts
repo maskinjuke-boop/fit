@@ -572,3 +572,58 @@ describe('инструменты администратора для кафе и
     expect(m.adminEvent(s, 'bakery').life.event!.id).toBe('bakery');
   });
 });
+
+describe('игровая зона: расширение и игрушки', () => {
+  it('покупка, места по видам, убрать и вернуть бесплатно, расширение, коврик, уют и скука', async () => {
+    const m = await import('../src/game/life');
+    const { PLAY_SIZES, playItemById } = await import('../src/game/lifeContent');
+    let s = hero();
+    s.gold = 5000;
+    expect(s.life.play.items).toEqual(['tree', 'post', 'tunnel']);
+    const c0 = comfort(s.life);
+    const b0 = m.playBoredom(s.life.play);
+    // В малом уголке всего по одному месту каждого вида — гамак не встанет, пока там столбик.
+    expect(m.playBlocker(s, 'hammock')).toBe('space');
+    s = m.removePlayItem(s, 'post');
+    expect(m.playBlocker(s, 'hammock')).toBe(null);
+    s = m.placePlayItem(s, 'hammock');
+    expect(s.gold).toBe(5000 - playItemById('hammock').price);
+    expect(s.life.play.items).toContain('hammock');
+    expect(comfort(s.life)).toBeGreaterThan(c0);
+    expect(m.playBoredom(s.life.play)).toBeLessThan(b0);
+    // Столбик куплен — вернуть бесплатно (когда освободится место).
+    s = m.removePlayItem(s, 'hammock');
+    const g = s.gold;
+    s = m.placePlayItem(s, 'post');
+    expect(s.gold).toBe(g);
+    // Расширение: только в кафе побольше.
+    expect(m.playSizeBlocker(s)).toBe('house');
+    s.life.house = 2;
+    expect(m.playSizeBlocker(s)).toBe(null);
+    s = m.upgradePlaySize(s);
+    expect(s.life.play.size).toBe(1);
+    expect(s.gold).toBe(g - PLAY_SIZES[1]!.cost);
+    s = m.upgradePlaySize(s);
+    expect(s.life.play.size).toBe(2);
+    expect(m.playSizeBlocker(s)).toBe('max');
+    for (const id of ['hammock', 'boxes', 'wheel', 'track'] as const) s = m.placePlayItem(s, id);
+    expect(s.life.play.items.length).toBe(7);
+    expect(m.playBlocker(s, 'tower')).toBe('space');
+    expect(m.playBoredom(s.life.play)).toBeGreaterThanOrEqual(0.5);
+    // Коврик.
+    expect(m.setPlayRug(s, 'pink').life.play.rug).toBe('pink');
+    expect(m.setPlayRug(s, 'nope')).toBe(s);
+    // Зона помещается в кафе на своём размере и не налезает на столики и мебель.
+    for (let t = 2; t < HOUSES.length; t += 1) {
+      const lay = homeLayout([...FURNITURE], true, t, s.life.play);
+      const pz = lay.find((x) => x.id === 'play_zone')!;
+      for (const o of lay) if (o !== pz && o.box) expect(o.box.x1 <= pz.box!.x0 || o.box.x0 >= pz.box!.x1 || o.box.z1 <= pz.box!.z0 || o.box.z0 >= pz.box!.z1).toBe(true);
+    }
+    // Сохранение: зона восстанавливается, мусор отбрасывается.
+    const back = migrateLife({ ...s.life, play: { size: 9, items: ['wheel', 'xxx', 'tower'], owned: ['wheel'], rug: '??' } } as unknown as Parameters<typeof migrateLife>[0]);
+    expect(back.play.size).toBe(PLAY_SIZES.length - 1);
+    expect(back.play.items).toEqual(['wheel']);
+    expect(back.play.rug).toBe('mint');
+    expect(migrateLife({ ...s.life, play: undefined } as unknown as Parameters<typeof migrateLife>[0]).play.items).toEqual(['tree', 'post', 'tunnel']);
+  });
+});

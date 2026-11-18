@@ -21,8 +21,8 @@ import {
 import type { Slot } from './items';
 import { createState, type Appearance, type Character, type GameState } from './state';
 import { clearGame, loadGame, saveGame } from './storage';
-import { act, answerEvent, applyFinish, buyFurniture, upgradeKit, dismissResult, sellFurniture, upgradeHouse, type LifeOutcome } from './life';
-import type { ObjectId } from './lifeTypes';
+import { act, answerEvent, applyFinish, buyFurniture, upgradeKit, dismissResult, placePlayItem, removePlayItem, sellFurniture, setPlayRug, upgradeHouse, upgradePlaySize, type LifeOutcome } from './life';
+import type { ObjectId, PlayItemId } from './lifeTypes';
 
 /** Действия режима администратора. */
 export interface AdminActions {
@@ -53,6 +53,11 @@ export interface LifeActions {
   upgradeKit(id: KitId): void;
   buyFurniture(id: ObjectId): void;
   sellFurniture(id: ObjectId): void;
+  /** Игровая зона: поставить (купить) или убрать игрушку, расширить, цвет коврика. */
+  placePlay(id: PlayItemId): void;
+  removePlay(id: PlayItemId): void;
+  upgradePlay(): void;
+  setRug(id: string): void;
   dismiss(): void;
 }
 
@@ -232,6 +237,10 @@ export function GameProvider({ children }: { children: ReactNode }) {
       upgradeKit: (id) => plain((s) => upgradeKit(s, id)),
       buyFurniture: (id) => plain((s) => buyFurniture(s, id)),
       sellFurniture: (id) => plain((s) => sellFurniture(s, id)),
+      placePlay: (id) => plain((s) => placePlayItem(s, id)),
+      removePlay: (id) => plain((s) => removePlayItem(s, id)),
+      upgradePlay: () => plain(upgradePlaySize),
+      setRug: (id) => plain((s) => setPlayRug(s, id)),
       dismiss: () => plain(dismissResult),
     };
     return {

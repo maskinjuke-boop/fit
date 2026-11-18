@@ -85,8 +85,8 @@ export interface ActionDef {
   train?: boolean;
   /** Переход в другую локацию. */
   go?: SceneId;
-  /** Открыть экран: кафе (мебель, расширение) или кошка дня. */
-  open?: 'cafe' | 'demon';
+  /** Открыть экран: кафе (мебель, расширение), игровая зона или кошка дня. */
+  open?: 'cafe' | 'play' | 'demon';
 }
 
 /** Породы кошек. */
@@ -128,6 +128,17 @@ export interface DemonOffer {
   target: number;
   progress: number;
   status: 'waiting' | 'saved' | 'lost';
+}
+
+/** Что стоит в игровой зоне для кошек. */
+export type PlayItemId = 'tree' | 'post' | 'tunnel' | 'hammock' | 'boxes' | 'tower' | 'wheel' | 'track';
+
+/** Игровая зона: размер (0…2), что в ней стоит, что куплено (можно вернуть бесплатно), цвет коврика. */
+export interface PlayZoneState {
+  size: number;
+  items: PlayItemId[];
+  owned: PlayItemId[];
+  rug: string;
 }
 
 /** Могилка кошки, которую не успели спасти: кто это и в какой день упала в жерло. */
@@ -187,6 +198,8 @@ export interface LifeState {
   demon: DemonOffer | null;
   /** Могилки кошек, которых не успели спасти (последние). */
   graves: Grave[];
+  /** Игровая зона для кошек. */
+  play: PlayZoneState;
   event: ActiveEvent | null;
   last: LifeResult | null;
   stats: { visitors: number; earned: number; rescued: number; lost: number; repMoney: number; meals: number };

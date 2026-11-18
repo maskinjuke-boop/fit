@@ -57,7 +57,7 @@ export interface CatWorld {
 type Step =
   | { k: 'go'; to: P2; run?: boolean; near?: number; detours?: number }
   | { k: 'turn'; heading: number }
-  | { k: 'pose'; mode: CatMode; dur: number; tag?: 'eat' | 'drink' | 'litter' }
+  | { k: 'pose'; mode: CatMode; dur: number; tag?: 'eat' | 'drink' | 'litter' | 'wheel' }
   | { k: 'jump'; to: P2; y: number; hop?: boolean; edge?: P2 }
   | { k: 'hunt'; toy: Toy; left: number; phase: 'chase' | 'aim' | 'swat' }
   | { k: 'rub'; dur: number; angle: number };
@@ -227,95 +227,173 @@ export function createCatLife(parent: THREE.Object3D, shadow: () => THREE.Object
           return [{ k: 'go', to: pr.edge }, { k: 'turn', heading: Math.atan2(pr.pos.x - pr.edge.x, pr.pos.z - pr.edge.z) }, { k: 'jump', to: pr.pos, y: pr.y }, { k: 'pose', mode: m, dur: restDur(m) }];
         },
       ]);
-    // Игровая зона: заскучавшая кошка играет охотнее, сытая и спокойная — лезет наверх поспать.
+    // Игровая зона: у каждой игрушки свои занятия; заскучавшая кошка играет охотнее,
+    // сытая и спокойная — лезет наверх поспать.
     const pz = w.play;
     if (pz) {
       const bored = (100 - need.play) / 40;
       const face = (from: P2, to: P2): number => Math.atan2(to.x - from.x, to.z - from.z);
-      const zone = (n: number): void => {
-        c.log.play += n;
+      const zone = (): void => {
+        c.log.play += 1;
       };
-      opts.push([
-        1.4,
-        () => {
-          zone(1);
-          const m = pick(['lie', 'sleep', 'sleep', 'groom', 'sit'] as const);
-          return [
-            { k: 'go', to: pz.base },
-            { k: 'turn', heading: face(pz.base, pz.mid.pos) },
-            { k: 'jump', to: pz.mid.pos, y: pz.mid.y, edge: pz.base },
-            { k: 'pose', mode: 'sit', dur: 1.2 + rand() * 1.5 },
-            { k: 'turn', heading: face(pz.mid.pos, pz.top.pos) },
-            { k: 'jump', to: pz.top.pos, y: pz.top.y, edge: pz.base },
-            { k: 'turn', heading: 0.3 },
-            { k: 'pose', mode: m, dur: restDur(m) + 4 },
-          ];
-        },
-      ]);
-      opts.push([
-        1.0,
-        () => {
-          zone(1);
-          const m = pick(['sleep', 'sleep', 'lie'] as const);
-          return [
-            { k: 'go', to: pz.door },
-            { k: 'turn', heading: Math.PI },
-            { k: 'jump', to: pz.house, y: pz.houseY, hop: true, edge: pz.door },
-            { k: 'turn', heading: 0 },
-            { k: 'pose', mode: m, dur: restDur(m) + 3 },
-            { k: 'jump', to: pz.door, y: 0, hop: true },
-          ];
-        },
-      ]);
-      opts.push([
-        0.9 + bored,
-        () => {
-          zone(1);
-          return [
-            { k: 'go', to: pz.scratch },
-            { k: 'turn', heading: Math.PI },
-            { k: 'pose', mode: 'scratch', dur: 3 + rand() * 3 },
-            { k: 'pose', mode: 'sit', dur: 1.5 },
-          ];
-        },
-      ]);
-      opts.push([
-        0.7 + bored,
-        () => {
-          zone(1);
-          return [
-            { k: 'go', to: pz.pompomAt, run: rand() < 0.5 },
-            { k: 'turn', heading: Math.PI },
-            { k: 'pose', mode: 'crouch', dur: 0.8 },
-            { k: 'pose', mode: 'reach', dur: 3 + rand() * 3 },
-            { k: 'pose', mode: 'sit', dur: 1.2 },
-          ];
-        },
-      ]);
-      opts.push([
-        0.7 + bored,
-        () => {
-          zone(1);
-          const [a0, b0] = rand() < 0.5 ? pz.tunnel : ([pz.tunnel[1], pz.tunnel[0]] as const);
-          return [
-            { k: 'go', to: a0, run: true },
-            { k: 'turn', heading: face(a0, b0) },
-            { k: 'pose', mode: 'crouch', dur: 0.6 },
-            { k: 'go', to: b0, run: true, detours: 5 },
-            { k: 'pose', mode: 'idle', dur: 0.8 },
-            ...(rand() < 0.5 ? ([{ k: 'turn', heading: face(b0, a0) }, { k: 'go', to: a0, run: true, detours: 5 }] as Step[]) : []),
-          ];
-        },
-      ]);
-      opts.push([
-        0.6,
-        () => {
-          zone(1);
-          const pt = pz.postTop;
-          const m = pick(['sit', 'lie', 'groom'] as const);
-          return [{ k: 'go', to: pt.edge }, { k: 'turn', heading: face(pt.edge, pt.pos) }, { k: 'jump', to: pt.pos, y: pt.y, edge: pt.edge }, { k: 'turn', heading: 0 }, { k: 'pose', mode: m, dur: restDur(m) }];
-        },
-      ]);
+      for (const it of pz.items) {
+        switch (it.id) {
+          case 'tree':
+            opts.push([
+              1.4,
+              () => {
+                zone();
+                const m = pick(['lie', 'sleep', 'sleep', 'groom', 'sit'] as const);
+                return [
+                  { k: 'go', to: it.base },
+                  { k: 'turn', heading: face(it.base, it.mid.pos) },
+                  { k: 'jump', to: it.mid.pos, y: it.mid.y, edge: it.base },
+                  { k: 'pose', mode: 'sit', dur: 1.2 + rand() * 1.5 },
+                  { k: 'turn', heading: face(it.mid.pos, it.top.pos) },
+                  { k: 'jump', to: it.top.pos, y: it.top.y, edge: it.base },
+                  { k: 'turn', heading: 0.3 },
+                  { k: 'pose', mode: m, dur: restDur(m) + 4 },
+                ];
+              },
+            ]);
+            opts.push([
+              1.0,
+              () => {
+                zone();
+                const m = pick(['sleep', 'sleep', 'lie'] as const);
+                return [
+                  { k: 'go', to: it.door },
+                  { k: 'turn', heading: Math.PI },
+                  { k: 'jump', to: it.house, y: it.houseY, hop: true, edge: it.door },
+                  { k: 'turn', heading: 0 },
+                  { k: 'pose', mode: m, dur: restDur(m) + 3 },
+                  { k: 'jump', to: it.door, y: 0, hop: true },
+                ];
+              },
+            ]);
+            opts.push([
+              0.7 + bored,
+              () => {
+                zone();
+                return [
+                  { k: 'go', to: it.pompomAt, run: rand() < 0.5 },
+                  { k: 'turn', heading: Math.PI },
+                  { k: 'pose', mode: 'crouch', dur: 0.8 },
+                  { k: 'pose', mode: 'reach', dur: 3 + rand() * 3 },
+                  { k: 'pose', mode: 'sit', dur: 1.2 },
+                ];
+              },
+            ]);
+            break;
+          case 'post':
+            opts.push([
+              0.9 + bored,
+              () => {
+                zone();
+                return [{ k: 'go', to: it.scratch }, { k: 'turn', heading: Math.PI }, { k: 'pose', mode: 'scratch', dur: 3 + rand() * 3 }, { k: 'pose', mode: 'sit', dur: 1.5 }];
+              },
+            ]);
+            opts.push([
+              0.6,
+              () => {
+                zone();
+                const m = pick(['sit', 'lie', 'groom'] as const);
+                return [{ k: 'go', to: it.top.edge }, { k: 'turn', heading: face(it.top.edge, it.top.pos) }, { k: 'jump', to: it.top.pos, y: it.top.y, edge: it.top.edge }, { k: 'turn', heading: 0 }, { k: 'pose', mode: m, dur: restDur(m) }];
+              },
+            ]);
+            break;
+          case 'tunnel':
+            opts.push([
+              0.7 + bored,
+              () => {
+                zone();
+                const [a0, b0] = rand() < 0.5 ? it.ends : ([it.ends[1], it.ends[0]] as const);
+                return [
+                  { k: 'go', to: a0, run: true },
+                  { k: 'turn', heading: face(a0, b0) },
+                  { k: 'pose', mode: 'crouch', dur: 0.6 },
+                  { k: 'go', to: b0, run: true, detours: 5 },
+                  { k: 'pose', mode: 'idle', dur: 0.8 },
+                  ...(rand() < 0.5 ? ([{ k: 'turn', heading: face(b0, a0) }, { k: 'go', to: a0, run: true, detours: 5 }] as Step[]) : []),
+                ];
+              },
+            ]);
+            break;
+          case 'hammock':
+            opts.push([
+              1.1,
+              () => {
+                zone();
+                const m = pick(['sleep', 'lie', 'lie'] as const);
+                return [{ k: 'go', to: it.edge }, { k: 'turn', heading: Math.PI }, { k: 'jump', to: it.bed.pos, y: it.bed.y, edge: it.edge }, { k: 'turn', heading: Math.PI / 2 }, { k: 'pose', mode: m, dur: restDur(m) + 4 }];
+              },
+            ]);
+            break;
+          case 'boxes':
+            opts.push([
+              0.9,
+              () => {
+                zone();
+                const b = pick(it.boxes);
+                const m = pick(['sit', 'sit', 'lie'] as const);
+                return [{ k: 'go', to: b.door }, { k: 'turn', heading: Math.PI }, { k: 'jump', to: b.in, y: 0.03, hop: true, edge: b.door }, { k: 'turn', heading: 0 }, { k: 'pose', mode: m, dur: restDur(m) + 2 }, { k: 'jump', to: b.door, y: 0, hop: true }];
+              },
+            ]);
+            break;
+          case 'tower':
+            opts.push([
+              1.0 + bored * 0.5,
+              () => {
+                zone();
+                const [s1, s2, s3] = it.steps as [{ pos: P2; y: number }, { pos: P2; y: number }, { pos: P2; y: number }];
+                const m = pick(['lie', 'sleep', 'sit', 'groom'] as const);
+                return [
+                  { k: 'go', to: it.base },
+                  { k: 'turn', heading: face(it.base, s1.pos) },
+                  { k: 'jump', to: s1.pos, y: s1.y, edge: it.base },
+                  { k: 'pose', mode: 'sit', dur: 0.8 + rand() },
+                  { k: 'turn', heading: face(s1.pos, s2.pos) },
+                  { k: 'jump', to: s2.pos, y: s2.y, edge: it.base },
+                  { k: 'pose', mode: 'sit', dur: 0.8 + rand() },
+                  { k: 'turn', heading: face(s2.pos, s3.pos) },
+                  { k: 'jump', to: s3.pos, y: s3.y, edge: it.base },
+                  { k: 'turn', heading: 0.2 },
+                  { k: 'pose', mode: m, dur: restDur(m) + 3 },
+                ];
+              },
+            ]);
+            break;
+          case 'wheel':
+            opts.push([
+              0.8 + bored * 1.2,
+              () => {
+                zone();
+                const dir = rand() < 0.5 ? Math.PI / 2 : -Math.PI / 2;
+                return [
+                  { k: 'go', to: it.entry },
+                  { k: 'turn', heading: Math.PI },
+                  { k: 'jump', to: it.inside, y: 0.06, hop: true, edge: it.entry },
+                  { k: 'turn', heading: dir },
+                  { k: 'pose', mode: 'trot', dur: 5 + rand() * 5, tag: 'wheel' },
+                  { k: 'pose', mode: 'idle', dur: 0.8 },
+                  { k: 'turn', heading: 0 },
+                  { k: 'jump', to: it.entry, y: 0, hop: true },
+                ];
+              },
+            ]);
+            break;
+          case 'track':
+            opts.push([
+              0.8 + bored,
+              () => {
+                zone();
+                const sp = pick(it.spots);
+                return [{ k: 'go', to: sp.at }, { k: 'turn', heading: sp.face }, { k: 'pose', mode: 'crouch', dur: 0.7 }, { k: 'pose', mode: 'swat', dur: 3 + rand() * 3 }, { k: 'pose', mode: 'sit', dur: 1.5 }];
+              },
+            ]);
+            break;
+        }
+      }
     }
     opts.push([
       1.8,
@@ -521,6 +599,8 @@ export function createCatLife(parent: THREE.Object3D, shadow: () => THREE.Object
       }
       case 'pose':
         c.mode = step.mode;
+        // В колесе бежит на месте (колесо крутится под ней).
+        if (step.tag === 'wheel') c.speed = 1.2;
         if (t - c.stepAt > step.dur) {
           done = true;
           if (step.tag === 'eat') {
@@ -585,7 +665,7 @@ export function createCatLife(parent: THREE.Object3D, shadow: () => THREE.Object
         break;
       }
     }
-    if (step.k !== 'go' && step.k !== 'rub' && !(step.k === 'hunt' && step.phase === 'chase')) c.speed += (0 - c.speed) * Math.min(1, dt * 8);
+    if (step.k !== 'go' && step.k !== 'rub' && !(step.k === 'hunt' && step.phase === 'chase') && !(step.k === 'pose' && step.tag === 'wheel')) c.speed += (0 - c.speed) * Math.min(1, dt * 8);
     if (!c.plan.length) c.stepAt = -1;
     else if (done && c.plan[0] === step) {
       c.plan.shift();
@@ -632,6 +712,15 @@ export function createCatLife(parent: THREE.Object3D, shadow: () => THREE.Object
           toys.push({ obj, pos, vel: { x: 0, z: 0 }, kind });
         }
       }
+    },
+    /** Сколько кошек бегает в колесе (колесо крутится). */
+    inWheel(): number {
+      let n = 0;
+      for (const c of cats.values()) {
+        const st = c.plan[0];
+        if (st && st.k === 'pose' && st.tag === 'wheel' && !c.jump) n += 1;
+      }
+      return n;
     },
     /** Ближайшая к точке кошка. */
     nearest(p: P2): CatAI | null {

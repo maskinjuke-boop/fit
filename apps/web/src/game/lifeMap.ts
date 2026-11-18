@@ -1,5 +1,5 @@
-import { HOUSES, mountOf, slotsFor } from './lifeContent';
-import type { ObjectId, SceneId } from './lifeTypes';
+import { HOUSES, PLAY_DEFAULT, PLAY_SIZES, mountOf, slotsFor, playItemById } from './lifeContent';
+import type { ObjectId, PlayItemId, PlayZoneState, SceneId } from './lifeTypes';
 
 /**
  * Раскладка двух локаций: котокафе (зал в разрезе, предметы у стен, гости среди кошек)
@@ -157,24 +157,31 @@ function fixedKeep(tier: number): Box[] {
 const overlaps = (a: Box, b: Box): boolean => a.x0 < b.x1 && a.x1 > b.x0 && a.z0 < b.z1 && a.z1 > b.z0;
 
 /**
- * Игровая зона для кошек: коврик, домик-когтеточка с полками, столбик-когтеточка, тоннель.
- * k — во сколько раз модель и места на ней крупнее базовых размеров (коврик 2 × 1,6 м).
+ * Игровая зона для кошек: коврик и игрушки на местах трёх видов (см. PLAY_SIZES). Домик,
+ * столбик и тоннель построены в базовых размерах и увеличены в k раз.
  */
-export const PLAY_ZONE = { k: 1.4, hw: 1.4, hd: 1.12 } as const;
+export const PLAY_ZONE = { k: 1.4 } as const;
+/** Зона по умолчанию (новое кафе, старые сохранения). */
+export const PLAY_START: PlayZoneState = { size: 0, items: [...PLAY_DEFAULT], owned: [...PLAY_DEFAULT], rug: 'mint' };
+
+const playSize = (size: number) => PLAY_SIZES[Math.max(0, Math.min(PLAY_SIZES.length - 1, size))]!;
 
 /**
  * Где игровая зона в кафе ступени tier: у задней стены, ближе к левому краю (свободное место
  * не на местах мебели, не у стойки, дивана, мисок, лотка и двери).
  */
-export function playZoneAt(tier: number): P2 {
+export function playZoneAt(tier: number, size = 0): P2 {
   const { L, R, B, F } = houseRect(tier);
+  const { w, d } = playSize(size);
+  const hw = w / 2;
+  const hd = d / 2;
   const keep = fixedKeep(tier);
   const pad = 0.2;
   let best: P2 | null = null;
   let bestScore = Infinity;
-  for (let x = L + PLAY_ZONE.hw + 0.12; x <= R - 3; x += 0.05) {
-    for (let z = B + PLAY_ZONE.hd + 0.1; z <= F - PLAY_ZONE.hd - 0.6; z += 0.1) {
-      const me = box(x, z, PLAY_ZONE.hw + pad, PLAY_ZONE.hd + pad);
+  for (let x = L + hw + 0.12; x <= R - 3; x += 0.05) {
+    for (let z = B + hd + 0.1; z <= F - hd - 0.6; z += 0.1) {
+      const me = box(x, z, hw + pad, hd + pad);
       if (keep.some((k) => overlaps(me, k))) continue;
       const score = (z - B) * 1.0 + (x - L) * 0.12;
       if (score < bestScore) {
@@ -183,73 +190,101 @@ export function playZoneAt(tier: number): P2 {
       }
     }
   }
-  return best ?? { x: L + PLAY_ZONE.hw + 0.12, z: F - PLAY_ZONE.hd - 0.6 };
+  return best ?? { x: L + hw + 0.12, z: F - hd - 0.6 };
 }
 
-/**
- * Части игровой зоны в мировых координатах (зона не поворачивается: домик у задней стены):
- * домик (внутри и перед входом), средняя полка и верхняя лежанка домика, столбик-когтеточка
- * (где встать, чтобы точить когти, и полочка на нём), помпон под средней полкой, концы тоннеля.
- */
+/** Можно ли поставить зону размера size в кафе ступени tier (влезает, не мешая столикам и мебели). */
+export function playSizeFits(tier: number, size: number): boolean {
+  const { L, R, B, F } = houseRect(tier);
+  const { w, d } = playSize(size);
+  const p = playZoneAt(tier, size);
+  const me = box(p.x, p.z, w / 2, d / 2);
+  return me.x0 >= L && me.x1 <= R && me.z0 >= B && me.z1 <= F && !fixedKeep(tier).some((k) => overlaps(box(p.x, p.z, w / 2 + 0.2, d / 2 + 0.2), k));
+}
+
+/** Где что стоит в зоне: игрушки по местам своего вида, в порядке списка (лишние не встают). */
+export function playLayout(play: PlayZoneState): Array<{ id: PlayItemId; x: number; z: number }> {
+  const slots = playSize(play.size).slots;
+  const used = new Set<number>();
+  const out: Array<{ id: PlayItemId; x: number; z: number }> = [];
+  for (const id of play.items) {
+    const kind = playItemById(id).kind;
+    const i = slots.findIndex((sl, k) => sl.kind === kind && !used.has(k));
+    if (i < 0) continue;
+    used.add(i);
+    out.push({ id, x: slots[i]!.x, z: slots[i]!.z });
+  }
+  return out;
+}
+
+/** Места игрушек зоны для кошек (мировые координаты; y — высота). */
+export type PlayItemSpots =
+  | { id: 'tree'; house: P2; houseY: number; door: P2; mid: { pos: P2; y: number }; top: { pos: P2; y: number }; base: P2; pompom: P2; pompomAt: P2 }
+  | { id: 'post'; post: P2; scratch: P2; top: { pos: P2; y: number; edge: P2 } }
+  | { id: 'tunnel'; ends: [P2, P2] }
+  | { id: 'hammock'; bed: { pos: P2; y: number }; edge: P2 }
+  | { id: 'boxes'; boxes: Array<{ in: P2; door: P2 }> }
+  | { id: 'tower'; steps: Array<{ pos: P2; y: number }>; base: P2 }
+  | { id: 'wheel'; inside: P2; entry: P2 }
+  | { id: 'track'; spots: Array<{ at: P2; face: number }> };
+
 export interface PlayParts {
   zone: P2;
-  /** Внутри домика (пол домика на высоте houseY) и точка перед входом. */
-  house: P2;
-  houseY: number;
-  door: P2;
-  /** Средняя полка и верхняя лежанка: где лежать, высота; base — откуда запрыгивать с пола. */
-  mid: { pos: P2; y: number };
-  top: { pos: P2; y: number };
-  base: P2;
-  /** Столбик-когтеточка: сам столбик, где кошка стоит перед ним (смотрит на −z), полочка сверху. */
-  post: P2;
-  scratch: P2;
-  postTop: { pos: P2; y: number; edge: P2 };
-  /** Помпон на верёвочке под средней полкой и где кошка стоит, чтобы бить его лапой. */
-  pompom: P2;
-  pompomAt: P2;
-  /** Концы тоннеля (кошка пробегает насквозь). */
-  tunnel: [P2, P2];
+  items: PlayItemSpots[];
 }
 
-export function playParts(zone: P2): PlayParts {
+/** Места кошек у игрушки id, стоящей на месте o (мировые координаты). */
+function itemSpots(id: PlayItemId, o: P2): PlayItemSpots {
   const K = PLAY_ZONE.k;
-  const at = (x: number, z: number): P2 => ({ x: zone.x + x * K, z: zone.z + z * K });
-  const post = at(0.6, -0.45);
-  return {
-    zone,
-    house: at(-0.55, -0.32),
-    houseY: 0.07,
-    door: at(-0.55, 0.14),
-    mid: { pos: at(-0.12, -0.42), y: 0.82 * K },
-    top: { pos: at(-0.55, -0.32), y: 1.32 * K },
-    base: at(-0.08, 0.14),
-    post,
-    // Перед столбиком так, чтобы передние лапы доставали до него.
-    scratch: { x: post.x, z: post.z + 0.33 },
-    postTop: { pos: post, y: 0.8 * K, edge: at(0.6, 0.08) },
-    pompom: at(0.0, -0.3),
-    pompomAt: { x: zone.x, z: zone.z - 0.3 * K + 0.3 },
-    tunnel: [at(-0.48, 0.45), at(0.9, 0.45)],
-  };
+  const at = (x: number, z: number): P2 => ({ x: o.x + x, z: o.z + z });
+  switch (id) {
+    case 'tree':
+      return { id, house: at(0, 0), houseY: 0.07, door: at(0, 0.644), mid: { pos: at(0.602, -0.14), y: 0.82 * K }, top: { pos: at(0, 0), y: 1.32 * K }, base: at(0.66, 0.644), pompom: at(0.77, 0.03), pompomAt: at(0.77, 0.33) };
+    case 'post':
+      return { id, post: at(0, 0), scratch: at(0, 0.33), top: { pos: at(0, 0), y: 0.8 * K, edge: at(0, 0.742) } };
+    case 'tunnel':
+      return { id, ends: [at(-0.966, 0), at(0.966, 0)] };
+    case 'hammock':
+      return { id, bed: { pos: at(0, 0), y: 0.47 }, edge: at(0, 0.5) };
+    case 'boxes':
+      return { id, boxes: [{ in: at(-0.2, -0.05), door: at(-0.2, 0.42) }, { in: at(0.22, 0.1), door: at(0.22, 0.56) }] };
+    case 'tower':
+      return { id, steps: [{ pos: at(0.5, 0.15), y: 0.55 }, { pos: at(0.0, -0.12), y: 1.05 }, { pos: at(0.25, 0), y: 1.6 }], base: at(0.85, 0.6) };
+    case 'wheel':
+      return { id, inside: at(0.25, 0), entry: at(0.25, 0.6) };
+    case 'track':
+      return { id, spots: [{ at: at(0, 0.48), face: Math.PI }, { at: at(-0.5, -0.45), face: 0.4 }] };
+  }
 }
 
-/** Препятствия игровой зоны для кошек: домик и столбик (по коврику и через тоннель — можно). */
-export function playCatBoxes(zone: P2): Box[] {
-  const p = playParts(zone);
-  // Кошка обходит препятствия с запасом 0,3 — коробки меньше самих домика и столбика.
-  return [box(p.house.x, p.house.z, 0.05, 0.05), box(p.post.x, p.post.z, 0, 0)];
+export function playParts(zone: P2, play: PlayZoneState = PLAY_START): PlayParts {
+  return { zone, items: playLayout(play).map((it) => itemSpots(it.id, { x: zone.x + it.x, z: zone.z + it.z })) };
+}
+
+/** Препятствия игровой зоны для кошек: домик, столбики, коробки, колесо (по коврику и через тоннель — можно). */
+export function playCatBoxes(zone: P2, play: PlayZoneState = PLAY_START): Box[] {
+  // Кошка обходит препятствия с запасом 0,3 — коробки меньше самих предметов.
+  const out: Box[] = [];
+  for (const it of playParts(zone, play).items) {
+    if (it.id === 'tree') out.push(box(it.house.x, it.house.z, 0.05, 0.05));
+    else if (it.id === 'post') out.push(box(it.post.x, it.post.z, 0, 0));
+    else if (it.id === 'boxes') for (const b of it.boxes) out.push(box(b.in.x, b.in.z, 0, 0));
+    else if (it.id === 'tower') out.push(box(it.steps[2]!.pos.x, it.steps[2]!.pos.z, 0, 0));
+    else if (it.id === 'wheel') out.push(box(it.inside.x, it.inside.z, 0.35, 0));
+  }
+  return out;
 }
 
 /**
  * Места столиков кафе ступени tier (сколько — по ступени): свободные точки зала поближе к
  * стойке с витриной, не на местах мебели, не у мисок, лотка, двери и игровой зоны, с проходами.
  */
-export function cafeTables(tier: number): P2[] {
+export function cafeTables(tier: number, playSizeIdx = 0): P2[] {
   const n = HOUSES[Math.max(0, Math.min(HOUSES.length - 1, tier))]!.tables;
   const { L, R, B, F } = houseRect(tier);
-  const z0 = playZoneAt(tier);
-  const keep = [...fixedKeep(tier), box(z0.x, z0.z, PLAY_ZONE.hw + 0.3, PLAY_ZONE.hd + 0.3)];
+  const z0 = playZoneAt(tier, playSizeIdx);
+  const ps = playSize(playSizeIdx);
+  const keep = [...fixedKeep(tier), box(z0.x, z0.z, ps.w / 2 + 0.3, ps.d / 2 + 0.3)];
   const cand: P2[] = [];
   for (let x = R - 2.0; x >= L + 1.6; x -= 0.25) for (let z = B + 2.0; z <= F - 1.2; z += 0.25) cand.push({ x, z });
   const goal = { x: R - 4.2, z: B + 4.0 };
@@ -267,8 +302,8 @@ export function cafeTables(tier: number): P2[] {
 }
 
 /** Стулья у столиков: точка стула и куда смотрит сидящий (на столик). */
-export function tableChairs(tier: number): Array<{ pos: P2; face: number; table: number }> {
-  return cafeTables(tier).flatMap((t, i) => [
+export function tableChairs(tier: number, playSizeIdx = 0): Array<{ pos: P2; face: number; table: number }> {
+  return cafeTables(tier, playSizeIdx).flatMap((t, i) => [
     { pos: { x: t.x - TABLE.chair, z: t.z }, face: Math.PI / 2, table: i },
     { pos: { x: t.x + TABLE.chair, z: t.z }, face: -Math.PI / 2, table: i },
   ]);
@@ -297,7 +332,7 @@ export const petsAt = (tier = 1) => {
 export const PETS = petsAt(1);
 
 /** Предметы дома: базовые на своих местах, купленные — по свободным местам своего вида; pets — есть кошки (миски и лоток). */
-export function homeLayout(furniture: readonly ObjectId[], pets = false, tier = 0): PlacedHome[] {
+export function homeLayout(furniture: readonly ObjectId[], pets = false, tier = 0, play: PlayZoneState = PLAY_START): PlacedHome[] {
   const { L, R, B } = houseRect(tier);
   // Дверь остаётся у прежней передней части зала (рядом с лотком).
   const F = frontOf(tier);
@@ -309,10 +344,11 @@ export function homeLayout(furniture: readonly ObjectId[], pets = false, tier = 
     { id: 'door', pos: { x: L + 0.06, z: F - 1.3 }, rot: Math.PI / 2, use: { x: L + 1.1, z: F - 1.3 }, box: null },
   ];
   // Игровая зона для кошек: подходят к ней спереди.
-  const pz = playZoneAt(tier);
-  base.push({ id: 'play_zone', pos: pz, rot: 0, use: { x: pz.x + 0.2, z: pz.z + PLAY_ZONE.hd + 0.55 }, box: box(pz.x, pz.z, PLAY_ZONE.hw, PLAY_ZONE.hd) });
+  const pz = playZoneAt(tier, play.size);
+  const ps = playSize(play.size);
+  base.push({ id: 'play_zone', pos: pz, rot: 0, use: { x: pz.x + 0.2, z: pz.z + ps.d / 2 + 0.55 }, box: box(pz.x, pz.z, ps.w / 2, ps.d / 2) });
   // Столики: подходят к ним спереди (со стороны зрителя).
-  for (const tb of cafeTables(tier)) base.push({ id: 'table', pos: tb, rot: 0, use: { x: tb.x, z: tb.z + TABLE.hd + 0.75 }, box: box(tb.x, tb.z, TABLE.hw, TABLE.hd) });
+  for (const tb of cafeTables(tier, play.size)) base.push({ id: 'table', pos: tb, rot: 0, use: { x: tb.x, z: tb.z + TABLE.hd + 0.75 }, box: box(tb.x, tb.z, TABLE.hw, TABLE.hd) });
   const out: PlacedHome[] = base.map((p) => ({ ...p, y: 0 }));
   const pools: Record<'slot' | 'wall' | 'floor', Slot[]> = {
     slot: furnitureSlots(tier).slice(0, slotsFor('slot', tier)),

@@ -24,7 +24,12 @@ import {
   NIGHT_GUESTS,
   NIGHT_HOURS,
   OBJECTS,
+  PLAY_BOREDOM_MIN,
+  PLAY_ITEMS,
+  PLAY_RUGS,
+  PLAY_SIZES,
   PLAY_ZONE_BOREDOM,
+  playItemById,
   TICKET,
   WATER_RATE,
   actionById,
@@ -35,7 +40,8 @@ import {
 import { APARTMENT_DECOR, CAFE_DECOR, DECOR_KINDS, FINISHES, KITS, NEW_KIT, OLD_KIT, OLD_KIT_COMFORT, finishById, kitById, type KitId } from './homeDecor';
 import { rng } from './random';
 import { FACE_PARTS, type Appearance, type FacePart, type GameState, type HairStyle } from './state';
-import type { ActionDef, Cat, CatBreed, DemonOffer, Grave, LifeEffect, LifeResult, LifeState, ObjectId, SceneId, Txt } from './lifeTypes';
+import type { ActionDef, Cat, CatBreed, DemonOffer, Grave, LifeEffect, LifeResult, LifeState, ObjectId, PlayItemId, PlayZoneState, SceneId, Txt } from './lifeTypes';
+import { PLAY_START, playLayout, playSizeFits } from './lifeMap';
 import { addDays } from './dates';
 
 /**
@@ -78,6 +84,7 @@ export function newLife(): LifeState {
     buzz: 0,
     demon: null,
     graves: [],
+    play: structuredClone(PLAY_START),
     event: null,
     last: null,
     stats: { visitors: 0, earned: 0, rescued: 0, lost: 0, repMoney: 0, meals: 0 },
@@ -151,6 +158,16 @@ const graveOf = (o: DemonOffer): Grave => {
   return g;
 };
 
+const isPlayItem = (x: unknown): x is PlayItemId => PLAY_ITEMS.some((p) => p.id === x);
+
+function migratePlay(raw: unknown): PlayZoneState {
+  const r = (raw ?? {}) as Partial<PlayZoneState>;
+  if (!raw || typeof raw !== 'object') return structuredClone(PLAY_START);
+  const owned = [...new Set([...PLAY_START.owned, ...(Array.isArray(r.owned) ? r.owned.filter(isPlayItem) : [])])];
+  const items = Array.isArray(r.items) ? [...new Set(r.items.filter((x) => isPlayItem(x) && owned.includes(x)))] : [...PLAY_START.items];
+  return { size: clamp(Math.round(num(r.size, 0)), 0, PLAY_SIZES.length - 1), items, owned, rug: PLAY_RUGS.some((x) => x.id === r.rug) ? r.rug! : PLAY_START.rug };
+}
+
 function migrateOffer(o: unknown): DemonOffer | null {
   const d = o as Partial<DemonOffer> | null;
   if (!d || typeof d.day !== 'string' || !isBreed(d.breed) || !DEMON_EXERCISES.some(([e]) => e === d.exercise)) return null;
@@ -199,6 +216,7 @@ export function migrateLife(raw: Partial<LifeState> | undefined): LifeState {
     buzz: clamp(num(r.buzz, 0), -5, 20),
     demon: migrateOffer(r.demon),
     graves: migrateGraves(r.graves, migrateOffer(r.demon)),
+    play: migratePlay(r.play),
     event: r.event && lifeEventById(r.event.id) ? r.event : null,
     last: null,
     stats: {
@@ -239,7 +257,7 @@ export function decorComfort(life: LifeState): number {
 
 /** Уют кафе: ремонт, мебель и декор, игровая зона, простор (до 40); грязный лоток его портит. */
 export function comfort(life: LifeState): number {
-  const items = [...life.furniture, ...HOME_OBJECTS].reduce((a, id) => a + (OBJECTS[id].comfort ?? 0), 0);
+  const items = [...life.furniture, ...HOME_OBJECTS].reduce((a, id) => a + (OBJECTS[id].comfort ?? 0), 0) + playComfort(life.play);
   const space = HOUSES[life.house]?.comfort ?? 0;
   return Math.max(0, Math.min(40, items + space + decorComfort(life)) - (litterDirty(life) ? 5 : 0));
 }
@@ -273,6 +291,81 @@ export function guestDemand(life: LifeState): number {
 
 /** Примерный доход в час (для подсказок): вход и еда (если она есть на витрине). */
 export const hourlyIncome = (life: LifeState): number => Math.round((guestDemand(life) / 1.5) * (ticket(life) + (life.food > 0 ? FOOD.chance * FOOD.price : 0)));
+
+// ─── Игровая зона ──────────────────────────────────────────────────────
+
+/** Уют от игровой зоны сверх базового: размер и игрушки. */
+export function playComfort(play: PlayZoneState): number {
+  return (PLAY_SIZES[play.size]?.comfort ?? 0) + playLayout(play).reduce((a, it) => a + playItemById(it.id).comfort, 0);
+}
+
+/** Во сколько раз медленнее скучают кошки: базовая зона и каждая игрушка в ней. */
+export function playBoredom(play: PlayZoneState): number {
+  return Math.max(PLAY_BOREDOM_MIN, PLAY_ZONE_BOREDOM - playLayout(play).reduce((a, it) => a + playItemById(it.id).fun, 0));
+}
+
+/** Свободных мест вида kind в зоне. */
+export function playFree(play: PlayZoneState, kind: 'big' | 'small' | 'long'): number {
+  const all = PLAY_SIZES[play.size]!.slots.filter((x) => x.kind === kind).length;
+  return all - playLayout(play).filter((it) => playItemById(it.id).kind === kind).length;
+}
+
+export type PlayBlocker = 'placed' | 'space' | 'money' | null;
+
+/** Поставить игрушку в зону: уже стоит, нет места её вида, нет денег (купленную — бесплатно). */
+export function playBlocker(s: GameState, id: PlayItemId): PlayBlocker {
+  const play = s.life.play;
+  if (play.items.includes(id)) return 'placed';
+  if (playFree(play, playItemById(id).kind) <= 0) return 'space';
+  if (!play.owned.includes(id) && s.gold < playItemById(id).price) return 'money';
+  return null;
+}
+
+/** Купить (если ещё нет) и поставить игрушку в зону. */
+export function placePlayItem(state: GameState, id: PlayItemId): GameState {
+  if (playBlocker(state, id)) return state;
+  const s = structuredClone(state);
+  const play = s.life.play;
+  if (!play.owned.includes(id)) {
+    s.gold -= playItemById(id).price;
+    play.owned.push(id);
+  }
+  play.items.push(id);
+  return s;
+}
+
+/** Убрать игрушку из зоны (остаётся купленной — вернуть можно бесплатно). */
+export function removePlayItem(state: GameState, id: PlayItemId): GameState {
+  if (!state.life.play.items.includes(id)) return state;
+  const s = structuredClone(state);
+  s.life.play.items = s.life.play.items.filter((x) => x !== id);
+  return s;
+}
+
+export type PlaySizeBlocker = 'max' | 'house' | 'money' | null;
+
+/** Расширить зону: следующий размер помещается в кафе этой ступени и хватает денег. */
+export function playSizeBlocker(s: GameState): PlaySizeBlocker {
+  const next = PLAY_SIZES[s.life.play.size + 1];
+  if (!next) return 'max';
+  if (s.life.house < next.needHouse || !playSizeFits(s.life.house, s.life.play.size + 1)) return 'house';
+  if (s.gold < next.cost) return 'money';
+  return null;
+}
+
+export function upgradePlaySize(state: GameState): GameState {
+  if (playSizeBlocker(state)) return state;
+  const s = structuredClone(state);
+  s.life.play.size += 1;
+  s.gold -= PLAY_SIZES[s.life.play.size]!.cost;
+  return s;
+}
+
+/** Цвет коврика (бесплатно). */
+export function setPlayRug(state: GameState, rug: string): GameState {
+  if (!PLAY_RUGS.some((x) => x.id === rug) || state.life.play.rug === rug) return state;
+  return { ...state, life: { ...state.life, play: { ...state.life.play, rug } } };
+}
 
 // ─── Возраст кошек ─────────────────────────────────────────────────────
 
@@ -328,7 +421,7 @@ function catsLive(life: LifeState, hours: number, night: boolean, guests: number
     }
     // Ночью кошки спят, днём скучают, но гости с ними играют.
     // В игровой зоне кошки играют сами — скучают медленнее.
-    c.play = clamp(c.play - CAT_RATES.play * PLAY_ZONE_BOREDOM * hours * (night ? 0.4 : 1) * (isKitten(c, life.day) ? 1.5 : 1) + fun, 0, 100);
+    c.play = clamp(c.play - CAT_RATES.play * playBoredom(life.play) * hours * (night ? 0.4 : 1) * (isKitten(c, life.day) ? 1.5 : 1) + fun, 0, 100);
     life.water = clamp(life.water - WATER_RATE * hours * (night ? 0.6 : 1), 0, 100);
   }
 }
@@ -995,6 +1088,7 @@ export function adminBuyAll(state: GameState): GameState {
   s.life.furniture = [...FURNITURE];
   s.life.finishes = [...new Set([...s.life.finishes, ...FINISHES.map((f) => f.id)])];
   for (const k of KITS) s.life.kit[k.id] = 1;
+  s.life.play.owned = PLAY_ITEMS.map((x) => x.id);
   return s;
 }
 

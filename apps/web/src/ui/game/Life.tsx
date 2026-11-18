@@ -8,6 +8,11 @@ import {
   catGrowth,
   catMood,
   catName,
+  playBlocker,
+  playBoredom,
+  playComfort,
+  playFree,
+  playSizeBlocker,
   tomorrowOffer,
   clock,
   comfort,
@@ -29,7 +34,7 @@ import {
 } from '../../game/life';
 import { Renovation } from './Renovation';
 import { catBreedText, catMeta } from './catText';
-import { BOWL_MAX, FOOD, HOUSES, OBJECTS, actionById, lifeEventById } from '../../game/lifeContent';
+import { BOWL_MAX, FOOD, HOUSES, OBJECTS, PLAY_ITEMS, PLAY_RUGS, PLAY_SIZES, actionById, lifeEventById } from '../../game/lifeContent';
 import { demonLayout, homeLayout, type P2 } from '../../game/lifeMap';
 import type { ActionDef, ObjectId } from '../../game/lifeTypes';
 import { useI18n, type I18nKey } from '../../i18n';
@@ -41,7 +46,7 @@ import { DemonCard } from './DemonCard';
 const LifeScene3D = lazy(() => import('./three/LifeScene3D'));
 
 /** Предметы текущей локации (для похода сима к ним). */
-const layoutOf = (st: GameState) => (st.life.scene === 'cafe' ? homeLayout(st.life.furniture, st.life.cats.length > 0, st.life.house) : demonLayout());
+const layoutOf = (st: GameState) => (st.life.scene === 'cafe' ? homeLayout(st.life.furniture, st.life.cats.length > 0, st.life.house, st.life.play) : demonLayout());
 
 /** Нужные поля события указателя (общие для React и DOM). */
 interface PointerLike {
@@ -368,21 +373,88 @@ function FurnitureList({ state }: { state: GameState }) {
   );
 }
 
+/** Игровая зона для кошек: размер (расширить), игрушки (купить, поставить, убрать), коврик. */
+function PlayZoneCard({ state }: { state: GameState }) {
+  const { t, tf, lang } = useI18n();
+  const { life } = useGame();
+  const play = state.life.play;
+  const size = PLAY_SIZES[play.size]!;
+  const next = PLAY_SIZES[play.size + 1];
+  const sb = playSizeBlocker(state);
+  return (
+    <>
+      <div className="card inner">
+        <div className="muted small">{t('play.size')}</div>
+        <b>
+          🧶 {size.name[lang]} · {size.w}×{size.d} м
+        </b>
+        <div className="small">{tf('play.info', { slots: size.slots.length, comfort: playComfort(play) + 2, slow: Math.round((1 - playBoredom(play)) * 100) })}</div>
+        {next ? (
+          <>
+            <div className="small">{tf('play.next', { name: next.name[lang], w: next.w, d: next.d, slots: next.slots.length })}</div>
+            <button className="btn primary small" disabled={sb !== null} onClick={() => life.upgradePlay()}>
+              {sb === 'house' ? tf('play.needHouse', { name: HOUSES[next.needHouse]!.name[lang] }) : tf('play.upgrade', { n: next.cost })}
+            </button>
+          </>
+        ) : (
+          <p className="good small">{t('play.max')}</p>
+        )}
+      </div>
+      <div className="small">{t('play.rug')}</div>
+      <div className="rug-row">
+        {PLAY_RUGS.map((r) => (
+          <button key={r.id} className={`rug-chip ${play.rug === r.id ? 'on' : ''}`} style={{ background: r.color, borderColor: r.edge }} title={r.name[lang]} aria-label={r.name[lang]} onClick={() => life.setRug(r.id)} />
+        ))}
+      </div>
+      <p className="muted small">{tf('play.free', { big: playFree(play, 'big'), small: playFree(play, 'small'), long: playFree(play, 'long') })}</p>
+      <ul className="life-list">
+        {PLAY_ITEMS.map((it) => {
+          const placed = play.items.includes(it.id);
+          const owned = play.owned.includes(it.id);
+          const b = playBlocker(state, it.id);
+          return (
+            <li key={it.id}>
+              <div>
+                <b>
+                  {it.icon} {it.name[lang]}
+                </b>
+                <div className="muted small">
+                  {it.desc[lang]} · {t(`play.kind.${it.kind}` as I18nKey)}
+                  {it.comfort ? ` · ✨+${it.comfort}` : ''}
+                </div>
+              </div>
+              {placed ? (
+                <button className="btn ghost small" onClick={() => life.removePlay(it.id)}>
+                  {t('life.remove')}
+                </button>
+              ) : (
+                <button className={`btn small ${owned ? '' : 'primary'}`} disabled={b !== null} onClick={() => life.placePlay(it.id)}>
+                  {b === 'space' ? t('play.noSpace') : owned ? t('play.place') : `◈ ${it.price}`}
+                </button>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+    </>
+  );
+}
+
 type Sheet = null | 'phone' | 'demon';
-type PhoneTab = 'status' | 'cafe';
+type PhoneTab = 'status' | 'cafe' | 'play';
 
 function PhoneSheet({ state, tab, setTab }: { state: GameState; tab: PhoneTab; setTab(t: PhoneTab): void }) {
   const { t } = useI18n();
   return (
     <div className="phone">
       <div className="segmented">
-        {(['status', 'cafe'] as const).map((x) => (
+        {(['status', 'cafe', 'play'] as const).map((x) => (
           <button key={x} className={tab === x ? 'on' : ''} onClick={() => setTab(x)}>
             {t(`life.tab.${x}` as I18nKey)}
           </button>
         ))}
       </div>
-      <div className="phone-body">{tab === 'status' ? <CafeStatus state={state} /> : <FurnitureList state={state} />}</div>
+      <div className="phone-body">{tab === 'status' ? <CafeStatus state={state} /> : tab === 'play' ? <PlayZoneCard state={state} /> : <FurnitureList state={state} />}</div>
     </div>
   );
 }
@@ -502,8 +574,8 @@ export function LifeTab({ state, onTrain, onRescue }: { state: GameState; onTrai
       if (out.train) onTrain();
       if (out.rescue) onRescue(out.rescue);
       if (out.open === 'demon') setSheet('demon');
-      else if (out.open === 'cafe') {
-        setPhoneTab('cafe');
+      else if (out.open === 'cafe' || out.open === 'play') {
+        setPhoneTab(out.open);
         setSheet('phone');
       }
       return;
@@ -711,6 +783,7 @@ export function LifeTab({ state, onTrain, onRescue }: { state: GameState; onTrai
               onSettled={(k: number) => settled.current(k)}
               cats={L.scene === 'cafe' ? catsView : []}
               pets={pets}
+              play={L.play}
               food={food}
               perform={perform}
               catSpots={catSpots}

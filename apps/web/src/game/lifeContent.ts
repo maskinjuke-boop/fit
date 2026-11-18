@@ -1,5 +1,5 @@
 import type { ExerciseId } from '../tracking/exercise';
-import type { ActionDef, CatBreed, LifeEffect, ObjectId, Txt } from './lifeTypes';
+import type { ActionDef, CatBreed, LifeEffect, ObjectId, PlayItemId, Txt } from './lifeTypes';
 
 /**
  * Содержимое котокафе: предметы и мебель, ступени кафе (расширение — по числу кошек),
@@ -144,8 +144,110 @@ export const BOWL_MAX = 6;
 export const LITTER_DIRTY = 60;
 /** Как быстро падают потребности кошки (в час игрового времени). */
 export const CAT_RATES = { fed: 5, play: 4, toilet: 8 } as const;
-/** Игровая зона: кошки играют сами — скучают медленнее (доля от обычного). */
+/** Игровая зона: кошки играют сами — скучают медленнее (доля от обычного; с каждой игрушкой — ещё медленнее). */
 export const PLAY_ZONE_BOREDOM = 0.75;
+export const PLAY_BOREDOM_MIN = 0.5;
+
+// ─── Игровая зона ──────────────────────────────────────────────────────
+
+/** Вид места в зоне: большое (домик, башня, колесо), малое (столбик, гамак, коробки), длинное (тоннель, трек). */
+export type PlaySlotKind = 'big' | 'small' | 'long';
+
+export interface PlaySizeDef {
+  name: Txt;
+  /** Коврик, м. */
+  w: number;
+  d: number;
+  /** Места: вид и где (от середины зоны, м). */
+  slots: ReadonlyArray<{ kind: PlaySlotKind; x: number; z: number }>;
+  cost: number;
+  /** С какой ступени кафе помещается. */
+  needHouse: number;
+  comfort: number;
+}
+
+export const PLAY_SIZES: readonly PlaySizeDef[] = [
+  {
+    name: t('Игровой уголок', 'Play corner'),
+    w: 2.8,
+    d: 2.2,
+    slots: [
+      { kind: 'big', x: -0.77, z: -0.45 },
+      { kind: 'small', x: 0.84, z: -0.63 },
+      { kind: 'long', x: 0.29, z: 0.63 },
+    ],
+    cost: 0,
+    needHouse: 0,
+    comfort: 0,
+  },
+  {
+    name: t('Игровая комната', 'Play room'),
+    w: 3.8,
+    d: 2.6,
+    slots: [
+      { kind: 'big', x: -1.45, z: -0.7 },
+      { kind: 'small', x: -0.1, z: -0.85 },
+      { kind: 'big', x: 0.8, z: -0.7 },
+      { kind: 'long', x: -0.9, z: 0.75 },
+      { kind: 'small', x: 1.2, z: 0.7 },
+    ],
+    cost: 600,
+    needHouse: 1,
+    comfort: 1,
+  },
+  {
+    name: t('Котоплощадка', 'Cat playground'),
+    w: 4.8,
+    d: 3.0,
+    slots: [
+      { kind: 'big', x: -1.95, z: -0.85 },
+      { kind: 'small', x: -0.55, z: -1.0 },
+      { kind: 'big', x: 0.35, z: -0.85 },
+      { kind: 'small', x: 1.75, z: -1.0 },
+      { kind: 'long', x: -1.4, z: 0.85 },
+      { kind: 'long', x: 1.0, z: 0.85 },
+      { kind: 'small', x: 1.95, z: 0.75 },
+    ],
+    cost: 1800,
+    needHouse: 2,
+    comfort: 2,
+  },
+];
+
+export interface PlayItemDef {
+  id: PlayItemId;
+  icon: string;
+  name: Txt;
+  desc: Txt;
+  kind: PlaySlotKind;
+  price: number;
+  comfort: number;
+  /** На сколько медленнее скучают кошки (доля). */
+  fun: number;
+}
+
+export const PLAY_ITEMS: readonly PlayItemDef[] = [
+  { id: 'tree', icon: '🏠', name: t('Домик-когтеточка', 'Cat tree house'), desc: t('Домик, полка и лежанка наверху, помпон на верёвочке', 'A house, a shelf, a bed on top and a pom-pom on a string'), kind: 'big', price: 0, comfort: 0, fun: 0 },
+  { id: 'post', icon: '🪵', name: t('Столбик-когтеточка', 'Scratching post'), desc: t('Точить когти и сидеть на полочке', 'For scratching and sitting on the little top'), kind: 'small', price: 0, comfort: 0, fun: 0 },
+  { id: 'tunnel', icon: '🌀', name: t('Тоннель', 'Tunnel'), desc: t('Шуршащий тоннель — пробегать насквозь', 'A rustling tunnel to dash through'), kind: 'long', price: 0, comfort: 0, fun: 0 },
+  { id: 'boxes', icon: '📦', name: t('Коробки', 'Boxes'), desc: t('Две картонные коробки: кошки сидят в них и выглядывают', 'Two cardboard boxes: the cats sit inside and peek out'), kind: 'small', price: 40, comfort: 1, fun: 0.02 },
+  { id: 'hammock', icon: '🛏️', name: t('Гамак', 'Hammock'), desc: t('Кошачий гамак на стойках — спать и качаться', 'A cat hammock on stands for naps and swaying'), kind: 'small', price: 180, comfort: 1, fun: 0.03 },
+  { id: 'track', icon: '🎾', name: t('Трек с мячиками', 'Ball track'), desc: t('Мячики катаются по кругу — кошки гоняют их лапой', 'Balls roll in a ring — the cats bat them around'), kind: 'long', price: 120, comfort: 1, fun: 0.04 },
+  { id: 'tower', icon: '🗼', name: t('Высокая башня', 'Tall tower'), desc: t('Три полки ступеньками до самого верха', 'Three shelves stepping up to the very top'), kind: 'big', price: 380, comfort: 2, fun: 0.04 },
+  { id: 'wheel', icon: '🎡', name: t('Беговое колесо', 'Cat wheel'), desc: t('Большое колесо: кошки бегают в нём, гости в восторге', 'A big wheel the cats run in — guests love it'), kind: 'big', price: 450, comfort: 3, fun: 0.06 },
+];
+export const playItemById = (id: PlayItemId): PlayItemDef => PLAY_ITEMS.find((x) => x.id === id)!;
+/** Что стоит в зоне сначала. */
+export const PLAY_DEFAULT: readonly PlayItemId[] = ['tree', 'post', 'tunnel'];
+
+/** Цвета коврика игровой зоны. */
+export const PLAY_RUGS: ReadonlyArray<{ id: string; name: Txt; color: string; edge: string; paw: string }> = [
+  { id: 'mint', name: t('Мятный', 'Mint'), color: '#bfe0cf', edge: '#7fb59a', paw: '#8fc4aa' },
+  { id: 'pink', name: t('Розовый', 'Pink'), color: '#f6cfd9', edge: '#d98ea3', paw: '#e7a9ba' },
+  { id: 'sky', name: t('Небесный', 'Sky'), color: '#c9def5', edge: '#86a9d4', paw: '#9dbbe0' },
+  { id: 'lilac', name: t('Сиреневый', 'Lilac'), color: '#dccdf0', edge: '#a991cf', paw: '#bba7dc' },
+  { id: 'sand', name: t('Песочный', 'Sand'), color: '#efdfbf', edge: '#c9ad78', paw: '#d9c193' },
+];
 /** Сколько воды (из 100) выпивает кошка за час игрового времени. */
 export const WATER_RATE = 2.5;
 export const CAT_NAMES: readonly Txt[] = [
@@ -221,6 +323,7 @@ export const ACTIONS: readonly ActionDef[] = [
   { id: 'armchair', icon: '🪑', label: t('Посидеть в кресле', 'Sit in the armchair'), at: 'armchair', minutes: 30, effect: fx({ catPlay: 8 }) },
   { id: 'cinema', icon: '🍿', label: t('Кино про котиков', 'A cat movie night'), at: 'big_tv', minutes: 120, effect: fx({ buzz: 3 }) },
   { id: 'dance', icon: '🎶', label: t('Включить мурлыкающий плейлист', 'Play the purring playlist'), at: 'smart_speaker', minutes: 30, effect: fx({ catsPlay: 8 }) },
+  { id: 'play_setup', icon: '🛠️', label: t('Игровая зона: расширить и обставить', 'Play area: expand and furnish'), at: 'play_zone', minutes: 0, open: 'play', effect: fx({}) },
   { id: 'laser', icon: '🪶', label: t('Поиграть с кошками дразнилкой', 'Play with the cats using a teaser wand'), at: 'play_zone', minutes: 20, effect: fx({ catsPlay: 18 }) },
   { id: 'new_toys', icon: '🪀', label: t('Повесить новые игрушки', 'Hang up new toys'), at: 'play_zone', minutes: 10, cost: 15, effect: fx({ catsPlay: 25 }) },
   { id: 'cat_show', icon: '🎪', label: t('Устроить гостям котошоу', 'Put on a cat show for guests'), at: 'play_zone', minutes: 40, effect: fx({ catsPlay: 10, buzz: 2 }) },
