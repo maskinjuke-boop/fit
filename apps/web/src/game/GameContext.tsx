@@ -34,6 +34,8 @@ export interface AdminActions {
   unlockAll(): void;
   resetReroll(): void;
   refillNeeds(): void;
+  /** Любой инструмент (см. admin.ts и раздел администратора в life.ts): сохранение помечается тестовым. */
+  apply(fn: (s: GameState) => GameState | Result): GameEvent[];
   /** Перемотка игрового времени на n суток (может быть отрицательной). */
   shiftDays(n: number): GameEvent[];
   resetClock(): void;
@@ -184,6 +186,11 @@ export function GameProvider({ children }: { children: ReactNode }) {
       refillNeeds: () => {
         if (ref.current) commit(refillNeeds(ref.current));
       },
+      apply: (fn) =>
+        run((s) => {
+          const r = fn(touch(s));
+          return 'events' in r ? r : { state: r, events: [] };
+        }),
       shiftDays: (n) => {
         const next = offsetRef.current + n;
         offsetRef.current = next;

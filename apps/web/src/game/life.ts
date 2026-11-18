@@ -32,7 +32,7 @@ import {
   mountOf,
   slotsFor,
 } from './lifeContent';
-import { APARTMENT_DECOR, CAFE_DECOR, DECOR_KINDS, KITS, NEW_KIT, OLD_KIT, OLD_KIT_COMFORT, finishById, kitById, type KitId } from './homeDecor';
+import { APARTMENT_DECOR, CAFE_DECOR, DECOR_KINDS, FINISHES, KITS, NEW_KIT, OLD_KIT, OLD_KIT_COMFORT, finishById, kitById, type KitId } from './homeDecor';
 import { rng } from './random';
 import { FACE_PARTS, type Appearance, type FacePart, type GameState, type HairStyle } from './state';
 import type { ActionDef, Cat, CatBreed, DemonOffer, Grave, LifeEffect, LifeResult, LifeState, ObjectId, SceneId, Txt } from './lifeTypes';
@@ -530,8 +530,16 @@ export function offerLeftMs(now: Date): number {
   return Math.max(0, end.getTime() - now.getTime());
 }
 
+/** Режим администратора: где кошка на ленте (доля пути), независимо от часов; null — по часам. */
+let beltOverride: number | null = null;
+export const setBeltOverride = (f: number | null): void => {
+  beltOverride = f === null ? null : Math.min(1, Math.max(0, f));
+};
+export const getBeltOverride = (): number | null => beltOverride;
+
 /** Доля прошедших суток (0 — полночь, 1 — следующая полночь): столько проехала кошка по ленте. */
 export function dayFraction(now: Date): number {
+  if (beltOverride !== null) return beltOverride;
   const start = new Date(now);
   start.setHours(0, 0, 0, 0);
   const end = new Date(start);
@@ -862,3 +870,144 @@ export function autoAction(state: GameState, recent: readonly string[] = []): Ac
 }
 
 export type { SceneId };
+
+// ─── Для режима администратора (тесты кафе и лавки) ────────────────────
+
+/** Добавить кошку породы breed сразу в кафе (в обход демона), если есть место. */
+export function adminAddCat(state: GameState, breed: CatBreed, kitten = false): GameState {
+  if (state.life.cats.length >= maxCats(state.life)) return state;
+  const s = structuredClone(state);
+  const life = s.life;
+  const r = rng(`${s.character.id}:admin-cat:${life.cats.length}:${life.day}:${life.minute}`);
+  const cat: Cat = { id: nextCatId(life), breed, name: freeCatName(life, r), adopted: life.day, fed: 80, play: 70, toilet: 100, sex: r() < 0.5 ? 'f' : 'm', born: life.day - (kitten ? 2 : CAT_AGE.GROWN + 6) };
+  if (!life.cats.length) {
+    life.bowl = BOWL_MAX;
+    life.water = 100;
+    life.litter = 0;
+  }
+  life.cats.push(cat);
+  life.guests = Math.round(guestDemand(life));
+  return s;
+}
+
+/** Заполнить кафе кошками разных пород до предела ступени. */
+export function adminFillCats(state: GameState): GameState {
+  let s = state;
+  for (let i = 0; s.life.cats.length < maxCats(s.life) && i < 20; i += 1) s = adminAddCat(s, CAT_BREEDS[(s.life.cats.length + i) % CAT_BREEDS.length]!.id);
+  return s;
+}
+
+/** Убрать кошек из кафе (all — всех, иначе последнюю). */
+export function adminRemoveCats(state: GameState, all: boolean): GameState {
+  if (!state.life.cats.length) return state;
+  const s = structuredClone(state);
+  s.life.cats = all ? [] : s.life.cats.slice(0, -1);
+  s.life.guests = Math.round(guestDemand(s.life));
+  return s;
+}
+
+/** Потребности всех кошек: голодные, скучающие, «приспичило» (low) — или всё на максимум. */
+export function adminCatNeeds(state: GameState, v: { fed?: number; play?: number; toilet?: number }): GameState {
+  const s = structuredClone(state);
+  for (const c of s.life.cats) {
+    if (v.fed !== undefined) c.fed = v.fed;
+    if (v.play !== undefined) c.play = v.play;
+    if (v.toilet !== undefined) c.toilet = v.toilet;
+  }
+  return s;
+}
+
+/** Кошку дня не спасли: падает в жерло прямо сейчас (могилка, событие). */
+export function adminDropCat(state: GameState): { state: GameState; events: GameEvent[] } {
+  const o = state.life.demon;
+  if (!o || o.status !== 'waiting') return { state, events: [] };
+  const s = structuredClone(state);
+  const d = s.life.demon!;
+  d.status = 'lost';
+  s.life.stats.lost += 1;
+  s.life.graves = [...s.life.graves, graveOf(d)].slice(-GRAVES_MAX);
+  return { state: s, events: [{ kind: 'catLost', name: d.name, breed: d.breed }] };
+}
+
+/** Другая кошка дня (порода, упражнение, повторы — заново), прогресс сброшен. */
+export function adminRerollOffer(state: GameState, n: number): GameState {
+  const s = structuredClone(state);
+  const o = makeOffer(s, `${s.today}#${n}`);
+  o.day = s.today;
+  s.life.demon = o;
+  return s;
+}
+
+/** Могилки: убрать все или добавить n тестовых (разные породы и имена). */
+export function adminGraves(state: GameState, add: number): GameState {
+  const s = structuredClone(state);
+  if (add <= 0) s.life.graves = [];
+  else {
+    const at = s.life.graves.length;
+    for (let i = 0; i < add; i += 1) s.life.graves.push({ name: (at + i * 5) % CAT_NAMES.length, breed: CAT_BREEDS[(at + i) % CAT_BREEDS.length]!.id, sex: i % 2 ? 'm' : 'f', day: `admin-${at + i}` });
+    s.life.graves = s.life.graves.slice(-GRAVES_MAX);
+  }
+  return s;
+}
+
+/** Ступень кафе напрямую (без условий); лишние кошки остаются, пока их не убрать. */
+export function adminSetHouse(state: GameState, tier: number): GameState {
+  const s = structuredClone(state);
+  s.life.house = clamp(Math.round(tier), 0, HOUSES.length - 1);
+  s.life.food = Math.min(s.life.food, maxFood(s.life));
+  return s;
+}
+
+/** Промотать время в кафе на minutes (гости приходят и платят, кошки едят и скучают). */
+export function adminSkipTime(state: GameState, minutes: number): GameState {
+  const s = structuredClone(state);
+  passTime(s, minutes, startTally());
+  return s;
+}
+
+/** Поставить время суток в кафе (hour:00) без прохода времени. */
+export function adminSetHour(state: GameState, hour: number): GameState {
+  const s = structuredClone(state);
+  s.life.minute = clamp(Math.round(hour), 0, 23) * 60;
+  s.life.guests = Math.round(guestDemand(s.life));
+  return s;
+}
+
+/** Еда на витрине: полная или пустая. */
+export function adminFood(state: GameState, full: boolean): GameState {
+  const s = structuredClone(state);
+  s.life.food = full ? maxFood(s.life) : 0;
+  s.life.guests = Math.round(guestDemand(s.life));
+  return s;
+}
+
+/** Реклама: прибавка к гостям (buzz). */
+export function adminBuzz(state: GameState, add: number): GameState {
+  const s = structuredClone(state);
+  s.life.buzz = clamp(s.life.buzz + add, -5, 20);
+  s.life.guests = Math.round(guestDemand(s.life));
+  return s;
+}
+
+/** Вся мебель для кафе, вся отделка куплена, базовая мебель новая. */
+export function adminBuyAll(state: GameState): GameState {
+  const s = structuredClone(state);
+  s.life.furniture = [...FURNITURE];
+  s.life.finishes = [...new Set([...s.life.finishes, ...FINISHES.map((f) => f.id)])];
+  for (const k of KITS) s.life.kit[k.id] = 1;
+  return s;
+}
+
+/** Вызвать утреннее событие id прямо сейчас. */
+export function adminEvent(state: GameState, id: string): GameState {
+  if (!lifeEventById(id)) return state;
+  const s = structuredClone(state);
+  s.life.event = { id };
+  return s;
+}
+
+/** Перейти в локацию (кафе или лавка демона) без траты времени. */
+export function adminScene(state: GameState, scene: SceneId): GameState {
+  if (state.life.scene === scene) return state;
+  return { ...state, life: { ...state.life, scene, last: null } };
+}

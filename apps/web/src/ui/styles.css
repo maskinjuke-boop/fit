@@ -2516,3 +2516,8 @@ button {
 /* Лента к жерлу и завтрашняя кошка в карточке демона. */
 .demon-belt .need-bar span { background: linear-gradient(90deg, #ffb347, #ff4a1f); }
 .demon-tomorrow { margin-top: 8px; opacity: 0.9; }
+.admin-range { flex: 1; min-width: 120px; accent-color: #ff6a2a; }
+.admin-sheet h3 { margin-top: 14px; }
+.admin-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin: 6px 0; }
+.admin-grid .btn { padding: 8px 6px; font-size: 13px; }
+.admin-grid > * { min-width: 0; white-space: normal; line-height: 1.2; }

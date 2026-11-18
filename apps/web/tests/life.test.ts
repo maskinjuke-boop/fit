@@ -529,3 +529,46 @@ describe('раскладка', () => {
     expect(stickSpeed(1)).toBeCloseTo(RUN_SPEED, 6);
   });
 });
+
+describe('инструменты администратора для кафе и лавки', () => {
+  it('кошки, ступень, время, еда, лента, кошка дня и могилки', async () => {
+    const m = await import('../src/game/life');
+    let s = hero();
+    s = m.adminFillCats(m.adminSetHouse(s, 1));
+    expect(s.life.house).toBe(1);
+    expect(s.life.cats.length).toBe(HOUSES[1]!.cats);
+    expect(m.adminAddCat(s, 'bengal')).toBe(s);
+    s = m.adminRemoveCats(s, false);
+    expect(s.life.cats.length).toBe(HOUSES[1]!.cats - 1);
+    s = m.adminAddCat(s, 'sphynx', true);
+    expect(m.isKitten(s.life.cats.at(-1)!, s.life.day)).toBe(true);
+    s = m.adminCatNeeds(s, { play: 5 });
+    expect(s.life.cats.every((c) => c.play === 5)).toBe(true);
+    s = m.adminSetHour(s, 3);
+    expect(s.life.minute).toBe(180);
+    const day = s.life.day;
+    s = m.adminSkipTime(s, 24 * 60);
+    expect(s.life.day).toBe(day + 1);
+    expect(m.adminFood(s, false).life.food).toBe(0);
+    expect(m.adminFood(s, true).life.food).toBe(maxFood(s.life));
+    // Кошка дня: другая (на сегодня), уронить в жерло — могилка.
+    const o = s.life.demon!;
+    const other = m.adminRerollOffer(s, 3);
+    expect(other.life.demon!.day).toBe(s.today);
+    expect(JSON.stringify(other.life.demon)).not.toBe(JSON.stringify(o));
+    const dropped = m.adminDropCat(s);
+    expect(dropped.state.life.demon!.status).toBe('lost');
+    expect(dropped.state.life.graves.length).toBe(s.life.graves.length + 1);
+    expect(dropped.events[0]!.kind).toBe('catLost');
+    expect(m.adminGraves(s, 5).life.graves.length).toBe(s.life.graves.length + 5);
+    expect(m.adminGraves(dropped.state, 0).life.graves.length).toBe(0);
+    // Лента: положение задаётся вручную и возвращается к часам.
+    m.setBeltOverride(0.9);
+    expect(m.dayFraction(new Date(2026, 10, 5, 1, 0, 0))).toBe(0.9);
+    m.setBeltOverride(null);
+    expect(m.dayFraction(new Date(2026, 10, 5, 12, 0, 0))).toBeCloseTo(0.5, 3);
+    expect(m.adminScene(s, 'demon').life.scene).toBe('demon');
+    expect(m.adminBuyAll(s).life.furniture.length).toBe(FURNITURE.length);
+    expect(m.adminEvent(s, 'bakery').life.event!.id).toBe('bakery');
+  });
+});

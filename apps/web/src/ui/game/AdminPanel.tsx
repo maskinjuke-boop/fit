@@ -7,20 +7,51 @@ import type { ExerciseId } from '../../tracking/exercise';
 import { EXERCISES } from '../../tracking/exercises';
 import { downloadJson } from '../feedback';
 import { eventText } from './text';
+import {
+  adminAddCat,
+  adminBuyAll,
+  adminBuzz,
+  adminCatNeeds,
+  adminDropCat,
+  adminEvent,
+  adminFillCats,
+  adminFood,
+  adminGraves,
+  adminRemoveCats,
+  adminRerollOffer,
+  adminScene,
+  adminSetHouse,
+  adminSetHour,
+  adminSkipTime,
+  getBeltOverride,
+  setBeltOverride,
+} from '../../game/life';
+import { CAT_BREEDS, HOUSES, LIFE_EVENTS } from '../../game/lifeContent';
+import type { CatBreed } from '../../game/lifeTypes';
 
 /**
  * Режим администратора для тестирования. Включается ссылкой с ?admin,
  * выключается здесь же. Все действия идут через игровой движок.
  */
 export function AdminPanel({ onClose }: { onClose(): void }) {
-  const { t, tf } = useI18n();
+  const { t, tf, lang } = useI18n();
   const { state, admin } = useGame();
   const [level, setLevelInput] = useState(String(state ? levelOf(state.totalXp) : 1));
   const [exercise, setExercise] = useState<ExerciseId>('pushup');
   const [count, setCount] = useState('10');
   const [quality, setQuality] = useState('90');
   const [log, setLog] = useState<string[]>([]);
+  const [breed, setBreed] = useState<CatBreed>('ginger');
+  const [eventId, setEventId] = useState(LIFE_EVENTS[0]!.id);
+  const [belt, setBelt] = useState<number | null>(getBeltOverride());
+  const [reroll, setReroll] = useState(1);
   if (!state) return null;
+  const L = state.life;
+  const offer = L.demon;
+  const moveBelt = (v: number | null): void => {
+    setBeltOverride(v);
+    setBelt(v);
+  };
 
   const report = (events: GameEvent[]): void => {
     const lines = events.filter((e) => e.kind !== 'xp').map((e) => eventText(t, tf, e)).filter((x): x is string => !!x);
@@ -96,6 +127,105 @@ export function AdminPanel({ onClose }: { onClose(): void }) {
           </button>
           <button className="btn" onClick={() => admin.unlockAll()}>
             {t('adminUnlock')}
+          </button>
+        </div>
+
+        <h3>🐾 {t('adm.cafe')}</h3>
+        <p className="muted small">
+          {tf('adm.cafeNow', { cats: L.cats.length, max: HOUSES[L.house]!.cats, tier: L.house, guests: L.guests, food: L.food, graves: L.graves.length, hh: String(Math.floor(L.minute / 60)).padStart(2, '0') })}
+        </p>
+        <div className="admin-row">
+          <span>{t('adm.house')}</span>
+          <select className="admin-input wide" value={L.house} onChange={(e: ChangeEvent<HTMLSelectElement>) => admin.apply((st) => adminSetHouse(st, Number(e.target.value)))}>
+            {HOUSES.map((h, i) => (
+              <option key={i} value={i}>
+                {h.icon} {h.name[lang]}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="admin-row">
+          <select className="admin-input wide" value={breed} onChange={(e: ChangeEvent<HTMLSelectElement>) => setBreed(e.target.value as CatBreed)}>
+            {CAT_BREEDS.map((b) => (
+              <option key={b.id} value={b.id}>
+                {b.name[lang]}
+              </option>
+            ))}
+          </select>
+          <button className="btn" onClick={() => admin.apply((st) => adminAddCat(st, breed))}>
+            {t('adm.addCat')}
+          </button>
+          <button className="btn" onClick={() => admin.apply((st) => adminAddCat(st, breed, true))}>
+            {t('adm.addKitten')}
+          </button>
+        </div>
+        <div className="admin-grid">
+          <button className="btn" onClick={() => admin.apply(adminFillCats)}>{t('adm.fillCats')}</button>
+          <button className="btn" onClick={() => admin.apply((st) => adminRemoveCats(st, false))}>{t('adm.removeCat')}</button>
+          <button className="btn" onClick={() => admin.apply((st) => adminRemoveCats(st, true))}>{t('adm.removeCats')}</button>
+          <button className="btn" onClick={() => admin.apply((st) => adminCatNeeds(st, { play: 5 }))}>{t('adm.bored')}</button>
+          <button className="btn" onClick={() => admin.apply((st) => adminCatNeeds(st, { fed: 10 }))}>{t('adm.hungry')}</button>
+          <button className="btn" onClick={() => admin.apply((st) => adminCatNeeds(st, { toilet: 10 }))}>{t('adm.toilet')}</button>
+          <button className="btn" onClick={() => admin.apply((st) => adminFood(st, true))}>{t('adm.foodFull')}</button>
+          <button className="btn" onClick={() => admin.apply((st) => adminFood(st, false))}>{t('adm.foodEmpty')}</button>
+          <button className="btn" onClick={() => admin.apply((st) => adminBuzz(st, 5))}>{t('adm.buzz')}</button>
+          <button className="btn" onClick={() => admin.apply(adminBuyAll)}>{t('adm.buyAll')}</button>
+        </div>
+        <div className="admin-row">
+          <span>{t('adm.clock')}</span>
+          <button className="btn" onClick={() => admin.apply((st) => adminSkipTime(st, 60))}>+1 ч</button>
+          <button className="btn" onClick={() => admin.apply((st) => adminSkipTime(st, 360))}>+6 ч</button>
+          <button className="btn" onClick={() => admin.apply((st) => adminSetHour(st, 13))}>13:00</button>
+          <button className="btn" onClick={() => admin.apply((st) => adminSetHour(st, 3))}>03:00</button>
+        </div>
+        <div className="admin-row">
+          <select className="admin-input wide" value={eventId} onChange={(e: ChangeEvent<HTMLSelectElement>) => setEventId(e.target.value)}>
+            {LIFE_EVENTS.map((ev) => (
+              <option key={ev.id} value={ev.id}>
+                {ev.icon} {ev.title[lang]}
+              </option>
+            ))}
+          </select>
+          <button className="btn" onClick={() => admin.apply((st) => adminEvent(st, eventId))}>
+            {t('adm.event')}
+          </button>
+        </div>
+
+        <h3>😈 {t('adm.demon')}</h3>
+        <p className="muted small">
+          {offer ? tf('adm.offerNow', { status: t(`adm.st.${offer.status}` as I18nKey), n: offer.progress, m: offer.target, ex: t(`exercise.${offer.exercise}` as I18nKey) }) : '—'}
+        </p>
+        <div className="admin-grid">
+          <button className="btn" onClick={() => admin.apply((st) => adminScene(st, st.life.scene === 'cafe' ? 'demon' : 'cafe'))}>
+            {L.scene === 'cafe' ? t('adm.toDemon') : t('adm.toCafe')}
+          </button>
+          <button
+            className="btn primary"
+            disabled={!offer || offer.status !== 'waiting'}
+            onClick={() => offer && report(admin.simulate(offer.exercise, Math.max(1, offer.target - offer.progress), 95))}
+          >
+            {t('adm.rescue')}
+          </button>
+          <button className="btn danger" disabled={!offer || offer.status !== 'waiting'} onClick={() => report(admin.apply(adminDropCat))}>
+            {t('adm.drop')}
+          </button>
+          <button
+            className="btn"
+            onClick={() => {
+              admin.apply((st) => adminRerollOffer(st, reroll));
+              setReroll(reroll + 1);
+            }}
+          >
+            {t('adm.reroll')}
+          </button>
+          <button className="btn" onClick={() => admin.apply((st) => adminGraves(st, 5))}>{t('adm.addGraves')}</button>
+          <button className="btn" onClick={() => admin.apply((st) => adminGraves(st, 0))}>{t('adm.clearGraves')}</button>
+        </div>
+        <div className="admin-row">
+          <span>{t('adm.belt')}</span>
+          <input className="admin-range" type="range" min={0} max={100} value={Math.round((belt ?? 0) * 100)} onChange={(e: ChangeEvent<HTMLInputElement>) => moveBelt(Number(e.target.value) / 100)} />
+          <button className="btn" disabled={belt === null} onClick={() => moveBelt(null)}>
+            {t('adm.beltClock')}
           </button>
         </div>
 
