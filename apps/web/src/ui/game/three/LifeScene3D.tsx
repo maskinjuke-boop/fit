@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { actionsAt } from '../../../game/life';
 import { BOWL_MAX } from '../../../game/lifeContent';
-import { DEMON_ROOM, DEMON_SPOT, REACH, demonLayout, guestSpots, houseRect, STICK_WALK, WALK_SPEED, bounds as sceneBounds, blocked, detourPoint, dist, freeSpot, homeLayout, homeObstacles, petsAt, resolve, spawn, stickSpeed, type Box, type P2, type Placed } from '../../../game/lifeMap';
+import { DEMON_ROOM, DEMON_SPOT, REACH, demonLayout, guestSpots, houseRect, tableChairs, STICK_WALK, WALK_SPEED, bounds as sceneBounds, blocked, detourPoint, dist, freeSpot, homeLayout, homeObstacles, petsAt, resolve, spawn, stickSpeed, type Box, type P2, type Placed } from '../../../game/lifeMap';
 import type { CatBreed, ObjectId, SceneId } from '../../../game/lifeTypes';
 import { animFor } from './actionAnims';
 import { disposeObject, type CharacterParts } from './buildCharacter';
@@ -10,12 +10,12 @@ import { addOutlines } from './outline';
 import { furnitureReady, loadFurniture } from './kenney';
 import { createCatLife, perchSpots, type CatAI, type CatHeroAct, type CatWorld, type Perch } from './catLife';
 import { buildBowls, buildCat, buildLitter, poseCat, type Cat3D } from './cats3d';
-import { BASIC_DECOR, NEW_KIT, kitOf, type HomeLook } from '../../../game/homeDecor';
+import { CAFE_DECOR, NEW_KIT, kitOf, type HomeLook } from '../../../game/homeDecor';
 import { contactShadow, objectModel, plasterTexture, ticksOf, type HomeAnim } from './homeModels';
 import { curtains, doorModel, floorMesh, kitchenTiles, roomLights, roomOcclusion, roomWalls, rugMesh, windowStyle } from './interior';
 
 /** Кафе без данных о ремонте — простой новый ремонт и новая мебель. */
-const DEFAULT_LOOK: HomeLook = { decor: BASIC_DECOR, kit: NEW_KIT };
+const DEFAULT_LOOK: HomeLook = { decor: CAFE_DECOR, kit: NEW_KIT };
 
 /** Демон-лавочник: красная кожа, рожки, крылья летучей мыши, тёмная одежда. */
 const DEMON_LOOK: Look = {
@@ -49,7 +49,7 @@ export interface LifeScene3DProps {
   home?: HomeLook;
   minute: number;
   hero: Look;
-  /** Гости кафе (пусто ночью и в лавке демона). */
+  /** Гости кафе (пусто в лавке демона). */
   guests: Member[];
   /** Кошка дня в клетке у демона (null — клетка пуста). */
   offer: { breed: CatBreed; mix?: CatBreed; grow: number } | null;
@@ -57,6 +57,8 @@ export interface LifeScene3DProps {
   cats: Array<{ id: string; breed: CatBreed; mix?: CatBreed; grow?: number; fed?: number; play?: number; toilet?: number }>;
   /** Корм в миске (порций), вода в миске 0…100 и грязь в лотке 0…100. */
   pets?: { bowl: number; water: number; litter: number };
+  /** Еда на витрине: сколько порций и сколько помещается (пирожные за стеклом). */
+  food?: { n: number; max: number };
   /** Герой выполняет действие у предмета (анимация до результата). */
   perform: { key: number; action: string; at: ObjectId | null } | null;
   /** Куда сцена пишет, где сейчас кошки (для самостоятельного сима). */
@@ -101,6 +103,64 @@ function signTexture(text: string, color: string): THREE.CanvasTexture {
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText(text, 256, 66, 490);
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+
+/** Меловая доска-меню кафе: название и пара строк мелом с рисунками чашки и пирожного. */
+function menuTexture(): THREE.CanvasTexture {
+  const c = document.createElement('canvas');
+  c.width = 512;
+  c.height = 288;
+  const ctx = c.getContext('2d');
+  if (ctx) {
+    ctx.fillStyle = '#2b3a33';
+    ctx.fillRect(0, 0, 512, 288);
+    ctx.strokeStyle = 'rgba(255,255,255,0.85)';
+    ctx.fillStyle = '#fdf8ee';
+    ctx.lineWidth = 4;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.font = 'bold 58px system-ui, -apple-system, Segoe UI, sans-serif';
+    ctx.fillText('КОТОКАФЕ', 256, 52, 470);
+    ctx.font = '34px system-ui, -apple-system, Segoe UI, sans-serif';
+    ctx.textAlign = 'left';
+    ctx.fillText('капучино ......... 9', 150, 132, 340);
+    ctx.fillText('чизкейк ........... 12', 150, 186, 340);
+    ctx.fillText('круассан ......... 8', 150, 240, 340);
+    // Чашка с паром и кусок торта.
+    ctx.beginPath();
+    ctx.moveTo(48, 130);
+    ctx.lineTo(56, 172);
+    ctx.lineTo(104, 172);
+    ctx.lineTo(112, 130);
+    ctx.closePath();
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(116, 148, 10, -Math.PI / 2, Math.PI / 2);
+    ctx.stroke();
+    for (const x of [70, 90]) {
+      ctx.beginPath();
+      ctx.moveTo(x, 122);
+      ctx.bezierCurveTo(x - 8, 112, x + 8, 104, x, 94);
+      ctx.stroke();
+    }
+    ctx.beginPath();
+    ctx.moveTo(44, 256);
+    ctx.lineTo(116, 256);
+    ctx.lineTo(116, 222);
+    ctx.lineTo(44, 240);
+    ctx.closePath();
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(100, 214, 7, 0, Math.PI * 2);
+    ctx.fillStyle = '#ff8fa8';
+    ctx.fill();
+    // Рамка.
+    ctx.strokeStyle = 'rgba(255,255,255,0.35)';
+    ctx.strokeRect(14, 14, 484, 260);
   }
   const t = new THREE.CanvasTexture(c);
   t.colorSpace = THREE.SRGBColorSpace;
@@ -234,10 +294,18 @@ function house(placed: Array<Placed & { y?: number }>, night: boolean, pets: { c
   const ao = roomOcclusion(w, d, 0.9);
   ao.position.set(cx, 0, cz);
   g.add(floorMesh(look, room), wallsG, ao);
-  // Кухонная зона: плитка на полу и фартук на стене (по отделке «Кухня»).
+  // Зона за стойкой: плитка на полу и фартук на стене (по отделке «Плитка у стойки»).
   const kitchen = kitchenTiles(look, 3.4, 2.6, B);
   kitchen.position.x = R - 1.7;
   g.add(kitchen);
+  // Меловая доска-меню над стойкой в деревянной раме.
+  const board = new THREE.Group();
+  board.add(mesh(new THREE.BoxGeometry(1.84, 1.06, 0.05), mat('#6e4a2c', 0.8), [0, 0, 0]));
+  const face = mesh(new THREE.PlaneGeometry(1.7, 0.95), new THREE.MeshBasicMaterial({ map: menuTexture(), toneMapped: false }), [0, 0, 0.03]);
+  face.userData.noOutline = true;
+  board.add(face);
+  board.position.set(R - 1.7, 2.25, B + 0.06);
+  g.add(board);
   // Окна на левой стене (в большом доме — больше окон, в однушке — одно).
   const winZ = tier >= 3 ? [-3.6, 2.2, 6.4] : tier >= 1 ? [-3.6, 2.2] : [-3.2];
   for (const z of winZ) g.add(sideWindow(L + 0.01, z, -1, night, look));
@@ -362,6 +430,10 @@ interface Crew {
   shadow: THREE.Mesh;
   spot: P2;
   seed: number;
+  /** Сидит за столиком (стул и куда смотрит) — ест и пьёт; null — играет с кошками. */
+  seat: { pos: P2; face: number } | null;
+  /** Движение в прошлом кадре (смена — другие предметы в руках). */
+  motion: Motion | null;
 }
 
 export default function LifeScene3D(props: LifeScene3DProps) {
@@ -416,6 +488,8 @@ export default function LifeScene3D(props: LifeScene3DProps) {
     let targets: Array<{ id: ObjectId; pos: P2; obj: Placed }> = [];
     let placedNow: Placed[] = [];
     let ticks: HomeAnim[] = [];
+    /** Пирожные в витрине стойки (видно столько, сколько еды на витрине). */
+    let cakes: THREE.Object3D[] = [];
     const pos = new THREE.Vector3();
     const camPos = new THREE.Vector3();
     let builtScene: SceneId | null = null;
@@ -448,6 +522,10 @@ export default function LifeScene3D(props: LifeScene3DProps) {
       // Подойти можно только к предметам с действиями (декор просто украшает).
       targets = placedNow.filter((x) => actionsAt(x.id).length > 0).map((x) => ({ id: x.id, pos: x.use, obj: x }));
       ticks = ticksOf(world);
+      cakes = [];
+      world.traverse((o) => {
+        if (typeof o.userData.cake === 'number') cakes.push(o);
+      });
       sun.position.set(-9, 10, 3);
       ground = world.getObjectByName('ground') ?? null;
       // Новое место — герой у двери; та же сцена — остаётся где был.
@@ -547,24 +625,37 @@ export default function LifeScene3D(props: LifeScene3DProps) {
       ['stand:talk', 5],
       ['idle', 3],
     ];
-    const guestLen = GUEST_ACTS.reduce((a, x) => a + x[1], 0);
-    const crewSet = (e: Crew, t: number): { motion: Motion; phase: number } => {
-      const tt = (t + e.seed * 13) % guestLen;
-      const start = Math.floor(e.seed * 3.1) % GUEST_ACTS.length;
+    /** Гость за столиком: ест пирожное, пьёт кофе, болтает, листает телефон. */
+    const TABLE_ACTS: ReadonlyArray<[Motion, number]> = [
+      ['sit:eat', 9],
+      ['sit:drink', 6],
+      ['sit:talk', 6],
+      ['sit:phone', 4],
+    ];
+    /** Что у гостя за столиком в руках при каждом занятии. */
+    const TABLE_PROPS: Partial<Record<Motion, PropKind[]>> = { 'sit:eat': ['plate', 'fork'], 'sit:drink': ['cup'], 'sit:phone': ['phone'] };
+    const actCycle = (acts: ReadonlyArray<[Motion, number]>, e: Crew, t: number): { motion: Motion; phase: number } => {
+      const len = acts.reduce((a, x) => a + x[1], 0);
+      const tt = (t + e.seed * 13) % len;
+      const start = Math.floor(e.seed * 3.1) % acts.length;
       let acc = 0;
-      for (let k = 0; k < GUEST_ACTS.length; k += 1) {
-        const [m, d] = GUEST_ACTS[(start + k) % GUEST_ACTS.length]!;
+      for (let k = 0; k < acts.length; k += 1) {
+        const [m, d] = acts[(start + k) % acts.length]!;
         if (tt < acc + d) return { motion: m, phase: (tt - acc) / d };
         acc += d;
       }
       return { motion: 'idle', phase: 0 };
     };
+    const crewSet = (e: Crew, t: number): { motion: Motion; phase: number } => actCycle(e.seat ? TABLE_ACTS : GUEST_ACTS, e, t);
     const catSpotsNow = (): P2[] => [...cats.values()].map((c) => c.pos);
     let crewQueue: Promise<void> = Promise.resolve();
     const syncClients = (): void => {
       const p = propsRef.current;
       const want = p.scene === 'cafe' ? p.guests : [];
-      const spots = guestSpots(p.house, boxes, want.length);
+      // Больше половины гостей сидят за столиками (пока есть стулья), остальные — с кошками.
+      const chairs = p.scene === 'cafe' ? tableChairs(p.house) : [];
+      const seated = Math.min(chairs.length, Math.ceil(want.length * 0.6));
+      const spots = guestSpots(p.house, boxes, want.length - seated);
       for (const [id, e] of crew) {
         if (!want.some((w) => w.id === id && lookKey(w) === e.key)) {
           scene.remove(e.root, e.shadow);
@@ -573,16 +664,20 @@ export default function LifeScene3D(props: LifeScene3DProps) {
         }
       }
       want.forEach((w, i) => {
-        const spot = spots[i] ?? spots[spots.length - 1] ?? { x: 0, z: 0 };
+        const chair = i < seated ? chairs[i]! : null;
+        const spot = chair ? chair.pos : (spots[i - seated] ?? spots[spots.length - 1] ?? { x: 0, z: 0 });
+        const seat = chair ? { pos: chair.pos, face: chair.face } : null;
         const e = crew.get(w.id);
         if (e) {
           e.spot = spot;
+          e.seat = seat;
+          e.motion = null;
           return;
         }
         const root = new THREE.Group();
         const shadow = blobShadow(1);
         scene.add(root, shadow);
-        const entry: Crew = { root, parts: null, key: lookKey(w), shadow, spot, seed: i * 1.7 + 0.3 };
+        const entry: Crew = { root, parts: null, key: lookKey(w), shadow, spot, seed: i * 1.7 + 0.3, seat, motion: null };
         crew.set(w.id, entry);
         // По одному, чтобы не подвешивать кадр сборкой десяти персонажей сразу.
         crewQueue = crewQueue.then(async () => {
@@ -828,8 +923,9 @@ export default function LifeScene3D(props: LifeScene3DProps) {
     const startPerform = (pf: { key: number; action: string; at: ObjectId | null }): void => {
       const spec = animFor(pf.action);
       const here = { x: pos.x, z: pos.z };
-      const placed = placedNow.find((x) => x.id === pf.at);
-      const base = { key: pf.key, y: 0, cat: null, approach: null, inTo: null, sit: false, settle: null, props: spec?.prop };
+      // Одинаковых предметов несколько (столики) — ближайший к герою.
+      const placed = placedNow.filter((x) => x.id === pf.at).sort((a, b) => dist(a.use, here) - dist(b.use, here))[0];
+      const base ={ key: pf.key, y: 0, cat: null, approach: null, inTo: null, sit: false, settle: null, props: spec?.prop };
       if (!spec) {
         act = { ...base, motion: 'stand:none', anchor: here, stand: here, free: here, face: facing };
         return;
@@ -1120,13 +1216,26 @@ export default function LifeScene3D(props: LifeScene3DProps) {
       // Гости смотрят на ближайшую кошку (или на героя) и играют с кошками.
       const catPos = catSpotsNow();
       for (const e of crew.values()) {
-        e.root.position.set(e.spot.x, 0, e.spot.z);
-        e.shadow.position.set(e.spot.x, 0.02, e.spot.z);
-        // Ученики всё время заняты: подходы разных упражнений подряд с короткой паузой
-        // и плавными переходами (у каждого свой порядок и темп).
         const set = crewSet(e, t);
-        // Поворачиваются только между подходами: во время упражнения стоят (лежат) ровно.
-        {
+        if (e.seat) {
+          // За столиком: стопы впереди таза — корень сдвинут от стула к столику так, чтобы таз
+          // пришёлся на сиденье; смотрит на столик.
+          const k = e.parts ? -seatOffsets(e.parts.rig).hips : 0;
+          const x = e.seat.pos.x + Math.sin(e.seat.face) * k;
+          const z = e.seat.pos.z + Math.cos(e.seat.face) * k;
+          e.root.position.set(x, 0, z);
+          e.root.rotation.y = e.seat.face;
+          e.shadow.position.set(e.seat.pos.x, 0.02, e.seat.pos.z);
+        } else {
+          e.root.position.set(e.spot.x, 0, e.spot.z);
+          e.shadow.position.set(e.spot.x, 0.02, e.spot.z);
+        }
+        if (e.parts && e.motion !== set.motion) {
+          e.motion = set.motion;
+          showProps(e.parts.rig, TABLE_PROPS[set.motion] ?? null, set.motion);
+        }
+        // Гости с кошками поворачиваются к ближайшей кошке (или к герою рядом).
+        if (!e.seat) {
           const near = Math.hypot(pos.x - e.spot.x, pos.z - e.spot.z) < 2;
           let look: P2 = pos;
           if (!near) {
@@ -1152,6 +1261,7 @@ export default function LifeScene3D(props: LifeScene3DProps) {
           e.parts.face.want(ex, ew);
           e.parts.face.update(dt);
           for (const f of e.parts.anim) f(t + e.seed);
+          tickProps(e.parts.rig, dt, t);
         }
       }
       if (demonParts && demonRoot.visible) {
@@ -1208,6 +1318,11 @@ export default function LifeScene3D(props: LifeScene3DProps) {
         p.catSpots.current = [...cats.values()].sort((a, b) => dist(pos, a.pos) - dist(pos, b.pos)).map((c) => ({ ...c.pos }));
       }
       // Миска и лоток показывают состояние: сколько корма и грязи.
+      if (cakes.length) {
+        const f = p.food;
+        const show = f ? Math.ceil((Math.max(0, f.n) / Math.max(1, f.max)) * cakes.length) : cakes.length;
+        for (const c of cakes) c.visible = (c.userData.cake as number) < show;
+      }
       if (petModels.current && p.pets) {
         petModels.current.setFood(p.pets.bowl / BOWL_MAX);
         petModels.current.setWater(p.pets.water / 100);

@@ -29,8 +29,9 @@ export interface ObjectDef {
 
 export const OBJECTS: Record<ObjectId, ObjectDef> = {
   door: { id: 'door', icon: '🚪', name: t('Вход в кафе', 'Café entrance') },
-  counter: { id: 'counter', icon: '🛎️', name: t('Стойка администратора', 'Front desk') },
+  counter: { id: 'counter', icon: '🍰', name: t('Стойка с витриной', 'Counter and display case') },
   sofa: { id: 'sofa', icon: '🛋️', name: t('Гостевой диван', 'Guest sofa') },
+  table: { id: 'table', icon: '☕', name: t('Столик для гостей', 'Guest table') },
   bookshelf: { id: 'bookshelf', icon: '📚', name: t('Книжный шкаф', 'Bookshelf'), price: 200, desc: t('Сказки вслух — кошки засыпают, гости умиляются', 'Bedtime stories — cats doze, guests melt'), comfort: 1, kind: 'furniture' },
   easel: { id: 'easel', icon: '🎨', name: t('Мольберт', 'Easel'), price: 150, desc: t('Портреты котиков на продажу', 'Cat portraits for sale'), kind: 'furniture' },
   armchair: { id: 'armchair', icon: '🪑', name: t('Мягкое кресло', 'Cosy armchair'), price: 220, desc: t('Ещё одно уютное место для гостей', 'One more cosy seat for guests'), comfort: 2, kind: 'furniture' },
@@ -58,7 +59,7 @@ export const OBJECTS: Record<ObjectId, ObjectDef> = {
 };
 
 /** Предметы, которые есть в кафе всегда. */
-export const HOME_OBJECTS: readonly ObjectId[] = ['door', 'counter', 'sofa'];
+export const HOME_OBJECTS: readonly ObjectId[] = ['door', 'counter', 'sofa', 'table'];
 /** Всё для кафе из магазина — в порядке показа. */
 export const FURNITURE: readonly ObjectId[] = [
   // Мебель.
@@ -90,14 +91,18 @@ export interface HouseDef {
   cost: number;
   /** Сколько кошек должно жить в кафе, чтобы расшириться до этой ступени. */
   needCats: number;
+  /** Столиков для гостей (по два стула). */
+  tables: number;
+  /** Сколько порций еды помещается на витрине. */
+  food: number;
 }
 
 export const HOUSES: readonly HouseDef[] = [
-  { icon: '🐾', name: t('Котоуголок', 'Cat corner'), desc: t('Тесная комнатка в старом помещении: облезлые обои и продавленный диван. Всё впереди!', 'A cramped room in an old space: peeling wallpaper and a saggy sofa. Up from here!'), w: 9.5, d: 9, slots: 3, wall: 2, floor: 2, comfort: 0, cats: 2, seats: 3, cost: 0, needCats: 0 },
-  { icon: '☕', name: t('Маленькое котокафе', 'Small cat café'), desc: t('Один светлый зал: место для мебели и четырёх кошек.', 'One bright hall: room for furniture and four cats.'), w: 15, d: 11, slots: 12, wall: 5, floor: 5, comfort: 1, cats: 4, seats: 6, cost: 500, needCats: 2 },
-  { icon: '🏡', name: t('Котокафе', 'Cat café'), desc: t('Шире и глубже: шесть кошек и девять гостей.', 'Wider and deeper: six cats and nine guests.'), w: 18, d: 12, slots: 15, wall: 5, floor: 5, comfort: 2, cats: 6, seats: 9, cost: 1500, needCats: 4 },
-  { icon: '🏰', name: t('Большое котокафе', 'Grand cat café'), desc: t('Просторный зал: восемь кошек и толпа гостей.', 'A spacious hall: eight cats and a crowd of guests.'), w: 21, d: 13, slots: 19, wall: 5, floor: 5, comfort: 4, cats: 8, seats: 12, cost: 4000, needCats: 6 },
-  { icon: '👑', name: t('Котодворец', 'Cat palace'), desc: t('Лучшее котокафе города: десять кошек и максимум уюта.', 'The best cat café in town: ten cats and maximum comfort.'), w: 24, d: 14, slots: 19, wall: 5, floor: 5, comfort: 7, cats: 10, seats: 16, cost: 9000, needCats: 8 },
+  { icon: '🐾', name: t('Котоуголок', 'Cat corner'), desc: t('Маленький зал: два столика, диван и витрина с пирожными. Всё впереди!', 'A small hall: two tables, a sofa and a cake display. Up from here!'), w: 9.5, d: 9, slots: 3, wall: 2, floor: 2, comfort: 0, cats: 2, seats: 3, cost: 0, needCats: 0, tables: 2, food: 12 },
+  { icon: '☕', name: t('Маленькое котокафе', 'Small cat café'), desc: t('Один светлый зал: три столика, место для мебели и четырёх кошек.', 'One bright hall: three tables, room for furniture and four cats.'), w: 15, d: 11, slots: 12, wall: 5, floor: 5, comfort: 1, cats: 4, seats: 6, cost: 500, needCats: 2, tables: 3, food: 20 },
+  { icon: '🏡', name: t('Котокафе', 'Cat café'), desc: t('Шире и глубже: шесть кошек, девять гостей, четыре столика.', 'Wider and deeper: six cats, nine guests, four tables.'), w: 18, d: 12, slots: 15, wall: 5, floor: 5, comfort: 2, cats: 6, seats: 9, cost: 1500, needCats: 4, tables: 4, food: 30 },
+  { icon: '🏰', name: t('Большое котокафе', 'Grand cat café'), desc: t('Просторный зал: восемь кошек и толпа гостей.', 'A spacious hall: eight cats and a crowd of guests.'), w: 21, d: 13, slots: 19, wall: 5, floor: 5, comfort: 4, cats: 8, seats: 12, cost: 4000, needCats: 6, tables: 5, food: 40 },
+  { icon: '👑', name: t('Котодворец', 'Cat palace'), desc: t('Лучшее котокафе города: десять кошек и максимум уюта.', 'The best cat café in town: ten cats and maximum comfort.'), w: 24, d: 14, slots: 19, wall: 5, floor: 5, comfort: 7, cats: 10, seats: 16, cost: 9000, needCats: 8, tables: 6, food: 50 },
 ];
 /** Где стоит предмет (у стены — по умолчанию). */
 export const mountOf = (id: ObjectId): 'slot' | 'wall' | 'floor' | 'free' => OBJECTS[id].mount ?? 'slot';
@@ -107,8 +112,9 @@ export const slotsFor = (mount: 'slot' | 'wall' | 'floor' | 'free', house = 0): 
   return mount === 'wall' ? h.wall : mount === 'floor' ? h.floor : mount === 'free' ? 1 : h.slots;
 };
 
-/** Часы работы кафе [с, до). */
-export const CAFE_HOURS: [number, number] = [10, 22];
+/** Кафе работает круглосуточно; ночью [с, до) гостей меньше (доля от дневного). */
+export const NIGHT_HOURS: [number, number] = [0, 7];
+export const NIGHT_GUESTS = 0.5;
 
 // ─── Кошки ─────────────────────────────────────────────────────────────
 
@@ -171,6 +177,12 @@ export const DEMON_MAX_FACTOR = 4;
 export const TICKET = { base: 15, perComfort: 1 } as const;
 /** Сколько гостей в час приводит одна довольная кошка. */
 export const GUESTS_PER_CAT = 1.3;
+/**
+ * Еда для гостей: порции на витрине. Гость заказывает (с шансом chance), если еда есть, и
+ * платит price сверху входа. Закупка — партия batch за cost каждая; испечь самому — bake порций
+ * бесплатно, но дольше. Без еды гостей меньше (noFood — доля).
+ */
+export const FOOD = { price: 12, cost: 5, batch: 10, bake: 4, chance: 0.8, noFood: 0.8 } as const;
 /** Деньги за засчитанный повтор (в пределах дневного лимита упражнения). */
 export const REP_MONEY = 1;
 
@@ -190,7 +202,9 @@ export const ACTIONS: readonly ActionDef[] = [
   { id: 'cafe_info', icon: '🏠', label: t('Кафе: мебель и расширение', 'Café: furniture and expansion'), at: 'counter', minutes: 0, open: 'cafe', effect: fx({}) },
   { id: 'flyers', icon: '📢', label: t('Раздать флаеры у входа', 'Hand out flyers'), at: 'counter', minutes: 60, cost: 20, effect: fx({ buzz: 2 }) },
   { id: 'post', icon: '📱', label: t('Выложить фото котиков', 'Post cat photos'), at: 'counter', minutes: 30, effect: fx({ buzz: 1 }) },
-  { id: 'close', icon: '🌙', label: t('Закрыть кафе до утра', 'Close the café till morning'), at: 'counter', minutes: 0, close: true, effect: fx({}) },
+  { id: 'restock', icon: '🛒', label: t('Закупить продукты (10 порций)', 'Buy groceries (10 servings)'), at: 'counter', minutes: 30, cost: FOOD.batch * FOOD.cost, effect: fx({ food: FOOD.batch }) },
+  { id: 'bake', icon: '🧁', label: t('Испечь пирожные', 'Bake some cakes'), at: 'counter', minutes: 60, effect: fx({ food: FOOD.bake }) },
+  { id: 'serve', icon: '🍰', label: t('Принести заказ гостям', 'Bring guests their order'), at: 'table', minutes: 15, effect: fx({ money: 6, buzz: 1 }) },
   { id: 'chat_guests', icon: '💬', label: t('Поболтать с гостями', 'Chat with guests'), at: 'sofa', minutes: 30, effect: fx({ buzz: 1 }) },
   { id: 'relax', icon: '🛋️', label: t('Присесть на диван', 'Sit on the sofa'), at: 'sofa', minutes: 20, effect: fx({ catPlay: 6 }) },
   { id: 'read', icon: '📖', label: t('Читать котам сказку', 'Read the cats a story'), at: 'bookshelf', minutes: 40, effect: fx({ catsPlay: 6, buzz: 1 }) },
@@ -289,6 +303,16 @@ export const LIFE_EVENTS: readonly LifeEventDef[] = [
     choices: [
       { id: 'yes', label: t('Принять компанию', 'Host them'), text: t('Шумно, весело и выгодно.', 'Noisy, fun and profitable.'), effect: { money: 80, catsPlay: -10 } },
       { id: 'no', label: t('Отказать', 'Turn them down'), text: t('Котикам спокойнее.', 'The cats stay calm.'), effect: { catsPlay: 5 } },
+    ],
+  },
+  {
+    id: 'bakery',
+    icon: '🥐',
+    title: t('Соседняя пекарня', 'The bakery next door'),
+    text: t('Пекарня отдаёт вчерашнюю выпечку со скидкой.', 'The bakery offers yesterday’s pastries at a discount.'),
+    choices: [
+      { id: 'buy', label: t('Взять партию', 'Take a batch'), cost: 25, text: t('Витрина полна выпечки.', 'The display is full of pastries.'), effect: { food: 10 } },
+      { id: 'no', label: t('Не надо', 'No thanks'), text: t('Обойдёмся своим.', 'We’ll manage with our own.'), effect: {} },
     ],
   },
   {

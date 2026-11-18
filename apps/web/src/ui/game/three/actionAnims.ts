@@ -29,6 +29,9 @@ export const ACTION_ANIMS: Record<string, ActionAnim> = {
   // Кафе.
   flyers: front('stand:talk', ['flyers']),
   post: front('stand:text', ['phone']),
+  restock: front('stand:text', ['phone']),
+  bake: front('stand:cook', ['spatula']),
+  serve: front('stand:talk', ['plate']),
   chat_guests: spot('sit:phone', [0, 0.45], 0, 0, 3000),
   relax: spot('sit:relax', [0, 0.45], 0),
   read: front('stand:read', ['book']),

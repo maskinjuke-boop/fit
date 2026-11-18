@@ -5,7 +5,6 @@ import {
   actionsAt,
   autoChoice,
   blocker,
-  cafeOpen,
   catGrowth,
   catMood,
   catName,
@@ -20,6 +19,7 @@ import {
   houseBlocker,
   litterDirty,
   maxCats,
+  maxFood,
   oldStuff,
   seats,
   ticket,
@@ -28,7 +28,7 @@ import {
 } from '../../game/life';
 import { Renovation } from './Renovation';
 import { catBreedText, catMeta } from './catText';
-import { BOWL_MAX, CAFE_HOURS, HOUSES, OBJECTS, actionById, lifeEventById } from '../../game/lifeContent';
+import { BOWL_MAX, FOOD, HOUSES, OBJECTS, actionById, lifeEventById } from '../../game/lifeContent';
 import { demonLayout, homeLayout, type P2 } from '../../game/lifeMap';
 import type { ActionDef, ObjectId } from '../../game/lifeTypes';
 import { useI18n, type I18nKey } from '../../i18n';
@@ -244,12 +244,16 @@ function CafeStatus({ state }: { state: GameState }) {
         <b>{comfort(L)}</b>
         <span>💰 {t('cafe.income')}</span>
         <b>◈ {hourlyIncome(L)}</b>
-        <span>🕙 {t('cafe.hours')}</span>
-        <b>
-          {CAFE_HOURS[0]}:00–{CAFE_HOURS[1]}:00
+        <span>🍰 {t('cafe.food')}</span>
+        <b className={L.food === 0 ? 'bad' : ''}>
+          {L.food}/{maxFood(L)}
         </b>
+        <span>🕙 {t('cafe.hours')}</span>
+        <b>{t('cafe.allDay')}</b>
       </div>
       <p className="muted small">{t('cafe.how')}</p>
+      <p className="muted small">{tf('cafe.foodHow', { price: FOOD.price, cost: FOOD.cost })}</p>
+      {L.food === 0 && L.cats.length > 0 && <p className="bad small">{t('cafe.noFood')}</p>}
       {L.cats.length === 0 && <p className="muted">{t('cafe.noCats')}</p>}
       <ul className="life-list">
         {L.cats.length > 0 && (
@@ -282,7 +286,7 @@ function CafeStatus({ state }: { state: GameState }) {
         ))}
       </ul>
       <p className="muted small">
-        {tf('cafe.stats', { visitors: L.stats.visitors, earned: L.stats.earned, rescued: L.stats.rescued, lost: L.stats.lost })}
+        {tf('cafe.stats', { visitors: L.stats.visitors, earned: L.stats.earned, rescued: L.stats.rescued, lost: L.stats.lost, meals: L.stats.meals })}
       </p>
     </>
   );
@@ -445,8 +449,9 @@ export function LifeTab({ state, onTrain, onRescue }: { state: GameState; onTrai
     () => ({ color: state.character.color, appearance: state.character.appearance, equipped: state.equipped }),
     [state.character.color, state.character.appearance, state.equipped],
   );
-  const open = cafeOpen(L.minute);
   const pets = useMemo(() => ({ bowl: L.bowl, water: L.water, litter: L.litter }), [L.bowl, L.water, L.litter]);
+  const foodMax = maxFood(L);
+  const food = useMemo(() => ({ n: L.food, max: foodMax }), [L.food, foodMax]);
   // Гости в кафе: меняются по часам (внешность — по номеру гостя).
   const guestKey = L.scene === 'cafe' ? guestsNow(L).map((g) => g.id).join(',') : '';
   const guests = useMemo(
@@ -491,7 +496,7 @@ export function LifeTab({ state, onTrain, onRescue }: { state: GameState; onTrai
     const spec = animFor(a.id);
     const st = stateRef.current;
     lastInput.current = performance.now();
-    if (!spec || a.train || a.rescue || a.open || a.go || a.close || blocker(st, a) || st.life.event) {
+    if (!spec || a.train || a.rescue || a.open || a.go || blocker(st, a) || st.life.event) {
       const out = lifeRef.current.act(a.id);
       if (out.train) onTrain();
       if (out.rescue) onRescue(out.rescue);
@@ -655,7 +660,7 @@ export function LifeTab({ state, onTrain, onRescue }: { state: GameState; onTrai
     );
   }
 
-  const cafeHint = L.cats.length === 0 ? t('life.hintNoCats') : L.bowl === 0 ? t('life.bowlEmpty') : L.water <= 0 ? t('life.waterEmpty') : litterDirty(L) ? t('life.litterDirty') : open ? t('life.hintHome') : tf('life.hintClosed', { from: CAFE_HOURS[0], to: CAFE_HOURS[1] });
+  const cafeHint = L.cats.length === 0 ? t('life.hintNoCats') : L.bowl === 0 ? t('life.bowlEmpty') : L.water <= 0 ? t('life.waterEmpty') : litterDirty(L) ? t('life.litterDirty') : L.food === 0 ? t('cafe.noFood') : t('life.hintHome');
   const hint = L.scene === 'cafe' ? cafeHint : t('life.hintDemon');
   const callCat = actionById('call_cat');
   const catsView = useMemo(() => L.cats.map((c) => ({ ...c, grow: catGrowth(c, L.day) })), [L.cats, L.day]);
@@ -664,7 +669,7 @@ export function LifeTab({ state, onTrain, onRescue }: { state: GameState; onTrai
   const travel = actionById(L.scene === 'cafe' ? 'go_demon' : 'go_cafe');
   return (
     <div className="world-tab life-tab">
-      <div className={`world-view life-view ${L.scene === 'demon' ? 'demon-view' : ''} ${!open && L.scene === 'cafe' ? 'closed' : ''}`}>
+      <div className={`world-view life-view ${L.scene === 'demon' ? 'demon-view' : ''} `}>
         {failed ? (
           <div className="world-fallback">
             <p className="muted" style={{ padding: 16 }}>
@@ -695,6 +700,7 @@ export function LifeTab({ state, onTrain, onRescue }: { state: GameState; onTrai
               onSettled={(k: number) => settled.current(k)}
               cats={L.scene === 'cafe' ? catsView : []}
               pets={pets}
+              food={food}
               perform={perform}
               catSpots={catSpots}
               heroAt={heroAt}
@@ -710,7 +716,7 @@ export function LifeTab({ state, onTrain, onRescue }: { state: GameState; onTrai
             <span title={t('cafe.cats')}>
               🐈 {L.cats.length}/{maxCats(L)}
             </span>
-            {L.scene === 'cafe' && <span title={t('cafe.guestsNow')}>{open ? `👥 ${L.guests}` : `🌙 ${t('cafe.closedShort')}`}</span>}
+            {L.scene === 'cafe' && <span title={t('cafe.guestsNow')}>{`👥 ${L.guests}`}</span>}
           </div>
           {offer && offer.status === 'waiting' && (
             <button className="demon-chip" onClick={() => setSheet('demon')}>

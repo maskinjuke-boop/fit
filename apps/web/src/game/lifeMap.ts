@@ -95,7 +95,7 @@ function wallSlots(tier: number): Slot[] {
     { pos: { x: L + 1.2, z: B + 0.04 }, rot: 0, use: { x: L + 2.9, z: B + 1.9 }, y: 2.05 },
     { pos: { x: -1.3, z: B + 0.04 }, rot: 0, use: { x: -1.3, z: B + 1.9 }, y: 2.35 },
     { pos: { x: 2.0, z: B + 0.04 }, rot: 0, use: { x: 2.0, z: B + 1.9 }, y: 2.35 },
-    { pos: { x: 5.6, z: B + 0.04 }, rot: 0, use: { x: 4.4, z: B + 1.9 }, y: 2.45 },
+    { pos: { x: 3.7, z: B + 0.04 }, rot: 0, use: { x: 3.7, z: B + 1.9 }, y: 2.4 },
     { pos: { x: L + 0.04, z: -0.9 }, rot: Math.PI / 2, use: { x: L + 1.6, z: -0.9 }, y: 2.1 },
   ];
   if (tier <= 1) return out;
@@ -127,9 +127,56 @@ function floorSlots(tier: number): Slot[] {
   return out;
 }
 
-/** Препятствия дома без действий: телевизор и журнальный столик перед диваном (из модели дивана). */
+/** Препятствия кафе без действий: журнальный столик перед диваном (из модели дивана). */
 export function homeObstacles(): Box[] {
-  return [box(0.4, -1.5, 0.85, 0.3), box(0.4, 0.25, 0.45, 0.35)];
+  return [box(0.4, 0.25, 0.45, 0.35)];
+}
+
+/** Столик для гостей: стулья слева и справа (смотрят на столик), где сидят и едят гости. */
+export const TABLE = { chair: 0.72, hw: 1.0, hd: 0.42 } as const;
+
+/**
+ * Места столиков кафе ступени tier (сколько — по ступени): свободные точки зала поближе к
+ * стойке с витриной, не на местах мебели, не у мисок, лотка и двери и с проходами между ними.
+ */
+export function cafeTables(tier: number): P2[] {
+  const n = HOUSES[Math.max(0, Math.min(HOUSES.length - 1, tier))]!.tables;
+  const { L, R, B, F } = houseRect(tier);
+  const P = petsAt(tier);
+  const door = { x: L + 0.06, z: frontOf(tier) - 1.3 };
+  const keep: Box[] = [
+    // Стойка, диван со столиком, миски, лоток, проход от двери.
+    box(R - 1.7, B + 0.6, 1.25, 1.6),
+    box(0.4, 0.9, 1.6, 1.3),
+    box(P.bowls.pos.x, P.bowls.pos.z, 1.1, 0.8),
+    box(P.litter.pos.x, P.litter.pos.z, 0.9, 1.0),
+    box(door.x + 1.2, door.z, 1.4, 0.9),
+  ];
+  // Места мебели (все, даже пустые: купленная мебель не встанет в столик) и где у неё стоят.
+  for (const sl of furnitureSlots(tier)) keep.push(box(sl.pos.x, sl.pos.z, 0.65, 0.65), box(sl.use.x, sl.use.z, 0.45, 0.45));
+  for (const sl of floorSlots(tier)) keep.push(box(sl.pos.x, sl.pos.z, 0.45, 0.45), box(sl.use.x, sl.use.z, 0.35, 0.35));
+  const cand: P2[] = [];
+  for (let x = R - 2.0; x >= L + 1.6; x -= 0.25) for (let z = B + 2.0; z <= F - 1.2; z += 0.25) cand.push({ x, z });
+  const goal = { x: R - 4.2, z: B + 4.0 };
+  cand.sort((a, b) => dist(a, goal) - dist(b, goal));
+  const out: P2[] = [];
+  const pad = 0.45;
+  for (const c of cand) {
+    if (out.length >= n) break;
+    const me = box(c.x, c.z, TABLE.hw + pad, TABLE.hd + pad);
+    if (keep.some((k) => me.x0 < k.x1 && me.x1 > k.x0 && me.z0 < k.z1 && me.z1 > k.z0)) continue;
+    if (out.some((o) => Math.abs(o.x - c.x) < 2 * TABLE.hw + 1.0 && Math.abs(o.z - c.z) < 2 * TABLE.hd + 1.1)) continue;
+    out.push(c);
+  }
+  return out;
+}
+
+/** Стулья у столиков: точка стула и куда смотрит сидящий (на столик). */
+export function tableChairs(tier: number): Array<{ pos: P2; face: number; table: number }> {
+  return cafeTables(tier).flatMap((t, i) => [
+    { pos: { x: t.x - TABLE.chair, z: t.z }, face: Math.PI / 2, table: i },
+    { pos: { x: t.x + TABLE.chair, z: t.z }, face: -Math.PI / 2, table: i },
+  ]);
 }
 
 export interface PlacedHome extends Placed {
@@ -160,12 +207,14 @@ export function homeLayout(furniture: readonly ObjectId[], pets = false, tier = 
   // Дверь остаётся у прежней передней части зала (рядом с лотком).
   const F = frontOf(tier);
   const base: Placed[] = [
-    // Стойка администратора у задней стены справа (где была кухня).
+    // Стойка с витриной у задней стены справа.
     { id: 'counter', pos: { x: R - 1.7, z: B + 0.6 }, rot: -Math.PI / 2, use: { x: R - 1.9, z: B + 1.85 }, box: box(R - 1.7, B + 0.6, 1.25, 0.55) },
     // Перед диваном — столик: подходят к дивану сбоку от него.
     { id: 'sofa', pos: { x: 0.4, z: 1.4 }, rot: Math.PI, use: { x: -0.6, z: 0.6 }, box: box(0.4, 1.4, 1.25, 0.5) },
     { id: 'door', pos: { x: L + 0.06, z: F - 1.3 }, rot: Math.PI / 2, use: { x: L + 1.1, z: F - 1.3 }, box: null },
   ];
+  // Столики: подходят к ним спереди (со стороны зрителя).
+  for (const tb of cafeTables(tier)) base.push({ id: 'table', pos: tb, rot: 0, use: { x: tb.x, z: tb.z + TABLE.hd + 0.75 }, box: box(tb.x, tb.z, TABLE.hw, TABLE.hd) });
   const out: PlacedHome[] = base.map((p) => ({ ...p, y: 0 }));
   const pools: Record<'slot' | 'wall' | 'floor', Slot[]> = {
     slot: furnitureSlots(tier).slice(0, slotsFor('slot', tier)),

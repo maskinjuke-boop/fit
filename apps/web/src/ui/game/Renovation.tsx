@@ -89,12 +89,9 @@ export function Renovation({ state }: { state: GameState }) {
             {DECOR_KIND_ICON[kind]} {DECOR_KIND_NAME[kind][lang]}
           </h3>
           <ul className="item-grid reno-grid">
-            {finishesOf(kind)
-              // Старьё показываем, только пока оно есть (в новое жильё его не вернуть).
-              .filter((d) => !d.old || (state.life.finishes.includes(d.id) && (state.life.house === 0 || state.life.decor[kind] === d.id)))
-              .map((d) => (
-                <FinishCard key={d.id} state={state} def={d} />
-              ))}
+            {finishesOf(kind).map((d) => (
+              <FinishCard key={d.id} state={state} def={d} />
+            ))}
           </ul>
         </section>
       ))}

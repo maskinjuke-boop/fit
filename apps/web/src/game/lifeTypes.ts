@@ -17,6 +17,8 @@ export type ObjectId =
   | 'door'
   | 'counter'
   | 'sofa'
+  // Столики для гостей (несколько одинаковых — по размеру кафе).
+  | 'table'
   // Мебель, техника и декор из магазина.
   | 'bookshelf'
   | 'console'
@@ -62,6 +64,8 @@ export interface LifeEffect {
   catsPlay?: number;
   /** Гости кафе: прибавка к числу гостей на сегодня (реклама, событие). */
   buzz?: number;
+  /** Порции еды для гостей на витрине. */
+  food?: number;
 }
 
 export interface ActionDef {
@@ -72,8 +76,6 @@ export interface ActionDef {
   minutes: number;
   cost?: number;
   effect: LifeEffect;
-  /** Закрыть кафе до утра. */
-  close?: boolean;
   /** Спасти кошку дня: открыть упражнение демона перед камерой. */
   rescue?: boolean;
   /** Открыть свою тренировку перед камерой (заработать). */
@@ -155,7 +157,7 @@ export interface LifeState {
   water: number;
   /** Грязь в лотке 0…100. */
   litter: number;
-  /** Ступень кафе 0…4 (0 — тесный котоуголок в старом помещении). */
+  /** Ступень кафе 0…4 (0 — тесный котоуголок). */
   house: number;
   /** Отделка кафе: что выбрано в каждом разделе. */
   decor: Decor;
@@ -163,15 +165,17 @@ export interface LifeState {
   finishes: string[];
   /** Базовая мебель: 0 — старьё, 1 — новая. */
   kit: Kit;
+  /** Порции еды для гостей на витрине (гости заказывают и платят сверху входа). */
+  food: number;
   /** Гости в кафе сейчас. */
   guests: number;
-  /** Сегодняшняя прибавка к гостям (реклама, события), гаснет к ночи. */
+  /** Сегодняшняя прибавка к гостям (реклама, события), гаснет к новому дню. */
   buzz: number;
   /** Кошка дня в лавке демона. */
   demon: DemonOffer | null;
   event: ActiveEvent | null;
   last: LifeResult | null;
-  stats: { visitors: number; earned: number; rescued: number; lost: number; repMoney: number };
+  stats: { visitors: number; earned: number; rescued: number; lost: number; repMoney: number; meals: number };
 }
 
 export type { ExerciseId, StatId };

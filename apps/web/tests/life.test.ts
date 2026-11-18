@@ -7,9 +7,7 @@ import {
   autoChoice,
   blocker,
   buyFurniture,
-  cafeOpen,
   catMood,
-  closeMinutes,
   comfort,
   demonTarget,
   finishBlocker,
@@ -21,6 +19,7 @@ import {
   kitBlocker,
   makeOffer,
   maxCats,
+  maxFood,
   migrateLife,
   offerLeftMs,
   oldStuff,
@@ -28,10 +27,10 @@ import {
   upgradeHouse,
   upgradeKit,
 } from '../src/game/life';
-import { ACTIONS, BOWL_MAX, CAT_BREEDS, DEMON_EXERCISES, FURNITURE, HOUSES, LIFE_EVENTS, OBJECTS, REP_MONEY, actionById, mountOf, slotsFor } from '../src/game/lifeContent';
-import { RUN_SPEED, STICK_WALK, WALK_SPEED, bounds, demonLayout, detourPoint, guestSpots, homeLayout, homeObstacles, resolve, spawn, stickSpeed, type Box, type P2 } from '../src/game/lifeMap';
+import { ACTIONS, BOWL_MAX, CAT_BREEDS, DEMON_EXERCISES, FOOD, FURNITURE, HOUSES, LIFE_EVENTS, OBJECTS, REP_MONEY, actionById, mountOf, slotsFor } from '../src/game/lifeContent';
+import { RUN_SPEED, STICK_WALK, WALK_SPEED, bounds, cafeTables, demonLayout, detourPoint, guestSpots, homeLayout, homeObstacles, resolve, spawn, stickSpeed, type Box, type P2 } from '../src/game/lifeMap';
 import type { Cat, Txt } from '../src/game/lifeTypes';
-import { BASIC_DECOR, DECOR_KINDS, FINISHES, OLD_DECOR, OLD_KIT, finishById, kitById } from '../src/game/homeDecor';
+import { APARTMENT_DECOR, CAFE_DECOR, DECOR_KINDS, FINISHES, OLD_KIT, finishById, kitById } from '../src/game/homeDecor';
 import { itemById, renamedItem } from '../src/game/items';
 import { createState, DEFAULT_APPEARANCE, migrate, type GameState } from '../src/game/state';
 
@@ -87,8 +86,8 @@ describe('содержимое котокафе', () => {
     }
     const ids = Object.keys(OBJECTS);
     for (const gone of ['coach', 'reception', 'gym_door', 'treadmill', 'dumbbells', 'yoga_mat', 'punching_bag', 'bed', 'fridge', 'stove', 'shower']) expect(ids).not.toContain(gone);
-    // В кафе нет еды: ни продуктов, ни готовки, ни перекусов.
-    for (const a of ACTIONS) expect(/еда|ужин|перекус|продукт|коктейл/i.test(a.label.ru)).toBe(false);
+    // Еда — только для гостей: у стойки (закупка, выпечка) и к столикам.
+    for (const a of ACTIONS.filter((x) => x.effect.food)) expect(a.at).toBe('counter');
   });
 
   it('спортивные вещи убраны из магазина и у игроков заменяются повседневными', () => {
@@ -132,8 +131,15 @@ describe('кошка дня в лавке демона', () => {
     expect(o.target).toBe(demonTarget(DEMON_EXERCISES.find(([e]) => e === o.exercise)![1], 0));
   });
 
-  it('упражнение демона спасает кошку: она появляется в кафе с мисками и лотком, второй в тот же день нет', () => {
+  it('в начале в кафе живёт один кот; упражнение демона спасает кошку: она появляется в кафе, второй в тот же день нет', () => {
     let s = hero();
+    expect(s.life.cats.length).toBe(1);
+    expect(s.life.cats[0]!.sex).toBe('m');
+    expect(s.life.bowl).toBe(BOWL_MAX);
+    expect(guestDemand(s.life)).toBeGreaterThan(0);
+    // Старое сохранение без кошек получает первого кота.
+    expect(migrateLife({ ...structuredClone(s.life), cats: [], bowl: 0 }).cats.length).toBe(1);
+    s.life.cats = [];
     const o = s.life.demon!;
     // Другое упражнение кошку не спасает.
     const other = DEMON_EXERCISES.find(([e]) => e !== o.exercise)![0];
@@ -214,15 +220,14 @@ describe('деньги: повторы, задания и гости', () => {
   });
 
   it('без кошек гостей нет; довольные кошки и уют — больше гостей и дороже вход', () => {
-    expect(guestDemand(hero().life)).toBe(0);
+    expect(guestDemand({ ...hero().life, cats: [] })).toBe(0);
     const s = cafe(2);
     const g = guestDemand(s.life);
     expect(g).toBeGreaterThan(0);
     const sad = structuredClone(s);
     for (const c of sad.life.cats) Object.assign(c, { fed: 5, play: 5, toilet: 10 });
     expect(guestDemand(sad.life)).toBeLessThan(g);
-    // Уют: после ремонта и с декором вход дороже.
-    s.life.decor = { ...BASIC_DECOR };
+    // Уют: с декором вход дороже.
     const cosy = structuredClone(s);
     cosy.life.furniture = ['painting', 'house_plant', 'palm'];
     expect(ticket(cosy.life)).toBeGreaterThan(ticket(s.life));
@@ -231,7 +236,7 @@ describe('деньги: повторы, задания и гости', () => {
     expect(guestDemand(crowd.life)).toBeLessThanOrEqual(HOUSES[crowd.life.house]!.seats);
   });
 
-  it('пока кафе открыто, гости платят за вход и играют с кошками; ночью кафе закрыто', () => {
+  it('кафе работает круглосуточно: гости платят за вход и играют с кошками, ночью их меньше', () => {
     let s = cafe(2, 11);
     for (const c of s.life.cats) c.play = 20;
     s.life.buzz = 2;
@@ -240,25 +245,46 @@ describe('деньги: повторы, задания и гости', () => {
     expect(s.gold).toBeGreaterThan(gold);
     expect(s.life.stats.visitors).toBeGreaterThan(0);
     expect(guestsNow(s.life).length).toBe(s.life.guests);
-    // Закрыть на ночь можно только вечером: до утра (10:00).
-    let night = cafe(2, 21);
-    night.life.minute = 21 * 60 + 30;
-    expect(blocker(night, actionById('close')!)).toBe(null);
-    night = act(night, 'close').state;
-    expect(night.life.minute).toBe(10 * 60);
-    expect(cafeOpen(night.life.minute)).toBe(true);
-    expect(blocker(cafe(2, 12), actionById('close')!)).toBe('enough');
-    expect(closeMinutes(22 * 60)).toBe(12 * 60);
+    expect(actionById('close')).toBe(undefined);
+    // Ночью кафе открыто, гостей меньше; реклама работает и ночью.
+    const night = cafe(2, 3);
+    expect(guestDemand(night.life)).toBeGreaterThan(0);
+    expect(guestDemand(night.life)).toBeLessThan(guestDemand(cafe(2, 13).life));
+    expect(blocker(night, actionById('flyers')!)).toBe(null);
+    expect(guestsNow({ ...night.life, guests: 2 }).length).toBe(2);
+    const more = act(cafe(2, 12), 'flyers').state;
+    expect(more.life.buzz).toBeGreaterThan(0);
+    expect(guestDemand(more.life)).toBeGreaterThan(guestDemand(cafe(2, 12).life));
   });
 
-  it('реклама — больше гостей сегодня; ночью гостей нет', () => {
-    const s = cafe(2, 12);
-    const more = act(s, 'flyers').state;
-    expect(more.life.buzz).toBeGreaterThan(0);
-    expect(guestDemand(more.life)).toBeGreaterThan(guestDemand(s.life));
-    const late = cafe(2, 23);
-    expect(blocker(late, actionById('flyers')!)).toBe('closed');
-    expect(guestsNow({ ...late.life, guests: 5 }).length).toBe(0);
+  it('гости едят: еда с витрины приносит деньги сверху входа; без еды гостей меньше', () => {
+    let s = cafe(2, 12);
+    s.life.buzz = 3;
+    s.life.food = maxFood(s.life);
+    s.gold = 0;
+    for (let i = 0; i < 9; i += 1) s = act(s, 'relax').state;
+    expect(s.life.stats.meals).toBeGreaterThan(0);
+    expect(s.life.food).toBe(maxFood(s.life) - s.life.stats.meals);
+    expect(s.life.stats.earned).toBeGreaterThan(s.life.stats.visitors * 15);
+    const empty = cafe(2, 12);
+    empty.life.food = 0;
+    expect(guestDemand(empty.life)).toBeCloseTo(guestDemand(cafe(2, 12).life) * FOOD.noFood, 5);
+    // Закупка: партия за деньги; выпечка — бесплатно, но дольше; полная витрина — не нужно.
+    empty.gold = 100;
+    const bought = act(empty, 'restock').state;
+    expect(bought.life.food).toBeGreaterThan(0);
+    expect(act(empty, 'bake').state.life.food).toBeGreaterThan(0);
+    expect(actionById('bake')!.minutes).toBeGreaterThan(actionById('restock')!.minutes);
+    const full = cafe(2, 12);
+    full.life.food = maxFood(full.life);
+    expect(blocker(full, actionById('restock')!)).toBe('enough');
+    // Заказ к столику — только если есть гости.
+    const lonely = cafe(0);
+    lonely.life.guests = 0;
+    expect(hasObject(lonely, 'table')).toBe(true);
+    expect(blocker(lonely, actionById('serve')!)).toBe('empty');
+    // Столиков больше с каждой ступенью кафе.
+    for (let t = 0; t < HOUSES.length; t += 1) expect(cafeTables(t).length).toBe(HOUSES[t]!.tables);
   });
 
   it('квесты и задания снова приносят деньги', () => {
@@ -309,6 +335,15 @@ describe('кошки в кафе', () => {
     expect('clients' in m).toBe(false);
     expect('needs' in m).toBe(false);
     expect(m.house).toBe(2);
+    // Квартирная отделка, которую игра ставила сама, сменяется отделкой кафе; купленное — в запасе.
+    const flat = migrateLife({ ...raw, decor: { ...APARTMENT_DECOR, wall: 'wall_brick' }, finishes: [...Object.values(APARTMENT_DECOR), 'wall_brick', 'wall_peeling'] } as typeof raw);
+    expect(flat.decor).toEqual({ ...CAFE_DECOR, wall: 'wall_brick' });
+    expect(flat.finishes).toContain('floor_parquet');
+    expect(flat.finishes).not.toContain('wall_peeling');
+    expect(flat.food).toBeGreaterThan(0);
+    // Уже в кафе: выбранная простая отделка остаётся.
+    const again = migrateLife({ ...flat, decor: { ...flat.decor, floor: 'floor_parquet' } });
+    expect(again.decor.floor).toBe('floor_parquet');
   });
 });
 
@@ -323,7 +358,7 @@ describe('мебель, расширение и ремонт', () => {
     expect(comfort(s.life)).toBeGreaterThan(comfort(cafe(1).life));
   });
 
-  it('расширение: нужно достаточно кошек и денег; старьё меняется на простой ремонт', () => {
+  it('расширение: нужно достаточно кошек и денег; отделка остаётся', () => {
     let s = hero();
     s.gold = 100000;
     expect(houseBlocker(s)).toBe('cats');
@@ -334,28 +369,28 @@ describe('мебель, расширение и ремонт', () => {
     expect(s.life.house).toBe(1);
     expect(s.gold).toBe(100000 - finishById('wall_stripes')!.price - HOUSES[1]!.cost);
     expect(s.life.decor.wall).toBe('wall_stripes');
-    expect(s.life.decor.floor).toBe(BASIC_DECOR.floor);
-    for (const k of DECOR_KINDS) expect(finishById(s.life.decor[k])!.old).toBeFalsy();
+    expect(s.life.decor.floor).toBe(CAFE_DECOR.floor);
     expect(houseBlocker(s)).toBe('cats');
     expect(maxCats(s.life)).toBe(HOUSES[1]!.cats);
   });
 
-  it('кафе начинается в старом помещении; диван можно заменить, отделку — купить и вернуть', () => {
+  it('кафе начинается с простой отделки кафе; диван можно заменить, отделку — купить и вернуть', () => {
     let s = hero();
     expect(s.life.house).toBe(0);
-    expect(s.life.decor).toEqual(OLD_DECOR);
+    expect(s.life.decor).toEqual(CAFE_DECOR);
     expect(s.life.kit).toEqual(OLD_KIT);
-    expect(oldStuff(s.life)).toBe(DECOR_KINDS.length + 1);
+    expect(oldStuff(s.life)).toBe(1);
+    expect(s.life.food).toBeGreaterThan(0);
     expect(kitBlocker(s, 'sofa')).toBe('money');
     s.gold = 5000;
-    s.life.decor = { ...BASIC_DECOR };
     const c0 = comfort(s.life);
     s = upgradeKit(s, 'sofa');
     expect(s.gold).toBe(5000 - kitById('sofa').price);
     expect(comfort(s.life)).toBeGreaterThan(c0);
     s = applyFinish(s, 'wall_floral');
     const gold = s.gold;
-    s = applyFinish(s, 'wall_peeling');
+    s = applyFinish(s, 'wall_cafe');
+    expect(s.life.decor.wall).toBe('wall_cafe');
     s = applyFinish(s, 'wall_floral');
     expect(s.gold).toBe(gold);
     expect(finishBlocker(s, 'floor_marble')).toBe('level');
@@ -367,15 +402,20 @@ describe('мебель, расширение и ремонт', () => {
 });
 
 describe('самостоятельность героя', () => {
-  it('пустая миска и грязный лоток — срочно; ночью — закрыть кафе; у демона — вернуться в кафе', () => {
+  it('пустая миска, грязный лоток и пустая витрина — срочно; у демона — вернуться в кафе', () => {
     const s = cafe(2);
     s.life.bowl = 0;
     expect(autoChoice(s, [], true)?.action.id).toBe('fill_bowl');
     s.life.bowl = BOWL_MAX;
     s.life.litter = 90;
     expect(autoChoice(s, [], true)?.action.id).toBe('clean_litter');
-    const night = cafe(2, 23);
-    expect(autoChoice(night)?.action.id).toBe('close');
+    s.life.litter = 0;
+    s.life.food = 0;
+    s.gold = 200;
+    expect(autoChoice(s, [], true)?.action.id).toBe('restock');
+    s.gold = 0;
+    expect(autoChoice(s, [], true)?.action.id).toBe('bake');
+    s.life.food = 5;
     const demon = structuredClone(s);
     demon.life.scene = 'demon';
     expect(autoChoice(demon)?.action.id).toBe('go_cafe');

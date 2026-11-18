@@ -5,7 +5,6 @@ import { levelOf } from './levels';
 import {
   ACTIONS,
   BOWL_MAX,
-  CAFE_HOURS,
   CAT_AGE,
   CAT_BREEDS,
   CAT_NAMES,
@@ -13,6 +12,7 @@ import {
   DEMON_EXERCISES,
   DEMON_MAX_FACTOR,
   DEMON_STEP,
+  FOOD,
   FURNITURE,
   GUESTS_PER_CAT,
   GUEST_NAMES,
@@ -20,6 +20,8 @@ import {
   HOUSES,
   LIFE_EVENTS,
   LITTER_DIRTY,
+  NIGHT_GUESTS,
+  NIGHT_HOURS,
   OBJECTS,
   TICKET,
   WATER_RATE,
@@ -28,7 +30,7 @@ import {
   mountOf,
   slotsFor,
 } from './lifeContent';
-import { BASIC_DECOR, DECOR_KINDS, KITS, NEW_KIT, OLD_DECOR, OLD_KIT, OLD_KIT_COMFORT, finishById, kitById, type KitId } from './homeDecor';
+import { APARTMENT_DECOR, CAFE_DECOR, DECOR_KINDS, KITS, NEW_KIT, OLD_KIT, OLD_KIT_COMFORT, finishById, kitById, type KitId } from './homeDecor';
 import { rng } from './random';
 import { FACE_PARTS, type Appearance, type FacePart, type GameState, type HairStyle } from './state';
 import type { ActionDef, Cat, CatBreed, DemonOffer, LifeEffect, LifeResult, LifeState, ObjectId, SceneId, Txt } from './lifeTypes';
@@ -38,14 +40,21 @@ import type { ActionDef, Cat, CatBreed, DemonOffer, LifeEffect, LifeResult, Life
  * появляется новая кошка: спасти её можно только упражнением перед камерой (демон
  * называет упражнение и число повторов, с каждой спасённой кошкой — больше), и только
  * до конца этого дня — иначе она пропадает. Спасённая кошка живёт в кафе. Гости
- * приходят поиграть с кошками и платят за вход: чем больше довольных кошек и чем уютнее
- * кафе, тем больше гостей. Деньги — на мебель, декор, ремонт и расширение кафе;
+ * приходят круглосуточно (ночью — меньше) поиграть с кошками и платят за вход, за столиками
+ * заказывают еду с витрины (продукты закупаются или пекутся). Чем больше довольных кошек и
+ * чем уютнее кафе, тем больше гостей. Деньги — на мебель, декор, ремонт и расширение кафе;
  * расшириться можно, когда кафе заполнено кошками. Время в кафе идёт действиями.
  */
 
-const t = (ru: string, en: string): Txt => ({ ru, en });
-
 export const DAY = 1440;
+
+/**
+ * Первый кот, который живёт в кафе с самого начала (рыжий Барсик, взрослый): с ним сразу
+ * приходят гости. Остальных кошек — только спасать у демона.
+ */
+export function starterCat(day = 1): Cat {
+  return { id: 'cat1', breed: 'ginger', name: 1, adopted: day, fed: 85, play: 75, toilet: 100, sex: 'm', born: day - CAT_AGE.GROWN - 6 };
+}
 
 export function newLife(): LifeState {
   return {
@@ -53,43 +62,48 @@ export function newLife(): LifeState {
     minute: 10 * 60,
     scene: 'cafe',
     furniture: [],
-    cats: [],
-    bowl: 0,
-    water: 0,
+    cats: [starterCat()],
+    bowl: BOWL_MAX,
+    water: 100,
     litter: 0,
     house: 0,
-    decor: { ...OLD_DECOR },
+    decor: { ...CAFE_DECOR },
     finishes: [...START_FINISHES],
     kit: { ...OLD_KIT },
+    food: FOOD.batch,
     guests: 0,
     buzz: 0,
     demon: null,
     event: null,
     last: null,
-    stats: { visitors: 0, earned: 0, rescued: 0, lost: 0, repMoney: 0 },
+    stats: { visitors: 0, earned: 0, rescued: 0, lost: 0, repMoney: 0, meals: 0 },
   };
 }
 
-/** Отделка, которая есть с самого начала: старьё стартового помещения и «без ковра». */
-const START_FINISHES: readonly string[] = [...Object.values(OLD_DECOR), 'rug_none'];
+/** Отделка, которая есть с самого начала: стартовая отделка кафе и «без ковра». */
+const START_FINISHES: readonly string[] = [...new Set([...Object.values(CAFE_DECOR), 'rug_none'])];
 
 const num = (v: unknown, d: number): number => (typeof v === 'number' && Number.isFinite(v) ? v : d);
 const clamp = (v: number, lo: number, hi: number): number => Math.max(lo, Math.min(hi, v));
 const isBreed = (b: unknown): b is CatBreed => CAT_BREEDS.some((x) => x.id === b);
 
-/** Отделка и мебель из сохранения (ступень кафе — как ступень прежнего жилья). */
+/**
+ * Отделка и мебель из сохранения (ступень кафе — как ступень прежнего жилья). Сохранение
+ * времён квартиры (без стартовой отделки кафе): старьё и простой ремонт, который игра
+ * ставила сама, сменяет отделка кафе; купленное сохраняется в запасе.
+ */
 function migrateHome(r: Partial<LifeState>): Pick<LifeState, 'house' | 'decor' | 'finishes' | 'kit'> {
   const house = clamp(Math.round(num(r.house, 0)), 0, HOUSES.length - 1);
-  const finishes = [...new Set([...START_FINISHES, ...(Array.isArray(r.finishes) ? r.finishes.filter((id) => finishById(id)) : [])])];
-  const decor = { ...(r.decor && typeof r.decor === 'object' ? {} : BASIC_DECOR), ...OLD_DECOR };
+  const saved = Array.isArray(r.finishes) ? r.finishes.filter((id) => finishById(id)) : [];
+  const apartment = !saved.includes(CAFE_DECOR.wall);
+  const finishes = [...new Set([...START_FINISHES, ...saved])];
+  const decor = { ...CAFE_DECOR };
   const hasDecor = !!r.decor && typeof r.decor === 'object';
   for (const k of DECOR_KINDS) {
     const id = hasDecor ? r.decor![k] : undefined;
-    if (typeof id === 'string' && finishById(id)?.kind === k && finishes.includes(id)) decor[k] = id;
-    else if (house > 0 || !hasDecor) {
-      decor[k] = BASIC_DECOR[k];
-      if (!finishes.includes(BASIC_DECOR[k])) finishes.push(BASIC_DECOR[k]);
-    }
+    if (typeof id !== 'string' || finishById(id)?.kind !== k || !finishes.includes(id)) continue;
+    if (apartment && APARTMENT_DECOR[k] === id) continue;
+    decor[k] = id;
   }
   const kit = hasDecor ? { ...OLD_KIT } : { ...NEW_KIT };
   for (const k of KITS) if (r.kit?.[k.id] === 1) kit[k.id] = 1;
@@ -141,7 +155,9 @@ export function migrateLife(raw: Partial<LifeState> | undefined): LifeState {
   const r = raw as Partial<LifeState> & Record<string, unknown>;
   const day = num(r.day, base.day);
   const home = migrateHome(r);
-  const cats = Array.isArray(r.cats) ? r.cats.filter((c) => isBreed(c.breed)).map((c) => migrateCat(c, day)).slice(0, HOUSES[home.house]!.cats) : [];
+  const saved = Array.isArray(r.cats) ? r.cats.filter((c) => isBreed(c.breed)).map((c) => migrateCat(c, day)).slice(0, HOUSES[home.house]!.cats) : [];
+  // Кафе без кошек (сохранение до стартового кота) получает первого кота с полными мисками.
+  const cats = saved.length ? saved : [starterCat(day)];
   const stats = (r.stats ?? {}) as Partial<LifeState['stats']>;
   const out: LifeState = {
     ...base,
@@ -150,10 +166,11 @@ export function migrateLife(raw: Partial<LifeState> | undefined): LifeState {
     scene: r.scene === 'demon' ? 'demon' : 'cafe',
     furniture: [...new Set((r.furniture ?? []).filter((id) => FURNITURE.includes(id)))],
     cats,
-    bowl: typeof r.bowl === 'number' ? r.bowl : cats.length ? BOWL_MAX : 0,
-    water: typeof r.water === 'number' ? r.water : cats.length ? 100 : 0,
-    litter: num(r.litter, 0),
+    bowl: saved.length && typeof r.bowl === 'number' ? r.bowl : BOWL_MAX,
+    water: saved.length && typeof r.water === 'number' ? r.water : 100,
+    litter: saved.length ? num(r.litter, 0) : 0,
     ...home,
+    food: clamp(Math.round(num(r.food, FOOD.batch)), 0, HOUSES[home.house]!.food),
     guests: 0,
     buzz: clamp(num(r.buzz, 0), -5, 20),
     demon: migrateOffer(r.demon),
@@ -165,10 +182,11 @@ export function migrateLife(raw: Partial<LifeState> | undefined): LifeState {
       rescued: num(stats.rescued, 0),
       lost: num(stats.lost, 0),
       repMoney: num(stats.repMoney, 0),
+      meals: num(stats.meals, 0),
     },
   };
   // Гости, которые сейчас в кафе (их число не хранится между запусками).
-  out.guests = cafeOpen(out.minute) ? Math.round(guestDemand(out)) : 0;
+  out.guests = Math.round(guestDemand(out));
   return out;
 }
 
@@ -179,7 +197,10 @@ export const heroLevel = (s: GameState): number => levelOf(s.totalXp);
 
 export const hourOf = (minute: number): number => Math.floor(minute / 60);
 export const clock = (minute: number): string => `${String(hourOf(minute)).padStart(2, '0')}:${String(minute % 60).padStart(2, '0')}`;
-export const cafeOpen = (minute: number): boolean => hourOf(minute) >= CAFE_HOURS[0] && hourOf(minute) < CAFE_HOURS[1];
+/** Ночь: кафе открыто, но гостей меньше, кошки больше спят. */
+export const nightHour = (minute: number): boolean => hourOf(minute) >= NIGHT_HOURS[0] && hourOf(minute) < NIGHT_HOURS[1];
+/** Сколько порций еды помещается на витрине. */
+export const maxFood = (life: LifeState): number => HOUSES[life.house]?.food ?? 12;
 
 /** Лоток грязный: кошкам неуютно, гостей меньше. */
 export const litterDirty = (life: LifeState): boolean => life.cats.length > 0 && life.litter >= LITTER_DIRTY;
@@ -213,16 +234,20 @@ export function catMood(c: Cat, life: LifeState): number {
   return clamp(Math.round(m), 0, 100);
 }
 
-/** Сколько гостей придёт в час: довольные кошки, уют и реклама; не больше мест. */
+/**
+ * Сколько гостей в кафе: довольные кошки, уют и реклама; ночью и без еды на витрине — меньше;
+ * не больше мест.
+ */
 export function guestDemand(life: LifeState): number {
   if (!life.cats.length) return 0;
   const moodK = life.cats.reduce((a, c) => a + 0.35 + 0.65 * (catMood(c, life) / 100), 0);
-  const raw = moodK * GUESTS_PER_CAT * (1 + 0.03 * comfort(life)) + life.buzz;
+  const k = (nightHour(life.minute) ? NIGHT_GUESTS : 1) * (life.food > 0 ? 1 : FOOD.noFood);
+  const raw = (moodK * GUESTS_PER_CAT * (1 + 0.03 * comfort(life)) + life.buzz) * k;
   return clamp(raw, 0, seats(life));
 }
 
-/** Примерный доход в час (для подсказок). */
-export const hourlyIncome = (life: LifeState): number => Math.round(guestDemand(life) * ticket(life));
+/** Примерный доход в час (для подсказок): вход и еда (если она есть на витрине). */
+export const hourlyIncome = (life: LifeState): number => Math.round((guestDemand(life) / 1.5) * (ticket(life) + (life.food > 0 ? FOOD.chance * FOOD.price : 0)));
 
 // ─── Возраст кошек ─────────────────────────────────────────────────────
 
@@ -260,13 +285,13 @@ const litterRate = (life: LifeState): number => (life.furniture.includes('robot_
 
 /**
  * Жизнь кошек за hours игровых часов: проголодавшись, едят из миски (порция корма),
- * ходят в лоток (он пачкается), скучают без игры; гости с ними играют. closed — ночь.
+ * ходят в лоток (он пачкается), скучают без игры; гости с ними играют. night — ночь.
  */
-function catsLive(life: LifeState, hours: number, closed: boolean, guests: number): void {
+function catsLive(life: LifeState, hours: number, night: boolean, guests: number): void {
   if (!life.cats.length) return;
   const fun = (guests * 6 * hours) / life.cats.length;
   for (const c of life.cats) {
-    c.fed = clamp(c.fed - CAT_RATES.fed * hours * (closed ? 0.6 : 1), 0, 100);
+    c.fed = clamp(c.fed - CAT_RATES.fed * hours * (night ? 0.6 : 1), 0, 100);
     if (c.fed < 45 && life.bowl > 0) {
       life.bowl -= 1;
       c.fed = clamp(c.fed + 55, 0, 100);
@@ -277,25 +302,31 @@ function catsLive(life: LifeState, hours: number, closed: boolean, guests: numbe
       c.toilet = 100;
     }
     // Ночью кошки спят, днём скучают, но гости с ними играют.
-    c.play = clamp(c.play - CAT_RATES.play * hours * (closed ? 0.4 : 1) * (isKitten(c, life.day) ? 1.5 : 1) + fun, 0, 100);
-    life.water = clamp(life.water - WATER_RATE * hours * (closed ? 0.6 : 1), 0, 100);
+    c.play = clamp(c.play - CAT_RATES.play * hours * (night ? 0.4 : 1) * (isKitten(c, life.day) ? 1.5 : 1) + fun, 0, 100);
+    life.water = clamp(life.water - WATER_RATE * hours * (night ? 0.6 : 1), 0, 100);
   }
 }
 
-/** Гости за шаг времени: сколько пришло (платят за вход) и сколько сейчас в кафе. */
+/**
+ * Гости за шаг времени: сколько пришло (платят за вход), сколько заказало еду с витрины
+ * (платят сверху) и сколько сейчас в кафе.
+ */
 function guestsCome(s: GameState, hours: number, tally: Tally, key: string): number {
   const life = s.life;
-  if (!cafeOpen(life.minute)) {
-    life.guests = 0;
-    return 0;
-  }
   const demand = guestDemand(life);
   // Гость сидит около полутора часов: приходит demand / 1.5 человек в час.
   const r = rng(key);
   const expect = (demand / 1.5) * hours;
   let come = Math.floor(expect);
   if (r() < expect - come) come += 1;
-  const pay = come * ticket(life);
+  let meals = 0;
+  for (let i = 0; i < come && life.food > 0; i += 1) {
+    if (r() >= FOOD.chance) continue;
+    life.food -= 1;
+    meals += 1;
+  }
+  life.stats.meals += meals;
+  const pay = come * ticket(life) + meals * FOOD.price;
   s.gold += pay;
   life.stats.earned += pay;
   life.stats.visitors += come;
@@ -311,9 +342,8 @@ function passTime(s: GameState, minutes: number, tally: Tally): void {
   while (left > 0) {
     const step = Math.min(left, DAY - life.minute, 60);
     const hours = step / 60;
-    const open = cafeOpen(life.minute);
     const guests = guestsCome(s, hours, tally, `${s.character.id}:guests:${life.day}:${life.minute}`);
-    catsLive(life, hours, !open, guests);
+    catsLive(life, hours, nightHour(life.minute), guests);
     life.minute += step;
     left -= step;
     if (life.minute >= DAY) {
@@ -322,10 +352,7 @@ function passTime(s: GameState, minutes: number, tally: Tally): void {
       newGameDay(s);
     }
   }
-  if (!cafeOpen(life.minute)) {
-    life.guests = 0;
-    life.buzz = 0;
-  }
+  life.guests = Math.round(guestDemand(life));
 }
 
 /** Новый игровой день: утреннее событие. */
@@ -338,12 +365,6 @@ function newGameDay(s: GameState): void {
     const ev = pool[Math.floor(roll() * pool.length)];
     if (ev) life.event = { id: ev.id };
   }
-}
-
-/** Сколько минут до открытия кафе (закрыть до утра). */
-export function closeMinutes(minute: number): number {
-  const m = (CAFE_HOURS[0] * 60 - minute + DAY) % DAY;
-  return m === 0 ? DAY : m;
 }
 
 function applyEffect(s: GameState, e: LifeEffect, tally: Tally): void {
@@ -368,11 +389,12 @@ function applyEffect(s: GameState, e: LifeEffect, tally: Tally): void {
   }
   if (e.catsPlay) for (const c of life.cats) c.play = clamp(c.play + e.catsPlay, 0, 100);
   if (e.buzz) life.buzz = clamp(life.buzz + e.buzz, -5, 20);
+  if (e.food) life.food = clamp(life.food + e.food, 0, maxFood(life));
 }
 
 // ─── Доступность действий ──────────────────────────────────────────────
 
-export type Blocker = 'closed' | 'money' | 'missing' | 'enough' | 'nocat' | 'saved' | 'full' | null;
+export type Blocker = 'money' | 'missing' | 'enough' | 'empty' | 'nocat' | 'saved' | 'full' | null;
 
 /** Есть ли предмет в текущей локации. */
 export function hasObject(s: GameState, id: ObjectId): boolean {
@@ -388,9 +410,9 @@ export function blocker(s: GameState, a: ActionDef): Blocker {
   // Миски и так полны, лоток и так чистый.
   if (a.effect.bowl && life.bowl >= BOWL_MAX && life.water >= 90) return 'enough';
   if (a.effect.litter && a.effect.litter < 0 && life.litter < 5) return 'enough';
-  // Реклама и гости — только пока кафе открыто.
-  if ((a.effect.buzz ?? 0) > 0 && !cafeOpen(life.minute)) return 'closed';
-  if (a.close && cafeOpen(life.minute) && hourOf(life.minute) < CAFE_HOURS[1] - 1) return 'enough';
+  // Витрина и так полна; заказ некому принести.
+  if (a.effect.food && life.food >= maxFood(life)) return 'enough';
+  if (a.at === 'table' && life.guests <= 0) return 'empty';
   if (a.rescue) {
     const o = life.demon;
     if (!o || o.status === 'lost') return 'nocat';
@@ -435,8 +457,7 @@ export function act(state: GameState, actionId: string): LifeOutcome {
     s.gold -= a.cost;
     tally.money -= a.cost;
   }
-  let minutes = a.minutes;
-  if (a.close) minutes = closeMinutes(life.minute);
+  const minutes = a.minutes;
   passTime(s, minutes, tally);
   applyEffect(s, a.effect, tally);
   if (a.go) life.scene = a.go;
@@ -592,24 +613,14 @@ export function houseBlocker(s: GameState): HouseBlocker {
   return null;
 }
 
-/**
- * Расширить кафе: зал больше, мест для мебели, кошек и гостей больше. Старьё из
- * стартового помещения (облезлые обои, линолеум, лампочка) заменяет простой ремонт.
- */
+/** Расширить кафе: зал больше, мест для мебели, кошек, гостей, столиков и еды больше. */
 export function upgradeHouse(state: GameState): GameState {
   if (houseBlocker(state)) return state;
   const s = structuredClone(state);
   s.life.house += 1;
   const h = HOUSES[s.life.house]!;
   s.gold -= h.cost;
-  const tally = startTally();
-  for (const k of DECOR_KINDS) {
-    if (!finishById(s.life.decor[k])?.old) continue;
-    s.life.decor[k] = BASIC_DECOR[k];
-    if (!s.life.finishes.includes(BASIC_DECOR[k])) s.life.finishes.push(BASIC_DECOR[k]);
-    tally.notes.push(t(`Новый зал: ${finishById(BASIC_DECOR[k])!.name.ru.toLowerCase()}`, `New hall: ${finishById(BASIC_DECOR[k])!.name.en.toLowerCase()}`));
-  }
-  finish(s, h.icon, h.name, true, 0, tally);
+  finish(s, h.icon, h.name, true, 0, startTally());
   return s;
 }
 
@@ -622,7 +633,6 @@ export function finishBlocker(s: GameState, id: string): FinishBlocker {
   const def = finishById(id);
   if (!def || s.life.decor[def.kind] === id) return 'current';
   if (s.life.finishes.includes(id)) return null;
-  if (def.old) return 'current';
   if (heroLevel(s) < (def.level ?? 1)) return 'level';
   if (s.gold < def.price) return 'money';
   return null;
@@ -658,9 +668,9 @@ export function upgradeKit(state: GameState, id: KitId): GameState {
   return s;
 }
 
-/** Сколько всего ещё можно улучшить (для подсказки): старьё в кафе. */
+/** Сколько всего ещё можно улучшить (для подсказки): старая базовая мебель. */
 export function oldStuff(life: LifeState): number {
-  return DECOR_KINDS.filter((k) => finishById(life.decor[k])?.old).length + KITS.filter((k) => !life.kit[k.id]).length;
+  return KITS.filter((k) => !life.kit[k.id]).length;
 }
 
 export function dismissResult(state: GameState): GameState {
@@ -689,7 +699,7 @@ export function guestOf(seed: number): Guest {
 
 /** Гости в кафе сейчас: меняются каждый час (номера — по дню и часу). */
 export function guestsNow(life: LifeState): Guest[] {
-  const n = cafeOpen(life.minute) ? Math.min(life.guests, seats(life)) : 0;
+  const n = Math.min(life.guests, seats(life));
   // Состав меняется постепенно: чётные места — каждые два часа, нечётные — со сдвигом на час.
   const h = life.day * 24 + hourOf(life.minute);
   return Array.from({ length: n }, (_, i) => guestOf(Math.floor((h + (i % 2)) / 2) * 37 + i * 7 + 1));
@@ -736,14 +746,19 @@ export function guestOutfit(g: Guest): Partial<Record<Slot, string>> {
 export const AUTO_RESERVE = 40;
 /** Сколько последних дел сим помнит, чтобы не повторять одно и то же. */
 export const AUTO_MEMORY = 6;
-/** С какой пользы дело срочное (пустая миска, грязный лоток, ночь) — его сим делает и между делами. */
+/** С какой пользы дело срочное (пустая миска, грязный лоток, пустая витрина) — его сим делает и между делами. */
 export const AUTO_URGENT = 25;
 
 /** Польза дела для кафе: кошки, гости, деньги. */
 function actionValue(state: GameState, a: ActionDef): number {
   const life = state.life;
   const e = a.effect;
-  if (a.close) return cafeOpen(life.minute) ? -Infinity : 40;
+  if (a.effect.food) {
+    // Пустая витрина — срочно; закупка быстрее выпечки, пока на неё есть деньги.
+    const low = life.food === 0 ? 27 : life.food < maxFood(life) * 0.3 ? 12 : -Infinity;
+    return a.cost ? low + 2 : low;
+  }
+  if (a.id === 'serve') return life.guests > 0 ? 5 : -Infinity;
   if (a.id === 'fill_bowl') return life.bowl === 0 || life.water < 10 ? 30 : life.bowl <= 1 || life.water < 30 ? 14 : -Infinity;
   if (a.id === 'clean_litter') return life.litter >= LITTER_DIRTY ? 28 + (life.litter - LITTER_DIRTY) * 0.3 : life.litter >= 35 ? 8 : -Infinity;
   if (a.id === 'call_cat' || a.id === 'relax' || a.id === 'armchair') return -Infinity;
@@ -762,20 +777,20 @@ function actionValue(state: GameState, a: ActionDef): number {
 function affordable(state: GameState, a: ActionDef): boolean {
   const cost = a.cost ?? 0;
   if (!cost) return true;
-  return a.id === 'fill_bowl' ? state.gold >= cost : state.gold - cost >= AUTO_RESERVE;
+  return a.id === 'fill_bowl' || a.id === 'restock' ? state.gold >= cost : state.gold - cost >= AUTO_RESERVE;
 }
 
-/** Срочное ли дело: пустые миски, грязный лоток, ночь (закрыть кафе). */
+/** Срочное ли дело: пустые миски, грязный лоток, пустая витрина. */
 function pressing(life: LifeState, a: ActionDef): boolean {
   if (a.id === 'fill_bowl') return life.bowl === 0 || life.water < 10;
   if (a.id === 'clean_litter') return life.litter >= LITTER_DIRTY;
-  if (a.close) return !cafeOpen(life.minute);
+  if (a.effect.food) return life.food === 0;
   return false;
 }
 
 /**
- * Что сим сделает сам: самое полезное дело в кафе (кошки, гости, порядок), ночью — закрывает
- * кафе до утра. Упражнения и спасение кошки — только с игроком. Из лавки демона
+ * Что сим сделает сам: самое полезное дело в кафе (кошки, гости, еда, порядок). Упражнения
+ * и спасение кошки — только с игроком. Из лавки демона
  * возвращается в кафе. urgentOnly — только срочное. null — делать нечего.
  */
 export function autoChoice(state: GameState, recent: readonly string[] = [], urgentOnly = false): { action: ActionDef; leisure: boolean } | null {
