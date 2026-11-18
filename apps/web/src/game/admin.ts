@@ -59,7 +59,8 @@ export function markTouched(state: GameState): GameState {
 }
 
 /** История: полный запас шагов пути и стойкости. */
-/** Все потребности — на максимум. */
+/** Все кошки сыты и довольны, миски полны, лоток чист. */
 export function refillNeeds(state: GameState): GameState {
-  return touched({ ...state, life: { ...state.life, needs: { food: 100, energy: 100, hygiene: 100, fun: 100, social: 100 } } });
+  const life = state.life;
+  return touched({ ...state, life: { ...life, bowl: 6, water: 100, litter: 0, cats: life.cats.map((c) => ({ ...c, fed: 100, play: 100, toilet: 100 })) } });
 }

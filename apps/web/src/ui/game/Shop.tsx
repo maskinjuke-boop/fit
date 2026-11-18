@@ -1,5 +1,5 @@
-import { actionsAt, catBlocker, catGrowth, catName, comfort, kittenPrice, effectiveAppearance, furnitureBlocker, maxCats } from '../../game/life';
-import { CAT_BREEDS, FURNITURE, OBJECTS, mountOf, slotsFor, type HomeKind } from '../../game/lifeContent';
+import { actionsAt, comfort, furnitureBlocker } from '../../game/life';
+import { FURNITURE, OBJECTS, mountOf, slotsFor, type HomeKind } from '../../game/lifeContent';
 import type { ObjectId } from '../../game/lifeTypes';
 import { useState, type MouseEvent } from 'react';
 import { canBuy, equipmentBonus } from '../../game/engine';
@@ -9,9 +9,8 @@ import { levelOf } from '../../game/levels';
 import type { GameState } from '../../game/state';
 import { useI18n, type I18nKey } from '../../i18n';
 import { Hero3D } from './Hero3D';
-import { CatImage, HomeImage, ItemImage } from './Renders';
+import { HomeImage, ItemImage } from './Renders';
 import { Renovation } from './Renovation';
-import { catBreedText, catMeta } from './catText';
 
 const itemName = (t: (k: I18nKey) => string, id: string): string => t(`item.${id}` as I18nKey);
 
@@ -34,7 +33,7 @@ function ItemSheet({ state, item, onClose }: { state: GameState; item: ItemDef; 
       <div className="sheet item-sheet" onClick={(e: MouseEvent<HTMLDivElement>) => e.stopPropagation()}>
         <div className="item-sheet-art" style={{ borderColor: RARITY_COLOR[item.rarity] + '66' }}>
           {tryOn ? (
-            <Hero3D color={state.character.color} appearance={effectiveAppearance(state.character.appearance, state)} equipped={preview} height={280} />
+            <Hero3D color={state.character.color} appearance={state.character.appearance} equipped={preview} height={280} />
           ) : (
             <ItemImage itemId={item.id} color={state.character.color} figure={state.character.appearance.figure} size={180} />
           )}
@@ -105,17 +104,15 @@ function ItemCard({ state, item, onOpen }: { state: GameState; item: ItemDef; on
   );
 }
 
-type ShopSection = 'clothes' | 'home' | 'renovation' | 'cats';
+type ShopSection = 'clothes' | 'home' | 'renovation';
 type HomeFilter = HomeKind | 'all';
 
-const NEED_ICON: Record<string, string> = { food: '🍔', energy: '⚡', hygiene: '🚿', fun: '🎉', social: '💬' };
 
-/** Что даёт предмет для дома: действия, уют, пассивные эффекты. */
+/** Что даёт предмет для кафе: действия и уют. */
 function homePerks(id: ObjectId, lang: 'ru' | 'en', tf: (k: I18nKey, v: Record<string, string | number>) => string): string[] {
   const o = OBJECTS[id];
   const out: string[] = actionsAt(id).map((a) => `${a.icon} ${a.label[lang]}`);
   if (o.comfort) out.push(tf('home.comfort', { n: o.comfort }));
-  for (const [need, k] of Object.entries(o.slows ?? {})) out.push(tf('home.slows', { need: NEED_ICON[need] ?? need, n: Math.round((k ?? 0) * 100) }));
   return out;
 }
 
@@ -218,69 +215,6 @@ function HomeShop({ state }: { state: GameState }) {
   );
 }
 
-function CatShop({ state }: { state: GameState }) {
-  const { t, tf, lang } = useI18n();
-  const { life } = useGame();
-  const cats = state.life.cats;
-  const day = state.life.day;
-  const [sex, setSex] = useState<'f' | 'm'>('f');
-  return (
-    <>
-      <p className="muted small">{tf('cats.hint', { n: cats.length, m: maxCats(state.life) })}</p>
-      <p className="muted small">{t('cats.breedHint')}</p>
-      {cats.length > 0 && (
-        <ul className="life-list cats-own">
-          {cats.map((c) => {
-            const price = kittenPrice(c, day);
-            return (
-              <li key={c.id}>
-                <span className="cat-thumb">
-                  <CatImage breed={c.breed} mix={c.mix} grow={catGrowth(c, day)} size={56} />
-                </span>
-                <div>
-                  <b>{catName(c)[lang]}</b>
-                  <div className="muted small">{catBreedText(c, lang, t)}</div>
-                  <div className="small">{catMeta(c, day, t, tf)}</div>
-                </div>
-                <button className="btn ghost small" onClick={() => life.rehomeCat(c.id)}>
-                  {price > 0 ? tf('cats.sell', { n: price }) : t('cats.rehome')}
-                </button>
-              </li>
-            );
-          })}
-        </ul>
-      )}
-      <div className="cat-sex">
-        <span className="small muted">{t('cats.sex')}</span>
-        <div className="segmented">
-          {(['f', 'm'] as const).map((x) => (
-            <button key={x} className={sex === x ? 'on' : ''} onClick={() => setSex(x)}>
-              {t(x === 'f' ? 'cat.f' : 'cat.m')}
-            </button>
-          ))}
-        </div>
-      </div>
-      <ul className="item-grid">
-        {CAT_BREEDS.map((b) => {
-          const block = catBlocker(state, b.id);
-          return (
-            <li key={b.id}>
-              <button className={`item-card ${block === 'max' ? 'locked' : ''}`} disabled={block !== null} onClick={() => life.adoptCat(b.id, sex)}>
-                <span className="item-art home-art">
-                  <CatImage breed={b.id} size={92} />
-                </span>
-                <b>{b.name[lang]}</b>
-                <span className="muted small">{b.desc[lang]}</span>
-                <span className="item-price">{block === 'max' ? t('cats.max') : `${t('cats.adopt')} · ◈ ${b.price}`}</span>
-              </button>
-            </li>
-          );
-        })}
-      </ul>
-      <p className="muted small">{t('cats.credit')}</p>
-    </>
-  );
-}
 
 export function ShopTab({ state }: { state: GameState }) {
   const { t } = useI18n();
@@ -296,14 +230,13 @@ export function ShopTab({ state }: { state: GameState }) {
         <span className="gold-pill">◈ {state.gold}</span>
       </div>
       <div className="segmented shop-sections">
-        {(['clothes', 'home', 'renovation', 'cats'] as const).map((x) => (
+        {(['clothes', 'home', 'renovation'] as const).map((x) => (
           <button key={x} className={section === x ? 'on' : ''} onClick={() => setSection(x)}>
             {t(`shop.${x}` as I18nKey)}
           </button>
         ))}
       </div>
       {section === 'home' && <HomeShop state={state} />}
-      {section === 'cats' && <CatShop state={state} />}
       {section === 'renovation' && <Renovation state={state} />}
       {section === 'clothes' && (
         <>

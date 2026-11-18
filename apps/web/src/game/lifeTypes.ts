@@ -1,8 +1,6 @@
 import type { ExerciseId } from '../tracking/exercise';
 import type { Decor, Kit } from './homeDecor';
-import type { GymExtraId } from './lifeContent';
 import type { StatId } from './config';
-import type { Figure, HairStyle } from './state';
 
 /** Текст на двух языках (содержимое игры хранится рядом с логикой, а не в общем словаре). */
 export interface Txt {
@@ -10,48 +8,25 @@ export interface Txt {
   en: string;
 }
 
-/** Потребности героя, 0…100. */
-export type NeedId = 'food' | 'energy' | 'hygiene' | 'fun' | 'social';
-export const NEEDS: readonly NeedId[] = ['food', 'energy', 'hygiene', 'fun', 'social'];
+/** Две локации: своё котокафе и лавка демона. */
+export type SceneId = 'cafe' | 'demon';
 
-/** Навыки (опыт копится действиями; уровень 0…10). */
-export type SkillId = 'cooking' | 'charisma' | 'logic' | 'creativity';
-export const SKILLS: readonly SkillId[] = ['cooking', 'charisma', 'logic', 'creativity'];
-
-/** Две локации: свой дом и фитнес-зал. */
-export type SceneId = 'home' | 'gym';
-
-/** Предметы, у которых есть действия (в доме и в зале). */
+/** Предметы, у которых есть действия (в кафе и в лавке). */
 export type ObjectId =
-  // Дом.
-  | 'bed'
-  | 'fridge'
-  | 'stove'
-  | 'shower'
-  | 'sofa'
+  // Кафе: всегда есть.
   | 'door'
-  | 'mirror'
-  | 'computer'
+  | 'counter'
+  | 'sofa'
+  // Мебель, техника и декор из магазина.
   | 'bookshelf'
-  | 'yoga_mat'
-  | 'dumbbells'
-  | 'coffee_machine'
   | 'console'
   | 'piano'
-  | 'bathtub'
   | 'aquarium'
   | 'easel'
-  // Мебель и техника из магазина.
   | 'armchair'
-  | 'massage_chair'
-  | 'treadmill'
-  | 'punching_bag'
   | 'big_tv'
   | 'smart_speaker'
-  | 'blender'
-  | 'microwave'
-  | 'vr_headset'
-  // Пассивная техника и декор (без действий: уют и меньше расход потребностей).
+  // Пассивная техника и декор (без действий: уют — больше гостей).
   | 'robot_vacuum'
   | 'air_conditioner'
   | 'painting'
@@ -62,29 +37,18 @@ export type ObjectId =
   | 'floor_lamp'
   | 'flower_vase'
   | 'palm'
-  // Кошки (любая из своих кошек рядом), их миски и лоток (появляются с первой кошкой).
+  // Кошки (любая из кошек кафе рядом), их миски и лоток (появляются с первой кошкой).
   | 'cat'
   | 'cat_bowl'
   | 'litter'
-  // Зал.
-  | 'coach'
-  | 'reception'
-  | 'gym_door'
-  | 'gym_shower'
-  | 'smoothie';
+  // Лавка демона.
+  | 'demon'
+  | 'cage'
+  | 'demon_door';
 
-/** Изменения от действия (до ограничений). */
+/** Изменения от действия. */
 export interface LifeEffect {
-  needs?: Partial<Record<NeedId, number>>;
   money?: number;
-  skills?: Partial<Record<SkillId, number>>;
-  groceries?: number;
-  /** Сдвиг «лишнего веса» героя: −1 (сухой) … 1 (полный). */
-  fat?: number;
-  /** Лояльность всех учеников. */
-  loyalty?: number;
-  /** Новый ученик. */
-  client?: boolean;
   /** Корм в миске (порций, до полной миски). */
   bowl?: number;
   /** Вода в миске (0…100). */
@@ -94,13 +58,10 @@ export interface LifeEffect {
   /** Кошке, которой это нужнее всех: игра и сытость. */
   catPlay?: number;
   catFed?: number;
-}
-
-export interface Requirement {
-  groceries?: number;
-  money?: number;
-  need?: [NeedId, number];
-  skill?: [SkillId, number];
+  /** Всем кошкам — игра. */
+  catsPlay?: number;
+  /** Гости кафе: прибавка к числу гостей на сегодня (реклама, событие). */
+  buzz?: number;
 }
 
 export interface ActionDef {
@@ -111,15 +72,16 @@ export interface ActionDef {
   minutes: number;
   cost?: number;
   effect: LifeEffect;
-  requires?: Requirement;
-  /** Сон: до утра (7:00) или не меньше minutes. */
-  sleep?: boolean;
-  /** Открыть свою тренировку перед камерой. */
+  /** Закрыть кафе до утра. */
+  close?: boolean;
+  /** Спасти кошку дня: открыть упражнение демона перед камерой. */
+  rescue?: boolean;
+  /** Открыть свою тренировку перед камерой (заработать). */
   train?: boolean;
   /** Переход в другую локацию. */
   go?: SceneId;
-  /** Открыть экран: мебель, выбор занятия, зал. */
-  open?: 'furniture' | 'session' | 'gym';
+  /** Открыть экран: кафе (мебель, расширение) или кошка дня. */
+  open?: 'cafe' | 'demon';
 }
 
 /** Породы кошек. */
@@ -130,6 +92,7 @@ export interface Cat {
   breed: CatBreed;
   /** Индекс имени в списке. */
   name: number;
+  /** Игровой день, когда кошка появилась в кафе. */
   adopted: number;
   /** Потребности кошки 0…100: сытость, игра и «туалет» (100 — только что сходила). */
   fed: number;
@@ -141,37 +104,25 @@ export interface Cat {
   born: number;
   /** Вторая порода у метиса (помесь). */
   mix?: CatBreed;
-  /** Ждёт котят: день родов и породы отца. */
-  pregnant?: { due: number; father: CatBreed; fatherMix?: CatBreed };
-  /** Чей котёнок (id матери). */
-  mother?: string;
 }
 
-/** Ученик: внешность из зерна, форма улучшается с занятиями. */
-export interface Client {
-  id: string;
-  seed: number;
-  figure: Figure;
-  hair: HairStyle;
-  skin: number;
-  hairColor: number;
-  /** Индекс имени в списке. */
+/**
+ * Кошка дня в лавке демона: появляется каждый реальный день, её можно спасти до конца
+ * этого дня — упражнением, которое назначил демон. Не спасли — кошка пропадает.
+ */
+export interface DemonOffer {
+  /** Реальный день (YYYY-MM-DD), когда кошка появилась. */
+  day: string;
+  breed: CatBreed;
+  mix?: CatBreed;
+  sex: 'f' | 'm';
   name: number;
-  /** Полнота −0,4…1 и мышцы −0,6…0,8 (ползунки тела). */
-  fat: number;
-  muscle: number;
-  sessions: number;
-  /** Лояльность 0…100: при нуле ученик уходит. */
-  loyalty: number;
-  joined: number;
-}
-
-/** Идущее занятие: тренер выполняет упражнение на камеру, ученики повторяют. */
-export interface Session {
+  /** Возраст в месяцах. */
+  age: number;
   exercise: ExerciseId;
   target: number;
   progress: number;
-  clients: string[];
+  status: 'waiting' | 'saved' | 'lost';
 }
 
 /** Итог последнего действия — для всплывающей карточки. */
@@ -179,10 +130,9 @@ export interface LifeResult {
   icon: string;
   text: Txt;
   ok: boolean;
-  needs: Partial<Record<NeedId, number>>;
   money: number;
   minutes: number;
-  skills?: Partial<Record<SkillId, number>>;
+  guests?: number;
   notes: Txt[];
 }
 
@@ -194,15 +144,10 @@ export interface LifeState {
   /** Игровой день (с 1) и минуты от полуночи. */
   day: number;
   minute: number;
-  needs: Record<NeedId, number>;
   scene: SceneId;
-  /** Порции продуктов в холодильнике. */
-  groceries: number;
-  /** Опыт навыков. */
-  skills: Record<SkillId, number>;
-  /** Купленная мебель, техника и декор для дома. */
+  /** Купленная мебель, техника и декор для кафе. */
   furniture: ObjectId[];
-  /** Свои кошки. */
+  /** Кошки кафе. */
   cats: Cat[];
   /** Порций корма в кошачьей миске. */
   bowl: number;
@@ -210,31 +155,23 @@ export interface LifeState {
   water: number;
   /** Грязь в лотке 0…100. */
   litter: number;
-  /** «Лишний вес» героя: −1…1. */
-  fat: number;
-  /** Уровень зала 0…4. */
-  gym: number;
-  /** Купленные удобства зала. */
-  gymExtras: GymExtraId[];
-  /** Ступень жилья 0…4 (0 — убитая однушка в начале игры). */
+  /** Ступень кафе 0…4 (0 — тесный котоуголок в старом помещении). */
   house: number;
-  /** Отделка дома: что выбрано в каждом разделе. */
+  /** Отделка кафе: что выбрано в каждом разделе. */
   decor: Decor;
   /** Купленная отделка (её можно вернуть бесплатно). */
   finishes: string[];
   /** Базовая мебель: 0 — старьё, 1 — новая. */
   kit: Kit;
-  clients: Client[];
-  /** Счётчик для id новых учеников. */
-  nextClient: number;
-  session: Session | null;
+  /** Гости в кафе сейчас. */
+  guests: number;
+  /** Сегодняшняя прибавка к гостям (реклама, события), гаснет к ночи. */
+  buzz: number;
+  /** Кошка дня в лавке демона. */
+  demon: DemonOffer | null;
   event: ActiveEvent | null;
   last: LifeResult | null;
-  /** Реальный день, за который уже выдано сообщение о выполненной норме. */
-  quotaDay: string;
-  /** Норма повторов на текущий реальный день. */
-  quota: number;
-  stats: { sessions: number; earned: number; meals: number; workouts: number; fines: number; graduated: number };
+  stats: { visitors: number; earned: number; rescued: number; lost: number; repMoney: number };
 }
 
 export type { ExerciseId, StatId };

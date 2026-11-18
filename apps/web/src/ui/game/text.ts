@@ -1,3 +1,4 @@
+import { catName } from '../../game/life';
 import { ACHIEVEMENTS } from '../../game/achievements';
 import type { GameEvent } from '../../game/engine';
 import { effectiveObjective, type Objective } from '../../game/quests';
@@ -69,12 +70,10 @@ export function eventText(t: T, tf: TF, e: GameEvent, lang: Lang = 'ru'): string
       const a = ACHIEVEMENTS.find((x) => x.id === e.id);
       return tf('ev.achievement', { name: a ? a.name[lang] : e.id });
     }
-    case 'sessionDone':
-      return tf('ev.sessionDone', { n: e.pay });
-    case 'quotaDone':
-      return tf('ev.quotaDone', { n: e.quota });
-    case 'quotaMissed':
-      return tf('ev.quotaMissed', { n: e.fine, d: e.days }) + (e.left > 0 ? ` · ${tf('ev.quotaLeft', { n: e.left })}` : '');
+    case 'catSaved':
+      return tf('ev.catSaved', { name: catName({ name: e.name })[lang] });
+    case 'catLost':
+      return tf('ev.catLost', { name: catName({ name: e.name })[lang] });
     case 'xp':
       return null;
   }

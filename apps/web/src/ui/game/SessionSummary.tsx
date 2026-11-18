@@ -9,7 +9,7 @@ export interface Session {
   events: GameEvent[];
 }
 
-const SHOWN: ReadonlyArray<GameEvent['kind']> = ['levelUp', 'statLevelUp', 'questDone', 'dailyDone', 'dailyBonus', 'streak', 'achievement', 'sessionDone', 'quotaDone'];
+const SHOWN: ReadonlyArray<GameEvent['kind']> = ['levelUp', 'statLevelUp', 'questDone', 'dailyDone', 'dailyBonus', 'streak', 'achievement', 'catSaved'];
 
 /** Итог тренировки: повторы, опыт, золото и что произошло (уровни, квесты, задания). */
 export function SessionSummary({ session, onClose }: { session: Session; onClose(): void }) {

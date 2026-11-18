@@ -1,96 +1,80 @@
 import type { ExerciseId } from '../tracking/exercise';
-import type { ActionDef, CatBreed, LifeEffect, NeedId, ObjectId, Txt } from './lifeTypes';
+import type { ActionDef, CatBreed, LifeEffect, ObjectId, Txt } from './lifeTypes';
 
 /**
- * Содержимое симулятора фитнес-тренера: две локации (свой дом и фитнес-зал),
- * предметы и мебель, уровни зала, упражнения для занятий, имена учеников,
- * действия и утренние события. Тексты — на двух языках.
+ * Содержимое котокафе: предметы и мебель, ступени кафе (расширение — по числу кошек),
+ * кошки, упражнения демона, действия и утренние события. Тексты — на двух языках.
  */
 
 const t = (ru: string, en: string): Txt => ({ ru, en });
 
 // ─── Предметы ──────────────────────────────────────────────────────────
 
-/** Раздел магазина для дома: мебель, техника, декор. */
+/** Раздел магазина для кафе: мебель, техника, декор. */
 export type HomeKind = 'furniture' | 'tech' | 'decor';
 
 export interface ObjectDef {
   id: ObjectId;
   icon: string;
   name: Txt;
-  /** Продаётся в магазине (раздел «Дом»). */
+  /** Продаётся в магазине (раздел «Для кафе»). */
   price?: number;
   desc?: Txt;
   kind?: HomeKind;
   /** Где стоит: у стены на полу (по умолчанию), на стене или где угодно (робот-пылесос). */
   mount?: 'slot' | 'wall' | 'floor' | 'free';
-  /** Уют: замедляет падение отдыха и общения дома. */
+  /** Уют: каждая единица — больше гостей и дороже вход. */
   comfort?: number;
-  /** Пассивно: во сколько раз медленнее падает потребность (0,2 — на 20%). */
-  slows?: Partial<Record<NeedId, number>>;
 }
 
 export const OBJECTS: Record<ObjectId, ObjectDef> = {
-  bed: { id: 'bed', icon: '🛏️', name: t('Кровать', 'Bed') },
-  fridge: { id: 'fridge', icon: '🧊', name: t('Холодильник', 'Fridge') },
-  stove: { id: 'stove', icon: '🍳', name: t('Плита', 'Stove') },
-  shower: { id: 'shower', icon: '🚿', name: t('Душ', 'Shower') },
-  sofa: { id: 'sofa', icon: '🛋️', name: t('Диван и телевизор', 'Sofa and TV') },
-  door: { id: 'door', icon: '🚪', name: t('Входная дверь', 'Front door') },
-  mirror: { id: 'mirror', icon: '🪞', name: t('Зеркало', 'Mirror') },
-  computer: { id: 'computer', icon: '💻', name: t('Компьютер', 'Computer'), price: 450, desc: t('Онлайн-консультации, учёба и игры', 'Online coaching, study and games'), kind: 'tech' },
-  bookshelf: { id: 'bookshelf', icon: '📚', name: t('Книжный шкаф', 'Bookshelf'), price: 200, desc: t('Книги о спорте и питании', 'Books on sport and nutrition'), kind: 'furniture' },
-  yoga_mat: { id: 'yoga_mat', icon: '🧘', name: t('Коврик для йоги', 'Yoga mat'), price: 60, desc: t('Своя тренировка дома', 'Your own workout at home'), kind: 'furniture' },
-  dumbbells: { id: 'dumbbells', icon: '🏋️', name: t('Стойка с гантелями', 'Dumbbell rack'), price: 300, desc: t('Силовые дома', 'Strength work at home'), kind: 'furniture' },
-  coffee_machine: { id: 'coffee_machine', icon: '☕', name: t('Кофемашина', 'Coffee machine'), price: 180, desc: t('Бодрость перед занятиями', 'A boost before classes'), kind: 'tech' },
-  console: { id: 'console', icon: '🎮', name: t('Игровая приставка', 'Game console'), price: 380, desc: t('Лучший отдых', 'The best way to unwind'), kind: 'tech' },
-  piano: { id: 'piano', icon: '🎹', name: t('Пианино', 'Piano'), price: 900, desc: t('Творчество и настроение', 'Creativity and mood'), kind: 'furniture' },
-  bathtub: { id: 'bathtub', icon: '🛁', name: t('Ванна', 'Bathtub'), price: 650, desc: t('Восстановление после занятий', 'Recovery after classes'), kind: 'furniture' },
-  aquarium: { id: 'aquarium', icon: '🐠', name: t('Аквариум', 'Aquarium'), price: 350, desc: t('Спокойствие', 'Calm'), kind: 'decor' },
-  easel: { id: 'easel', icon: '🎨', name: t('Мольберт', 'Easel'), price: 150, desc: t('Программы тренировок и рисование', 'Training plans and painting'), kind: 'furniture' },
-  armchair: { id: 'armchair', icon: '🪑', name: t('Кресло для чтения', 'Reading armchair'), price: 220, desc: t('Уютный отдых с книгой', 'Cosy rest with a book'), comfort: 1, kind: 'furniture' },
-  massage_chair: { id: 'massage_chair', icon: '💆', name: t('Массажное кресло', 'Massage chair'), price: 1200, desc: t('Восстанавливает силы после занятий', 'Restores energy after classes'), comfort: 1, kind: 'furniture' },
-  treadmill: { id: 'treadmill', icon: '🏃', name: t('Беговая дорожка', 'Treadmill'), price: 800, desc: t('Кардио дома перед камерой', 'Cardio at home in front of the camera'), kind: 'tech' },
-  punching_bag: { id: 'punching_bag', icon: '🥊', name: t('Боксёрская груша', 'Punching bag'), price: 350, desc: t('Сбросить стресс', 'Blow off steam'), kind: 'furniture' },
-  big_tv: { id: 'big_tv', icon: '📺', name: t('Домашний кинотеатр', 'Home cinema'), price: 1500, desc: t('Большой экран и кресло-мешок', 'A huge screen and a bean bag'), comfort: 1, kind: 'tech' },
-  smart_speaker: { id: 'smart_speaker', icon: '🔊', name: t('Умная колонка', 'Smart speaker'), price: 160, desc: t('Музыка и танцы', 'Music and dancing'), kind: 'tech' },
-  blender: { id: 'blender', icon: '🥤', name: t('Блендер', 'Blender'), price: 120, desc: t('Протеиновые коктейли дома', 'Protein shakes at home'), kind: 'tech' },
-  microwave: { id: 'microwave', icon: '♨️', name: t('Микроволновка', 'Microwave'), price: 140, desc: t('Быстрый горячий ужин', 'A quick hot dinner'), kind: 'tech' },
-  vr_headset: { id: 'vr_headset', icon: '🥽', name: t('VR-шлем', 'VR headset'), price: 950, desc: t('Виртуальные миры и фитнес-игры', 'Virtual worlds and fitness games'), kind: 'tech' },
-  robot_vacuum: { id: 'robot_vacuum', icon: '🤖', name: t('Робот-пылесос', 'Robot vacuum'), price: 500, desc: t('Сам убирает дом: гигиена падает медленнее', 'Cleans by itself: hygiene drops slower'), mount: 'free', slows: { hygiene: 0.25 }, kind: 'tech' },
-  air_conditioner: { id: 'air_conditioner', icon: '❄️', name: t('Кондиционер', 'Air conditioner'), price: 700, desc: t('Прохлада: энергия тратится медленнее', 'Cool air: energy drains slower'), mount: 'wall', slows: { energy: 0.15 }, kind: 'tech' },
+  door: { id: 'door', icon: '🚪', name: t('Вход в кафе', 'Café entrance') },
+  counter: { id: 'counter', icon: '🛎️', name: t('Стойка администратора', 'Front desk') },
+  sofa: { id: 'sofa', icon: '🛋️', name: t('Гостевой диван', 'Guest sofa') },
+  bookshelf: { id: 'bookshelf', icon: '📚', name: t('Книжный шкаф', 'Bookshelf'), price: 200, desc: t('Сказки вслух — кошки засыпают, гости умиляются', 'Bedtime stories — cats doze, guests melt'), comfort: 1, kind: 'furniture' },
+  easel: { id: 'easel', icon: '🎨', name: t('Мольберт', 'Easel'), price: 150, desc: t('Портреты котиков на продажу', 'Cat portraits for sale'), kind: 'furniture' },
+  armchair: { id: 'armchair', icon: '🪑', name: t('Мягкое кресло', 'Cosy armchair'), price: 220, desc: t('Ещё одно уютное место для гостей', 'One more cosy seat for guests'), comfort: 2, kind: 'furniture' },
+  piano: { id: 'piano', icon: '🎹', name: t('Пианино', 'Piano'), price: 900, desc: t('Живая музыка собирает гостей', 'Live music draws guests'), comfort: 2, kind: 'furniture' },
+  aquarium: { id: 'aquarium', icon: '🐠', name: t('Аквариум', 'Aquarium'), price: 350, desc: t('Кошки часами смотрят на рыбок', 'Cats watch the fish for hours'), comfort: 2, kind: 'decor' },
+  console: { id: 'console', icon: '🎮', name: t('Игровая приставка', 'Game console'), price: 380, desc: t('Вечерние турниры для гостей', 'Evening tournaments for guests'), comfort: 1, kind: 'tech' },
+  smart_speaker: { id: 'smart_speaker', icon: '🔊', name: t('Умная колонка', 'Smart speaker'), price: 160, desc: t('Мурлыкающий плейлист', 'A purring playlist'), comfort: 1, kind: 'tech' },
+  big_tv: { id: 'big_tv', icon: '📺', name: t('Большой экран', 'Big screen'), price: 1500, desc: t('Кино про котиков для гостей', 'Cat movies for guests'), comfort: 3, kind: 'tech' },
+  robot_vacuum: { id: 'robot_vacuum', icon: '🤖', name: t('Робот-пылесос', 'Robot vacuum'), price: 500, desc: t('Собирает шерсть: лоток пачкается медленнее', 'Picks up fur: the litter box gets dirty slower'), mount: 'free', comfort: 1, kind: 'tech' },
+  air_conditioner: { id: 'air_conditioner', icon: '❄️', name: t('Кондиционер', 'Air conditioner'), price: 700, desc: t('Свежо и без запахов', 'Fresh and odour-free'), mount: 'wall', comfort: 2, kind: 'tech' },
   painting: { id: 'painting', icon: '🖼️', name: t('Картина', 'Painting'), price: 180, desc: t('Яркий акцент на стене', 'A bright accent on the wall'), mount: 'wall', comfort: 2, kind: 'decor' },
-  wall_clock: { id: 'wall_clock', icon: '🕰️', name: t('Настенные часы', 'Wall clock'), price: 90, desc: t('Тикают по игровому времени', 'Ticks with game time'), mount: 'wall', comfort: 1, kind: 'decor' },
-  neon_sign: { id: 'neon_sign', icon: '💡', name: t('Неоновая вывеска', 'Neon sign'), price: 260, desc: t('«FIT» светится вечером', '“FIT” glows at night'), mount: 'wall', comfort: 2, kind: 'decor' },
-  photo_wall: { id: 'photo_wall', icon: '📸', name: t('Стена с фото', 'Photo wall'), price: 120, desc: t('Фото с учениками', 'Photos with your clients'), mount: 'wall', comfort: 2, kind: 'decor' },
-  house_plant: { id: 'house_plant', icon: '🪴', name: t('Монстера', 'Monstera'), price: 70, desc: t('Зелень в доме', 'Greenery at home'), mount: 'floor', comfort: 1, kind: 'decor' },
+  wall_clock: { id: 'wall_clock', icon: '🕰️', name: t('Часы-кошка', 'Cat clock'), price: 90, desc: t('Тикают по игровому времени', 'Ticks with game time'), mount: 'wall', comfort: 1, kind: 'decor' },
+  neon_sign: { id: 'neon_sign', icon: '💡', name: t('Неоновая вывеска', 'Neon sign'), price: 260, desc: t('«CATS» светится вечером', '“CATS” glows at night'), mount: 'wall', comfort: 2, kind: 'decor' },
+  photo_wall: { id: 'photo_wall', icon: '📸', name: t('Стена с фото', 'Photo wall'), price: 120, desc: t('Гости с котиками', 'Guests with the cats'), mount: 'wall', comfort: 2, kind: 'decor' },
+  house_plant: { id: 'house_plant', icon: '🪴', name: t('Монстера', 'Monstera'), price: 70, desc: t('Зелень в кафе', 'Greenery in the café'), mount: 'floor', comfort: 1, kind: 'decor' },
   floor_lamp: { id: 'floor_lamp', icon: '🛋️', name: t('Торшер', 'Floor lamp'), price: 150, desc: t('Тёплый свет по вечерам', 'Warm light in the evening'), mount: 'floor', comfort: 2, kind: 'decor' },
   flower_vase: { id: 'flower_vase', icon: '💐', name: t('Ваза с цветами', 'Vase of flowers'), price: 60, desc: t('Свежие цветы', 'Fresh flowers'), mount: 'floor', comfort: 1, kind: 'decor' },
-  palm: { id: 'palm', icon: '🌴', name: t('Пальма в кадке', 'Potted palm'), price: 240, desc: t('Курорт дома', 'A resort at home'), mount: 'floor', comfort: 2, kind: 'decor' },
+  palm: { id: 'palm', icon: '🌴', name: t('Пальма в кадке', 'Potted palm'), price: 240, desc: t('Курорт для котиков', 'A resort for cats'), mount: 'floor', comfort: 2, kind: 'decor' },
   cat: { id: 'cat', icon: '🐈', name: t('Кошка', 'Cat') },
-  cat_bowl: { id: 'cat_bowl', icon: '🥣', name: t('Миски кошки', 'Cat bowls') },
+  cat_bowl: { id: 'cat_bowl', icon: '🥣', name: t('Миски', 'Bowls') },
   litter: { id: 'litter', icon: '🧻', name: t('Кошачий лоток', 'Litter box') },
-  coach: { id: 'coach', icon: '📣', name: t('Место тренера', 'Coach’s spot') },
-  reception: { id: 'reception', icon: '🛎️', name: t('Ресепшен', 'Reception') },
-  gym_door: { id: 'gym_door', icon: '🚪', name: t('Выход', 'Exit') },
-  gym_shower: { id: 'gym_shower', icon: '🚿', name: t('Душевая', 'Showers') },
-  smoothie: { id: 'smoothie', icon: '🥤', name: t('Фитнес-бар', 'Fitness bar') },
+  demon: { id: 'demon', icon: '😈', name: t('Демон-лавочник', 'The demon shopkeeper') },
+  cage: { id: 'cage', icon: '🐾', name: t('Клетка с кошкой', 'The cat’s cage') },
+  demon_door: { id: 'demon_door', icon: '🚪', name: t('Выход из лавки', 'Shop exit') },
 };
 
-/** Предметы, которые есть в доме всегда. */
-export const HOME_OBJECTS: readonly ObjectId[] = ['bed', 'fridge', 'stove', 'shower', 'sofa', 'door', 'mirror'];
-/** Всё для дома из магазина — в порядке показа. */
+/** Предметы, которые есть в кафе всегда. */
+export const HOME_OBJECTS: readonly ObjectId[] = ['door', 'counter', 'sofa'];
+/** Всё для кафе из магазина — в порядке показа. */
 export const FURNITURE: readonly ObjectId[] = [
   // Мебель.
-  'yoga_mat', 'easel', 'armchair', 'bookshelf', 'dumbbells', 'punching_bag', 'bathtub', 'piano', 'massage_chair',
+  'easel', 'armchair', 'bookshelf', 'piano',
   // Техника.
-  'blender', 'microwave', 'smart_speaker', 'coffee_machine', 'console', 'computer', 'robot_vacuum', 'air_conditioner', 'treadmill', 'vr_headset', 'big_tv',
+  'smart_speaker', 'console', 'robot_vacuum', 'air_conditioner', 'big_tv',
   // Декор.
   'flower_vase', 'house_plant', 'wall_clock', 'photo_wall', 'floor_lamp', 'painting', 'palm', 'neon_sign', 'aquarium',
 ];
-// ─── Жильё ─────────────────────────────────────────────────────────────
 
-/** Ступени жилья: размеры комнаты (м), места у стен, на стенах и на полу, цена и уровень. */
+// ─── Ступени кафе ──────────────────────────────────────────────────────
+
+/**
+ * Ступени кафе: размеры зала (м), места у стен, на стенах и на полу, уют от простора,
+ * сколько кошек и гостей вмещает, цена и сколько кошек нужно, чтобы расшириться.
+ */
 export interface HouseDef {
   icon: string;
   name: Txt;
@@ -100,31 +84,31 @@ export interface HouseDef {
   slots: number;
   wall: number;
   floor: number;
-  /** Уют от простора и сколько кошек можно держать. */
   comfort: number;
   cats: number;
+  seats: number;
   cost: number;
-  level: number;
+  /** Сколько кошек должно жить в кафе, чтобы расшириться до этой ступени. */
+  needCats: number;
 }
 
 export const HOUSES: readonly HouseDef[] = [
-  { icon: '🏚️', name: t('Убитая однушка', 'Run-down studio'), desc: t('Тесная комната с облезлыми обоями и старой мебелью. Всё впереди!', 'A cramped room with peeling wallpaper and old furniture. Up from here!'), w: 9.5, d: 9, slots: 3, wall: 2, floor: 2, comfort: 0, cats: 2, cost: 0, level: 1 },
-  { icon: '🏠', name: t('Квартира', 'Apartment'), desc: t('Одна большая комната с кухней.', 'One big room with a kitchen.'), w: 15, d: 11, slots: 12, wall: 5, floor: 5, comfort: 1, cats: 3, cost: 400, level: 2 },
-  { icon: '🏘️', name: t('Большая квартира', 'Large apartment'), desc: t('Шире и глубже: больше мест для мебели, уютнее, места для ещё одной кошки.', 'Wider and deeper: more room for furniture, cosier, space for one more cat.'), w: 18, d: 12, slots: 15, wall: 5, floor: 5, comfort: 2, cats: 4, cost: 1500, level: 4 },
-  { icon: '🏡', name: t('Дом', 'House'), desc: t('Просторный дом: поместится вся мебель и техника.', 'A spacious house: room for every piece of furniture and tech.'), w: 21, d: 13, slots: 19, wall: 5, floor: 5, comfort: 4, cats: 5, cost: 4500, level: 8 },
-  { icon: '🏰', name: t('Коттедж', 'Villa'), desc: t('Огромная гостиная: максимум уюта и до шести кошек.', 'A huge living room: maximum comfort and up to six cats.'), w: 24, d: 14, slots: 19, wall: 5, floor: 5, comfort: 7, cats: 6, cost: 10000, level: 12 },
+  { icon: '🐾', name: t('Котоуголок', 'Cat corner'), desc: t('Тесная комнатка в старом помещении: облезлые обои и продавленный диван. Всё впереди!', 'A cramped room in an old space: peeling wallpaper and a saggy sofa. Up from here!'), w: 9.5, d: 9, slots: 3, wall: 2, floor: 2, comfort: 0, cats: 2, seats: 3, cost: 0, needCats: 0 },
+  { icon: '☕', name: t('Маленькое котокафе', 'Small cat café'), desc: t('Один светлый зал: место для мебели и четырёх кошек.', 'One bright hall: room for furniture and four cats.'), w: 15, d: 11, slots: 12, wall: 5, floor: 5, comfort: 1, cats: 4, seats: 6, cost: 500, needCats: 2 },
+  { icon: '🏡', name: t('Котокафе', 'Cat café'), desc: t('Шире и глубже: шесть кошек и девять гостей.', 'Wider and deeper: six cats and nine guests.'), w: 18, d: 12, slots: 15, wall: 5, floor: 5, comfort: 2, cats: 6, seats: 9, cost: 1500, needCats: 4 },
+  { icon: '🏰', name: t('Большое котокафе', 'Grand cat café'), desc: t('Просторный зал: восемь кошек и толпа гостей.', 'A spacious hall: eight cats and a crowd of guests.'), w: 21, d: 13, slots: 19, wall: 5, floor: 5, comfort: 4, cats: 8, seats: 12, cost: 4000, needCats: 6 },
+  { icon: '👑', name: t('Котодворец', 'Cat palace'), desc: t('Лучшее котокафе города: десять кошек и максимум уюта.', 'The best cat café in town: ten cats and maximum comfort.'), w: 24, d: 14, slots: 19, wall: 5, floor: 5, comfort: 7, cats: 10, seats: 16, cost: 9000, needCats: 8 },
 ];
-/** Места в стартовой квартире. */
-export const HOUSE_SLOTS = HOUSES[0]!.slots;
-export const WALL_SLOTS = HOUSES[0]!.wall;
-export const FLOOR_SLOTS = HOUSES[0]!.floor;
 /** Где стоит предмет (у стены — по умолчанию). */
 export const mountOf = (id: ObjectId): 'slot' | 'wall' | 'floor' | 'free' => OBJECTS[id].mount ?? 'slot';
-/** Сколько мест этого вида в жилье ступени house. */
+/** Сколько мест этого вида в кафе ступени house. */
 export const slotsFor = (mount: 'slot' | 'wall' | 'floor' | 'free', house = 0): number => {
   const h = HOUSES[Math.max(0, Math.min(HOUSES.length - 1, house))]!;
   return mount === 'wall' ? h.wall : mount === 'floor' ? h.floor : mount === 'free' ? 1 : h.slots;
 };
+
+/** Часы работы кафе [с, до). */
+export const CAFE_HOURS: [number, number] = [10, 22];
 
 // ─── Кошки ─────────────────────────────────────────────────────────────
 
@@ -132,25 +116,23 @@ export interface CatBreedDef {
   id: CatBreed;
   name: Txt;
   desc: Txt;
-  price: number;
 }
 
 export const CAT_BREEDS: readonly CatBreedDef[] = [
-  { id: 'ginger', name: t('Рыжий кот', 'Ginger tabby'), desc: t('Солнечный и вечно голодный.', 'Sunny and always hungry.'), price: 150 },
-  { id: 'black', name: t('Чёрная кошка', 'Black cat'), desc: t('К удаче! Глаза как янтарь.', 'For luck! Amber eyes.'), price: 180 },
-  { id: 'british', name: t('Британская короткошёрстная', 'British Shorthair'), desc: t('Плюшевая и невозмутимая.', 'Plush and unflappable.'), price: 420 },
-  { id: 'siamese', name: t('Сиамская', 'Siamese'), desc: t('Разговорчивая, с голубыми глазами.', 'Chatty, with blue eyes.'), price: 450 },
-  { id: 'scottish_fold', name: t('Скоттиш-фолд', 'Scottish Fold'), desc: t('Вислоухая и любопытная.', 'Folded ears, endless curiosity.'), price: 520 },
-  { id: 'bengal', name: t('Бенгальская', 'Bengal'), desc: t('Леопардовые пятна и много энергии.', 'Leopard spots and lots of energy.'), price: 650 },
-  { id: 'persian', name: t('Персидская', 'Persian'), desc: t('Пушистое облако, любит поспать.', 'A fluffy cloud that loves naps.'), price: 600 },
-  { id: 'maine_coon', name: t('Мейн-кун', 'Maine Coon'), desc: t('Огромный ласковый великан с кисточками.', 'A huge gentle giant with ear tufts.'), price: 800 },
-  { id: 'sphynx', name: t('Сфинкс', 'Sphynx'), desc: t('Тёплый, бархатный и без шерсти.', 'Warm, velvety and hairless.'), price: 750 },
+  { id: 'ginger', name: t('Рыжий кот', 'Ginger tabby'), desc: t('Солнечный и вечно голодный.', 'Sunny and always hungry.') },
+  { id: 'black', name: t('Чёрная кошка', 'Black cat'), desc: t('К удаче! Глаза как янтарь.', 'For luck! Amber eyes.') },
+  { id: 'british', name: t('Британская короткошёрстная', 'British Shorthair'), desc: t('Плюшевая и невозмутимая.', 'Plush and unflappable.') },
+  { id: 'siamese', name: t('Сиамская', 'Siamese'), desc: t('Разговорчивая, с голубыми глазами.', 'Chatty, with blue eyes.') },
+  { id: 'scottish_fold', name: t('Скоттиш-фолд', 'Scottish Fold'), desc: t('Вислоухая и любопытная.', 'Folded ears, endless curiosity.') },
+  { id: 'bengal', name: t('Бенгальская', 'Bengal'), desc: t('Леопардовые пятна и много энергии.', 'Leopard spots and lots of energy.') },
+  { id: 'persian', name: t('Персидская', 'Persian'), desc: t('Пушистое облако, любит поспать.', 'A fluffy cloud that loves naps.') },
+  { id: 'maine_coon', name: t('Мейн-кун', 'Maine Coon'), desc: t('Огромный ласковый великан с кисточками.', 'A huge gentle giant with ear tufts.') },
+  { id: 'sphynx', name: t('Сфинкс', 'Sphynx'), desc: t('Тёплый, бархатный и без шерсти.', 'Warm, velvety and hairless.') },
 ];
 export const catBreedById = (id: CatBreed): CatBreedDef => CAT_BREEDS.find((b) => b.id === id) ?? CAT_BREEDS[0]!;
-export const MAX_CATS = 3;
 /** Полная миска корма (порций): одна порция — одна кормёжка кошки. */
 export const BOWL_MAX = 6;
-/** С какой грязи лоток считается грязным: дома хуже гигиена и уют, кошкам неуютно. */
+/** С какой грязи лоток считается грязным: кошкам неуютно, гостей меньше. */
 export const LITTER_DIRTY = 60;
 /** Как быстро падают потребности кошки (в час игрового времени). */
 export const CAT_RATES = { fed: 5, play: 4, toilet: 8 } as const;
@@ -164,82 +146,36 @@ export const CAT_NAMES: readonly Txt[] = [
 ];
 /** Возраст кошки в месяцах (один игровой день — месяц): до KITTEN — котёнок, с ADULT — взрослая. */
 export const CAT_AGE = { KITTEN: 6, ADULT: 8, GROWN: 12 } as const;
-/** Сколько игровых дней кошка ждёт котят. */
-export const CAT_PREGNANCY_DAYS = 2;
 
-// ─── Зал ───────────────────────────────────────────────────────────────
+// ─── Лавка демона ──────────────────────────────────────────────────────
 
-export interface GymDef {
-  icon: string;
-  name: Txt;
-  desc: Txt;
-  /** Сколько учеников вмещает. */
-  cap: number;
-  /** Множитель цены занятия. */
-  mult: number;
-  /** Цена улучшения до этого уровня и нужный уровень героя. */
-  cost: number;
-  level: number;
-  /** Есть душевая / фитнес-бар. */
-  shower: boolean;
-  bar: boolean;
-  /** Размеры зала (м) и базовый комфорт ступени. */
-  w: number;
-  d: number;
-  comfort: number;
-}
-
-export const GYMS: readonly GymDef[] = [
-  { icon: '🏚️', name: t('Гаражный зал', 'Garage gym'), desc: t('Тесно: коврики и пара гантелей.', 'Cramped: a few mats and dumbbells.'), cap: 2, mult: 1, cost: 0, level: 1, shower: false, bar: false, w: 13, d: 10, comfort: 0 },
-  { icon: '🏠', name: t('Зал у дома', 'Neighbourhood gym'), desc: t('Просторнее: стойка, скамьи и душевая.', 'Roomier: a rack, benches and showers.'), cap: 4, mult: 1.3, cost: 600, level: 3, shower: true, bar: false, w: 14.5, d: 11, comfort: 1 },
-  { icon: '🏢', name: t('Фитнес-студия', 'Fitness studio'), desc: t('Большой светлый зал, дорожки и фитнес-бар.', 'A big bright hall, treadmills and a fitness bar.'), cap: 6, mult: 1.7, cost: 1800, level: 6, shower: true, bar: true, w: 16, d: 12, comfort: 2 },
-  { icon: '🏟️', name: t('Фитнес-клуб', 'Fitness club'), desc: t('Огромный зал, тренажёры и груши.', 'A huge hall, machines and punching bags.'), cap: 8, mult: 2.2, cost: 4500, level: 9, shower: true, bar: true, w: 18, d: 13, comfort: 3 },
-  { icon: '🌟', name: t('Премиум-центр', 'Premium centre'), desc: t('Лучший зал города.', 'The best gym in town.'), cap: 10, mult: 3, cost: 10000, level: 12, shower: true, bar: true, w: 20, d: 14, comfort: 4 },
+/**
+ * Упражнения, за которые демон отдаёт кошку, и число повторов за первую кошку. Каждая
+ * спасённая кошка поднимает цену следующей (см. demonTarget).
+ */
+export const DEMON_EXERCISES: ReadonlyArray<[ExerciseId, number]> = [
+  ['squat', 20],
+  ['lunge', 16],
+  ['pushup', 10],
+  ['situp', 20],
+  ['jumping_jack', 40],
+  ['high_knees', 40],
 ];
+/** На сколько дорожает каждая следующая кошка (доля от начальной цены) и предел роста. */
+export const DEMON_STEP = 0.2;
+export const DEMON_MAX_FACTOR = 4;
 
-/** Удобства зала: каждое добавляет комфорт, а комфорт — к оплате занятия (+5% за единицу). */
-export type GymExtraId = 'gym_ac' | 'gym_music' | 'gym_lights' | 'gym_green' | 'gym_cooler' | 'gym_mats' | 'gym_lockers' | 'gym_sauna';
+// ─── Гости ─────────────────────────────────────────────────────────────
 
-export interface GymExtraDef {
-  id: GymExtraId;
-  icon: string;
-  name: Txt;
-  desc: Txt;
-  price: number;
-  /** Нужная ступень зала. */
-  gym: number;
-  comfort: number;
-}
+/** Цена входа: базовая и прибавка за единицу уюта. */
+export const TICKET = { base: 15, perComfort: 1 } as const;
+/** Сколько гостей в час приводит одна довольная кошка. */
+export const GUESTS_PER_CAT = 1.3;
+/** Деньги за засчитанный повтор (в пределах дневного лимита упражнения). */
+export const REP_MONEY = 1;
 
-export const GYM_EXTRAS: readonly GymExtraDef[] = [
-  { id: 'gym_cooler', icon: '🚰', name: t('Кулер с водой', 'Water cooler'), desc: t('Вода для учеников всегда под рукой.', 'Water always at hand for clients.'), price: 150, gym: 0, comfort: 1 },
-  { id: 'gym_mats', icon: '🟦', name: t('Мягкие коврики', 'Premium mats'), desc: t('Толстые коврики — заниматься удобнее.', 'Thick mats make training comfier.'), price: 300, gym: 0, comfort: 1 },
-  { id: 'gym_music', icon: '🔊', name: t('Музыкальная система', 'Sound system'), desc: t('Колонки и бодрые плейлисты.', 'Speakers and upbeat playlists.'), price: 500, gym: 0, comfort: 2 },
-  { id: 'gym_ac', icon: '❄️', name: t('Кондиционеры', 'Air conditioning'), desc: t('Свежий воздух даже на интенсиве.', 'Fresh air even in hard workouts.'), price: 900, gym: 1, comfort: 2 },
-  { id: 'gym_lights', icon: '💡', name: t('Световые панели', 'Light panels'), desc: t('Яркий ровный свет без теней.', 'Bright, even, shadow-free light.'), price: 1100, gym: 1, comfort: 2 },
-  { id: 'gym_green', icon: '🌿', name: t('Зелёная стена', 'Living wall'), desc: t('Живые растения во всю стену.', 'A wall of living plants.'), price: 1600, gym: 2, comfort: 3 },
-  { id: 'gym_lockers', icon: '🔐', name: t('Шкафчики', 'Lockers'), desc: t('Личные шкафчики для вещей.', 'Personal lockers for belongings.'), price: 2200, gym: 2, comfort: 3 },
-  { id: 'gym_sauna', icon: '🧖', name: t('Сауна', 'Sauna'), desc: t('Расслабиться после занятия.', 'Unwind after class.'), price: 5000, gym: 3, comfort: 4 },
-];
-export const gymExtraById = (id: string): GymExtraDef | undefined => GYM_EXTRAS.find((x) => x.id === id);
-
-/** Часы работы зала [с, до). */
-export const GYM_HOURS: [number, number] = [6, 23];
-
-// ─── Занятия ───────────────────────────────────────────────────────────
-
-/** Упражнения для групповых занятий и базовое число повторов. */
-export const SESSION_EXERCISES: ReadonlyArray<[ExerciseId, number]> = [
-  ['squat', 12],
-  ['lunge', 10],
-  ['pushup', 8],
-  ['situp', 12],
-  ['jumping_jack', 30],
-  ['high_knees', 30],
-];
-
-/** Имена учеников (по фигуре). */
-export const CLIENT_NAMES: Record<'male' | 'female', readonly Txt[]> = {
+/** Имена гостей (по фигуре). */
+export const GUEST_NAMES: Record<'male' | 'female', readonly Txt[]> = {
   male: [t('Борис', 'Boris'), t('Олег', 'Oleg'), t('Артём', 'Artem'), t('Игорь', 'Igor'), t('Виктор', 'Victor'), t('Денис', 'Denis'), t('Павел', 'Pavel'), t('Руслан', 'Ruslan'), t('Тимур', 'Timur'), t('Глеб', 'Gleb')],
   female: [t('Тамара', 'Tamara'), t('Ольга', 'Olga'), t('Света', 'Sveta'), t('Ника', 'Nika'), t('Алина', 'Alina'), t('Вера', 'Vera'), t('Даша', 'Dasha'), t('Кира', 'Kira'), t('Лиза', 'Liza'), t('Яна', 'Yana')],
 };
@@ -249,59 +185,33 @@ export const CLIENT_NAMES: Record<'male' | 'female', readonly Txt[]> = {
 const fx = (e: LifeEffect): LifeEffect => e;
 
 export const ACTIONS: readonly ActionDef[] = [
-  // Дом.
-  { id: 'sleep', icon: '😴', label: t('Спать до утра', 'Sleep till morning'), at: 'bed', minutes: 480, sleep: true, effect: fx({}) },
-  { id: 'nap', icon: '💤', label: t('Вздремнуть', 'Take a nap'), at: 'bed', minutes: 90, sleep: true, effect: fx({}) },
-  { id: 'snack', icon: '🥪', label: t('Перекусить', 'Grab a snack'), at: 'fridge', minutes: 15, requires: { groceries: 1 }, effect: fx({ needs: { food: 30 }, groceries: -1 }) },
-  { id: 'groceries', icon: '🛒', label: t('Заказать продукты (×5)', 'Order groceries (×5)'), at: 'fridge', minutes: 30, cost: 30, effect: fx({ groceries: 5 }) },
-  { id: 'order', icon: '🛵', label: t('Заказать фастфуд', 'Order fast food'), at: 'fridge', minutes: 40, cost: 18, effect: fx({ needs: { food: 60, fun: 6 }, fat: 0.02 }) },
-  { id: 'cook', icon: '🍲', label: t('Приготовить ужин', 'Cook a meal'), at: 'stove', minutes: 60, requires: { groceries: 1 }, effect: fx({ needs: { food: 70, fun: 6 }, groceries: -1, skills: { cooking: 12 } }) },
-  { id: 'cook_fit', icon: '🥗', label: t('Спортивное меню', 'Athlete’s meal'), at: 'stove', minutes: 75, requires: { groceries: 2, skill: ['cooking', 2] }, effect: fx({ needs: { food: 85, fun: 10, energy: 10 }, groceries: -2, fat: -0.01, skills: { cooking: 16 } }) },
-  { id: 'shower', icon: '🚿', label: t('Принять душ', 'Take a shower'), at: 'shower', minutes: 20, effect: fx({ needs: { hygiene: 100, energy: 5 } }) },
-  { id: 'tv', icon: '📺', label: t('Смотреть сериал', 'Watch a show'), at: 'sofa', minutes: 60, effect: fx({ needs: { fun: 22, energy: 3 }, fat: 0.003 }) },
-  { id: 'relax', icon: '🛋️', label: t('Отдохнуть на диване', 'Relax on the sofa'), at: 'sofa', minutes: 30, effect: fx({ needs: { energy: 8, fun: 6 } }) },
-  { id: 'call', icon: '📱', label: t('Позвонить друзьям', 'Call friends'), at: 'sofa', minutes: 30, effect: fx({ needs: { social: 25, fun: 5 }, skills: { charisma: 3 } }) },
-  { id: 'pose', icon: '🪞', label: t('Отрепетировать речь тренера', 'Rehearse your coach talk'), at: 'mirror', minutes: 30, effect: fx({ needs: { fun: 3 }, skills: { charisma: 10 } }) },
-  { id: 'go_gym', icon: '🏋️', label: t('Поехать в зал', 'Go to the gym'), at: 'door', minutes: 30, go: 'gym', effect: fx({}) },
-  { id: 'consult', icon: '💻', label: t('Онлайн-разбор техники ученикам', 'Online form check for clients'), at: 'computer', minutes: 90, effect: fx({ loyalty: 4, needs: { fun: -6, energy: -8, social: 8 }, skills: { charisma: 6, logic: 4 } }) },
-  { id: 'study', icon: '🎓', label: t('Курс по спортивной медицине', 'Sports medicine course'), at: 'computer', minutes: 90, effect: fx({ needs: { fun: -6, energy: -8 }, skills: { logic: 18 } }) },
-  { id: 'games', icon: '🕹️', label: t('Поиграть', 'Play games'), at: 'computer', minutes: 60, effect: fx({ needs: { fun: 25, energy: -4 } }) },
-  { id: 'read', icon: '📖', label: t('Почитать о питании', 'Read about nutrition'), at: 'bookshelf', minutes: 60, effect: fx({ needs: { fun: 8 }, skills: { cooking: 6, logic: 10 } }) },
-  { id: 'yoga', icon: '🧘', label: t('Своя тренировка (камера)', 'Own workout (camera)'), at: 'yoga_mat', minutes: 30, train: true, effect: fx({ needs: { fun: 10, energy: -5 } }) },
-  { id: 'lift', icon: '🏋️', label: t('Силовая (камера)', 'Strength (camera)'), at: 'dumbbells', minutes: 45, train: true, effect: fx({ needs: { fun: 8, energy: -10, hygiene: -15 } }) },
-  { id: 'espresso', icon: '☕', label: t('Сварить эспрессо', 'Brew an espresso'), at: 'coffee_machine', minutes: 5, effect: fx({ needs: { energy: 18, fun: 3 } }) },
-  { id: 'console', icon: '🎮', label: t('Партия в приставку', 'Console session'), at: 'console', minutes: 60, effect: fx({ needs: { fun: 35, energy: -5 } }) },
-  { id: 'piano', icon: '🎹', label: t('Играть на пианино', 'Play the piano'), at: 'piano', minutes: 60, effect: fx({ needs: { fun: 18 }, skills: { creativity: 16 } }) },
-  { id: 'bath', icon: '🛁', label: t('Ванна с солью', 'Salt bath'), at: 'bathtub', minutes: 60, effect: fx({ needs: { hygiene: 100, fun: 18, energy: 15 } }) },
-  { id: 'fish', icon: '🐠', label: t('Смотреть на рыбок', 'Watch the fish'), at: 'aquarium', minutes: 20, effect: fx({ needs: { fun: 12, energy: 4 } }) },
-  { id: 'paint', icon: '🎨', label: t('Рисовать', 'Paint'), at: 'easel', minutes: 90, effect: fx({ needs: { fun: 14 }, skills: { creativity: 18 } }) },
-  { id: 'plan', icon: '📝', label: t('Составить программу тренировок', 'Write a training plan'), at: 'easel', minutes: 60, requires: { skill: ['creativity', 2] }, effect: fx({ needs: { fun: 6 }, loyalty: 6, skills: { creativity: 8, logic: 6 } }) },
-  { id: 'armchair_read', icon: '📖', label: t('Почитать в кресле', 'Read in the armchair'), at: 'armchair', minutes: 45, effect: fx({ needs: { fun: 14, energy: 6 }, skills: { logic: 8 } }) },
-  { id: 'massage', icon: '💆', label: t('Массаж', 'Massage'), at: 'massage_chair', minutes: 30, effect: fx({ needs: { energy: 22, fun: 10 } }) },
-  { id: 'treadmill_run', icon: '🏃', label: t('Пробежка (камера)', 'Run (camera)'), at: 'treadmill', minutes: 30, train: true, effect: fx({ needs: { fun: 8, energy: -8, hygiene: -15 } }) },
-  { id: 'boxing', icon: '🥊', label: t('Побоксировать', 'Hit the bag'), at: 'punching_bag', minutes: 30, effect: fx({ needs: { fun: 16, energy: -10, hygiene: -12 }, fat: -0.004 }) },
-  { id: 'cinema', icon: '🍿', label: t('Кино на большом экране', 'Movie on the big screen'), at: 'big_tv', minutes: 120, effect: fx({ needs: { fun: 45, energy: 6 }, fat: 0.003 }) },
-  { id: 'dance', icon: '💃', label: t('Потанцевать под музыку', 'Dance to music'), at: 'smart_speaker', minutes: 30, effect: fx({ needs: { fun: 18, energy: -6 }, fat: -0.002, skills: { creativity: 4 } }) },
-  { id: 'shake', icon: '🥤', label: t('Протеиновый коктейль', 'Protein shake'), at: 'blender', minutes: 10, requires: { groceries: 1 }, effect: fx({ needs: { food: 40, energy: 10 }, groceries: -1 }) },
-  { id: 'microwave_meal', icon: '♨️', label: t('Разогреть ужин', 'Heat up dinner'), at: 'microwave', minutes: 10, requires: { groceries: 1 }, effect: fx({ needs: { food: 55 }, groceries: -1 }) },
-  { id: 'vr', icon: '🥽', label: t('VR-приключение', 'VR adventure'), at: 'vr_headset', minutes: 60, effect: fx({ needs: { fun: 40, energy: -6 } }) },
-  { id: 'pet_cat', icon: '🤲', label: t('Погладить кошку', 'Pet the cat'), at: 'cat', minutes: 10, effect: fx({ needs: { fun: 12, social: 10 }, catPlay: 12 }) },
-  { id: 'play_cat', icon: '🧶', label: t('Поиграть с кошкой', 'Play with the cat'), at: 'cat', minutes: 20, effect: fx({ needs: { fun: 22, social: 8, energy: -4 }, catPlay: 45 }) },
-  { id: 'feed_cat', icon: '🐟', label: t('Угостить кошку', 'Give the cat a treat'), at: 'cat', minutes: 5, cost: 5, effect: fx({ needs: { fun: 6, social: 6 }, catFed: 25, catPlay: 5 }) },
-  { id: 'pair_cats', icon: '💞', label: t('Познакомить кота и кошку', 'Introduce the tom and the queen'), at: 'cat', minutes: 30, effect: fx({ needs: { fun: 8, social: 4 }, catPlay: 10 }) },
-  { id: 'call_cat', icon: '📣', label: t('Позвать кошку', 'Call the cat'), at: 'cat', minutes: 2, effect: fx({ needs: { social: 2 }, catPlay: 3 }) },
+  // Кафе.
+  { id: 'go_demon', icon: '😈', label: t('Пойти в лавку демона', 'Go to the demon’s shop'), at: 'door', minutes: 20, go: 'demon', effect: fx({}) },
+  { id: 'cafe_info', icon: '🏠', label: t('Кафе: мебель и расширение', 'Café: furniture and expansion'), at: 'counter', minutes: 0, open: 'cafe', effect: fx({}) },
+  { id: 'flyers', icon: '📢', label: t('Раздать флаеры у входа', 'Hand out flyers'), at: 'counter', minutes: 60, cost: 20, effect: fx({ buzz: 2 }) },
+  { id: 'post', icon: '📱', label: t('Выложить фото котиков', 'Post cat photos'), at: 'counter', minutes: 30, effect: fx({ buzz: 1 }) },
+  { id: 'close', icon: '🌙', label: t('Закрыть кафе до утра', 'Close the café till morning'), at: 'counter', minutes: 0, close: true, effect: fx({}) },
+  { id: 'chat_guests', icon: '💬', label: t('Поболтать с гостями', 'Chat with guests'), at: 'sofa', minutes: 30, effect: fx({ buzz: 1 }) },
+  { id: 'relax', icon: '🛋️', label: t('Присесть на диван', 'Sit on the sofa'), at: 'sofa', minutes: 20, effect: fx({ catPlay: 6 }) },
+  { id: 'read', icon: '📖', label: t('Читать котам сказку', 'Read the cats a story'), at: 'bookshelf', minutes: 40, effect: fx({ catsPlay: 6, buzz: 1 }) },
+  { id: 'paint', icon: '🎨', label: t('Нарисовать портрет кошки', 'Paint a cat portrait'), at: 'easel', minutes: 90, effect: fx({ money: 35 }) },
+  { id: 'console', icon: '🎮', label: t('Турнир для гостей', 'A tournament for guests'), at: 'console', minutes: 60, effect: fx({ buzz: 2 }) },
+  { id: 'piano', icon: '🎹', label: t('Сыграть гостям и котикам', 'Play for guests and cats'), at: 'piano', minutes: 60, effect: fx({ buzz: 2, catsPlay: 5 }) },
+  { id: 'fish', icon: '🐠', label: t('Покормить рыбок (кошки смотрят)', 'Feed the fish (cats watch)'), at: 'aquarium', minutes: 15, effect: fx({ catsPlay: 12 }) },
+  { id: 'armchair', icon: '🪑', label: t('Посидеть в кресле', 'Sit in the armchair'), at: 'armchair', minutes: 30, effect: fx({ catPlay: 8 }) },
+  { id: 'cinema', icon: '🍿', label: t('Кино про котиков', 'A cat movie night'), at: 'big_tv', minutes: 120, effect: fx({ buzz: 3 }) },
+  { id: 'dance', icon: '🎶', label: t('Включить мурлыкающий плейлист', 'Play the purring playlist'), at: 'smart_speaker', minutes: 30, effect: fx({ catsPlay: 8 }) },
+  { id: 'pet_cat', icon: '🤲', label: t('Погладить кошку', 'Pet the cat'), at: 'cat', minutes: 10, effect: fx({ catPlay: 12 }) },
+  { id: 'play_cat', icon: '🧶', label: t('Поиграть с кошкой', 'Play with the cat'), at: 'cat', minutes: 20, effect: fx({ catPlay: 45 }) },
+  { id: 'feed_cat', icon: '🐟', label: t('Угостить кошку', 'Give the cat a treat'), at: 'cat', minutes: 5, cost: 5, effect: fx({ catFed: 25, catPlay: 5 }) },
+  { id: 'call_cat', icon: '📣', label: t('Позвать кошку', 'Call the cat'), at: 'cat', minutes: 2, effect: fx({ catPlay: 3 }) },
   { id: 'fill_bowl', icon: '🥣', label: t('Насыпать корм и налить воды', 'Fill the food and water bowls'), at: 'cat_bowl', minutes: 5, cost: 8, effect: fx({ bowl: BOWL_MAX, water: 100 }) },
-  { id: 'clean_litter', icon: '🧹', label: t('Убрать лоток', 'Clean the litter box'), at: 'litter', minutes: 10, effect: fx({ litter: -100, needs: { hygiene: -3 } }) },
-  // Зал.
-  { id: 'session', icon: '📣', label: t('Провести занятие', 'Run a class'), at: 'coach', minutes: 0, open: 'session', effect: fx({}) },
-  { id: 'own_workout', icon: '💪', label: t('Своя тренировка (камера)', 'Own workout (camera)'), at: 'coach', minutes: 45, train: true, effect: fx({ needs: { fun: 10, energy: -8, hygiene: -15 } }) },
-  { id: 'gym_info', icon: '🛎️', label: t('Зал и ученики', 'Gym and clients'), at: 'reception', minutes: 0, open: 'gym', effect: fx({}) },
-  { id: 'chat_clients', icon: '💬', label: t('Поболтать с учениками', 'Chat with clients'), at: 'coach', minutes: 20, effect: fx({ needs: { social: 12, fun: 4, energy: -2 }, loyalty: 1, skills: { charisma: 3 } }) },
-  { id: 'ads', icon: '📢', label: t('Раздать флаеры', 'Hand out flyers'), at: 'reception', minutes: 60, cost: 20, effect: fx({ needs: { social: 15, energy: -6 }, loyalty: 3, skills: { charisma: 8 } }) },
-  { id: 'go_home', icon: '🏠', label: t('Поехать домой', 'Go home'), at: 'gym_door', minutes: 30, go: 'home', effect: fx({}) },
-  { id: 'gym_shower', icon: '🚿', label: t('Душ после занятий', 'Post-class shower'), at: 'gym_shower', minutes: 15, effect: fx({ needs: { hygiene: 100 } }) },
-  { id: 'smoothie', icon: '🥤', label: t('Протеиновый коктейль', 'Protein shake'), at: 'smoothie', minutes: 10, cost: 7, effect: fx({ needs: { food: 35, energy: 12 } }) },
-  { id: 'salad', icon: '🥗', label: t('Фитнес-салат', 'Fitness salad'), at: 'smoothie', minutes: 20, cost: 10, effect: fx({ needs: { food: 55, fun: 5 }, fat: -0.005 }) },
+  { id: 'clean_litter', icon: '🧹', label: t('Убрать лоток', 'Clean the litter box'), at: 'litter', minutes: 10, effect: fx({ litter: -100 }) },
+  // Лавка демона.
+  { id: 'rescue', icon: '🏋️', label: t('Спасти кошку (упражнение)', 'Save the cat (exercise)'), at: 'demon', minutes: 0, rescue: true, effect: fx({}) },
+  { id: 'demon_info', icon: '📜', label: t('Условия демона', 'The demon’s terms'), at: 'demon', minutes: 0, open: 'demon', effect: fx({}) },
+  { id: 'comfort_cat', icon: '🤲', label: t('Погладить через прутья', 'Pet through the bars'), at: 'cage', minutes: 5, effect: fx({}) },
+  { id: 'go_cafe', icon: '🏠', label: t('Вернуться в кафе', 'Back to the café'), at: 'demon_door', minutes: 20, go: 'cafe', effect: fx({}) },
 ];
 
 export const actionById = (id: string): ActionDef | undefined => ACTIONS.find((a) => a.id === id);
@@ -321,83 +231,74 @@ export interface LifeEventDef {
   icon: string;
   title: Txt;
   text: Txt;
-  /** Нужен хотя бы один ученик. */
-  needsClients?: boolean;
+  /** Нужна хотя бы одна кошка. */
+  needsCats?: boolean;
   choices: LifeEventChoice[];
 }
 
 export const LIFE_EVENTS: readonly LifeEventDef[] = [
   {
-    id: 'friend',
-    icon: '🤝',
-    title: t('Сарафанное радио', 'Word of mouth'),
-    text: t('Ученик рассказал о вас другу, и тот хочет прийти на пробное занятие.', 'A client told a friend about you, and they want a trial class.'),
-    needsClients: true,
-    choices: [
-      { id: 'yes', label: t('Пригласить', 'Invite them'), text: t('В группе новый человек — если хватит места в зале.', 'A new face in the group — if the gym has room.'), effect: { client: true, needs: { social: 10 } } },
-      { id: 'later', label: t('Позже', 'Later'), text: t('Друг подождёт следующего набора.', 'The friend will wait for the next intake.'), effect: { loyalty: 2 } },
-    ],
-  },
-  {
-    id: 'broken',
-    icon: '🔧',
-    title: t('Поломка', 'Breakdown'),
-    text: t('В зале сломался тренажёр, ученики недовольны.', 'A machine broke at the gym, and clients are unhappy.'),
-    needsClients: true,
-    choices: [
-      { id: 'fix', label: t('Вызвать мастера', 'Call a technician'), cost: 50, text: t('Всё починили до занятия.', 'Fixed before class.'), effect: { loyalty: 3 } },
-      { id: 'skip', label: t('Обойтись без него', 'Work around it'), text: t('Пару дней без тренажёра — ученики ворчат.', 'A couple of days without it — clients grumble.'), effect: { loyalty: -8 } },
-    ],
-  },
-  {
     id: 'blogger',
     icon: '📹',
     title: t('Блогер', 'A blogger'),
-    text: t('Фитнес-блогер хочет снять ваше занятие для своего канала.', 'A fitness blogger wants to film your class for their channel.'),
+    text: t('Блогер хочет снять ролик о ваших котиках.', 'A blogger wants to film your cats.'),
+    needsCats: true,
     choices: [
-      { id: 'yes', label: t('Согласиться', 'Agree'), text: t('Ролик набрал просмотры — о вас заговорили.', 'The video took off — people are talking about you.'), effect: { loyalty: 8, skills: { charisma: 10 } } },
-      { id: 'no', label: t('Отказаться', 'Decline'), text: t('Спокойный день без камер.', 'A calm day without cameras.'), effect: { needs: { fun: 5 } } },
+      { id: 'yes', label: t('Согласиться', 'Agree'), text: t('Ролик набрал просмотры — сегодня гостей больше.', 'The video took off — more guests today.'), effect: { buzz: 4 } },
+      { id: 'no', label: t('Отказаться', 'Decline'), text: t('Спокойный день без камер.', 'A calm day without cameras.'), effect: { catsPlay: 5 } },
     ],
   },
   {
-    id: 'sponsor',
-    icon: '🧃',
-    title: t('Спонсор', 'A sponsor'),
-    text: t('Производитель спортпита предлагает рекламу в зале.', 'A sports nutrition brand offers to advertise in your gym.'),
+    id: 'gift',
+    icon: '🎁',
+    title: t('Подарок от гостьи', 'A gift from a guest'),
+    text: t('Постоянная гостья принесла подарок для котиков.', 'A regular guest brought a gift for the cats.'),
+    needsCats: true,
     choices: [
-      { id: 'take', label: t('Повесить рекламу', 'Put up the ad'), text: t('Реклама висит, а ученикам достались фирменные шейкеры.', 'The ad is up and clients got branded shakers.'), effect: { loyalty: 2, needs: { fun: 4 } } },
-      { id: 'samples', label: t('Попросить пробники для учеников', 'Ask for samples for clients'), text: t('Ученики в восторге от подарков.', 'Clients love the freebies.'), effect: { loyalty: 6 } },
+      { id: 'food', label: t('Мешок корма', 'A bag of food'), text: t('Миски полны.', 'The bowls are full.'), effect: { bowl: BOWL_MAX, water: 100 } },
+      { id: 'toy', label: t('Удочку-дразнилку', 'A teaser wand'), text: t('Кошки носятся за пёрышком.', 'The cats chase the feather.'), effect: { catsPlay: 25 } },
     ],
   },
   {
-    id: 'bad_sleep',
-    icon: '🌙',
-    title: t('Беспокойная ночь', 'A restless night'),
-    text: t('Соседская собака лаяла всю ночь.', 'The neighbour’s dog barked all night.'),
+    id: 'rain',
+    icon: '🌧️',
+    title: t('Дождливый день', 'A rainy day'),
+    text: t('С утра льёт дождь — гости могут не прийти.', 'It has been pouring since morning — guests may stay home.'),
     choices: [
-      { id: 'coffee', label: t('Двойной кофе', 'A double coffee'), text: t('Глаза открылись, но ненадолго.', 'Eyes open, though not for long.'), effect: { needs: { energy: 15, fun: -5 } } },
-      { id: 'stretch', label: t('Зарядка', 'Morning stretch'), text: t('Зарядка разогнала сонливость.', 'Stretching chased the drowsiness away.'), effect: { needs: { energy: 10, fun: 5 }, fat: -0.005 } },
+      { id: 'cocoa', label: t('Объявить скидку', 'Announce a discount'), cost: 30, text: t('Скидка в дождь — гостей как обычно.', 'A rainy-day discount — the usual crowd.'), effect: { buzz: 2 } },
+      { id: 'wait', label: t('Переждать', 'Wait it out'), text: t('Сегодня тише, кошки отсыпаются.', 'A quiet day; the cats catch up on sleep.'), effect: { buzz: -2, catsPlay: 10 } },
     ],
   },
   {
-    id: 'cake',
+    id: 'vet',
+    icon: '🩺',
+    title: t('Ветеринар', 'The vet'),
+    text: t('Знакомый ветеринар предлагает осмотреть кошек.', 'A vet friend offers to check the cats.'),
+    needsCats: true,
+    choices: [
+      { id: 'yes', label: t('Осмотреть всех', 'Check everyone'), cost: 40, text: t('Все здоровы и бодры.', 'Everyone is healthy and lively.'), effect: { catsPlay: 15, catFed: 20 } },
+      { id: 'later', label: t('В другой раз', 'Another time'), text: t('Осмотр перенесли.', 'The check-up is postponed.'), effect: {} },
+    ],
+  },
+  {
+    id: 'party',
     icon: '🎂',
-    title: t('Торт от ученицы', 'A cake from a client'),
-    text: t('Ученица испекла торт в благодарность за результат.', 'A client baked a cake to thank you for her results.'),
-    needsClients: true,
+    title: t('День рождения', 'A birthday'),
+    text: t('Компания хочет отметить день рождения среди котиков.', 'A group wants to celebrate a birthday among the cats.'),
+    needsCats: true,
     choices: [
-      { id: 'eat', label: t('Съесть кусочек', 'Have a slice'), text: t('Вкусно! Но это лишние калории.', 'Delicious! But extra calories.'), effect: { needs: { food: 30, fun: 15 }, fat: 0.02, loyalty: 4 } },
-      { id: 'share', label: t('Угостить всю группу', 'Share it with the group'), text: t('Чаепитие после занятия сплотило группу.', 'Tea after class brought the group together.'), effect: { needs: { social: 20 }, loyalty: 6 } },
+      { id: 'yes', label: t('Принять компанию', 'Host them'), text: t('Шумно, весело и выгодно.', 'Noisy, fun and profitable.'), effect: { money: 80, catsPlay: -10 } },
+      { id: 'no', label: t('Отказать', 'Turn them down'), text: t('Котикам спокойнее.', 'The cats stay calm.'), effect: { catsPlay: 5 } },
     ],
   },
   {
-    id: 'found_money',
-    icon: '💵',
-    title: t('Находка', 'A lucky find'),
-    text: t('В раздевалке кто-то забыл конверт с деньгами.', 'Someone left an envelope of cash in the locker room.'),
+    id: 'wallet',
+    icon: '👛',
+    title: t('Забытый кошелёк', 'A forgotten wallet'),
+    text: t('Вчерашний гость забыл кошелёк на диване.', 'Yesterday’s guest left a wallet on the sofa.'),
     choices: [
-      { id: 'return', label: t('Найти владельца', 'Find the owner'), text: t('Владелец нашёлся — о вашей честности узнали все.', 'The owner turned up — everyone heard about your honesty.'), effect: { loyalty: 6, needs: { fun: 5 } } },
-      { id: 'box', label: t('Отдать на ресепшен', 'Leave it at reception'), text: t('Конверт ждёт владельца.', 'The envelope awaits its owner.'), effect: { needs: { fun: 2 } } },
+      { id: 'return', label: t('Найти владельца', 'Find the owner'), text: t('Владелец рассказал о вашей честности друзьям.', 'The owner told friends about your honesty.'), effect: { buzz: 2 } },
+      { id: 'desk', label: t('Оставить на стойке', 'Keep it at the desk'), text: t('Кошелёк ждёт хозяина.', 'The wallet awaits its owner.'), effect: {} },
     ],
   },
 ];

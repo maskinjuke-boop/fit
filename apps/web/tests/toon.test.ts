@@ -70,6 +70,6 @@ describe('мульт-люди (Quaternius)', () => {
   });
 
   it('без загруженной мебели Kenney предметы дома строятся прежними моделями', () => {
-    for (const id of ['bed', 'sofa', 'fridge', 'computer'] as const) expect(objectModel(id).children.length).toBeGreaterThan(2);
+    for (const id of ['sofa', 'counter', 'armchair', 'bookshelf'] as const) expect(objectModel(id).children.length).toBeGreaterThan(2);
   });
 });

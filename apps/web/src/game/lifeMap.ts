@@ -1,9 +1,9 @@
-import { GYMS, HOUSES, mountOf, slotsFor } from './lifeContent';
+import { HOUSES, mountOf, slotsFor } from './lifeContent';
 import type { ObjectId, SceneId } from './lifeTypes';
 
 /**
- * Раскладка двух локаций: дом (комната в разрезе, предметы у стен) и фитнес-зал
- * (место тренера впереди, ученики рядами лицом к нему, ресепшен, душевая, бар).
+ * Раскладка двух локаций: котокафе (зал в разрезе, предметы у стен, гости среди кошек)
+ * и лавка демона (прилавок с демоном, клетка с кошкой дня, выход).
  * Координаты: x — вправо, z — к камере, пол y = 0.
  */
 
@@ -31,11 +31,12 @@ export interface Placed {
 }
 
 export const HOUSE = { w: 15, d: 11 };
-export const GYM_ROOM = { w: 16, d: 12 };
+/** Лавка демона. */
+export const DEMON_ROOM = { w: 11, d: 9 };
 
 /**
- * Края дома ступени tier. Дом растёт влево и к зрителю: правая (кухня) и задняя стены
- * остаются на месте, поэтому кухня, душ, кошачьи миски и лоток не переезжают.
+ * Края кафе ступени tier. Кафе растёт влево и к зрителю: правая (стойка) и задняя стены
+ * остаются на месте, поэтому стойка, кошачьи миски и лоток не переезжают.
  */
 export function houseRect(tier = 0): { L: number; R: number; B: number; F: number; w: number; d: number; cx: number; cz: number } {
   const h = HOUSES[Math.max(0, Math.min(HOUSES.length - 1, tier))]!;
@@ -44,12 +45,6 @@ export function houseRect(tier = 0): { L: number; R: number; B: number; F: numbe
   const L = R - h.w;
   const F = B + h.d;
   return { L, R, B, F, w: h.w, d: h.d, cx: (L + R) / 2, cz: (B + F) / 2 };
-}
-
-/** Размер зала ступени tier (зал по центру). */
-export function gymRect(tier = 2): { w: number; d: number } {
-  const g = GYMS[Math.max(0, Math.min(GYMS.length - 1, tier))]!;
-  return { w: g.w, d: g.d };
 }
 
 const box = (x: number, z: number, hw: number, hd: number): Box => ({ x0: x - hw, x1: x + hw, z0: z - hd, z1: z + hd });
@@ -162,16 +157,13 @@ export const PETS = petsAt(1);
 /** Предметы дома: базовые на своих местах, купленные — по свободным местам своего вида; pets — есть кошки (миски и лоток). */
 export function homeLayout(furniture: readonly ObjectId[], pets = false, tier = 0): PlacedHome[] {
   const { L, R, B } = houseRect(tier);
-  // Душ и дверь остаются у прежней передней части дома (рядом с лотком).
+  // Дверь остаётся у прежней передней части зала (рядом с лотком).
   const F = frontOf(tier);
   const base: Placed[] = [
-    { id: 'bed', pos: { x: L + 1.3, z: B + 1.4 }, rot: 0, use: { x: L + 2.9, z: B + 1.6 }, box: box(L + 1.3, B + 1.4, 1.05, 1.35) },
+    // Стойка администратора у задней стены справа (где была кухня).
+    { id: 'counter', pos: { x: R - 1.7, z: B + 0.6 }, rot: -Math.PI / 2, use: { x: R - 1.9, z: B + 1.85 }, box: box(R - 1.7, B + 0.6, 1.25, 0.55) },
     // Перед диваном — столик: подходят к дивану сбоку от него.
     { id: 'sofa', pos: { x: 0.4, z: 1.4 }, rot: Math.PI, use: { x: -0.6, z: 0.6 }, box: box(0.4, 1.4, 1.25, 0.5) },
-    { id: 'fridge', pos: { x: R - 0.55, z: B + 0.5 }, rot: 0, use: { x: R - 0.8, z: B + 1.8 }, box: box(R - 0.55, B + 0.5, 0.45, 0.4) },
-    { id: 'stove', pos: { x: R - 1.65, z: B + 0.45 }, rot: 0, use: { x: R - 1.9, z: B + 1.7 }, box: box(R - 1.65, B + 0.45, 0.5, 0.4) },
-    { id: 'shower', pos: { x: R - 0.75, z: F - 1.2 }, rot: -Math.PI / 2, use: { x: R - 2.1, z: F - 1.2 }, box: box(R - 0.75, F - 1.2, 0.7, 0.7) },
-    { id: 'mirror', pos: { x: L + 0.08, z: 0.4 }, rot: Math.PI / 2, use: { x: L + 1.2, z: 0.4 }, box: null },
     { id: 'door', pos: { x: L + 0.06, z: F - 1.3 }, rot: Math.PI / 2, use: { x: L + 1.1, z: F - 1.3 }, box: null },
   ];
   const out: PlacedHome[] = base.map((p) => ({ ...p, y: 0 }));
@@ -205,43 +197,54 @@ export function homeLayout(furniture: readonly ObjectId[], pets = false, tier = 
   return out;
 }
 
-/** Предметы зала (душевая и бар — с ростом зала). */
-export function gymLayout(shower: boolean, bar: boolean, tier = 2): Placed[] {
-  const { w, d } = gymRect(tier);
+/** Лавка демона: прилавок с демоном у задней стены, клетка с кошкой дня, выход слева. */
+export function demonLayout(): Placed[] {
+  const { w, d } = DEMON_ROOM;
   const L = -w / 2;
-  const R = w / 2;
   const F = d / 2;
   const B = -d / 2;
-  const out: Placed[] = [
-    { id: 'coach', pos: { x: 0, z: 2.4 }, rot: Math.PI, use: { x: 0, z: 2.4 }, box: null },
-    { id: 'reception', pos: { x: L + 2.2, z: F - 2.2 }, rot: Math.PI / 2, use: { x: L + 3.6, z: F - 2.2 }, box: box(L + 2.2, F - 2.2, 0.5, 1.2) },
-    { id: 'gym_door', pos: { x: L + 0.06, z: F - 4.3 }, rot: Math.PI / 2, use: { x: L + 1.1, z: F - 4.3 }, box: null },
+  return [
+    { id: 'demon', pos: { x: 0, z: B + 1.4 }, rot: 0, use: { x: 0, z: B + 3.0 }, box: box(0, B + 1.4, 1.5, 0.55) },
+    { id: 'cage', pos: { x: 3.0, z: B + 1.6 }, rot: -0.35, use: { x: 2.6, z: B + 3.0 }, box: box(3.0, B + 1.6, 0.6, 0.5) },
+    { id: 'demon_door', pos: { x: L + 0.06, z: F - 2.0 }, rot: Math.PI / 2, use: { x: L + 1.1, z: F - 2.0 }, box: null },
   ];
-  if (shower) out.push({ id: 'gym_shower', pos: { x: R - 0.8, z: F - 1.6 }, rot: -Math.PI / 2, use: { x: R - 2.2, z: F - 1.6 }, box: box(R - 0.8, F - 1.6, 0.7, 1.2) });
-  if (bar) out.push({ id: 'smoothie', pos: { x: R - 0.9, z: B + 2.4 }, rot: -Math.PI / 2, use: { x: R - 2.3, z: B + 2.4 }, box: box(R - 0.9, B + 2.4, 0.5, 1.4) });
+}
+
+/** Где сидит или стоит демон (за прилавком). */
+export const DEMON_SPOT: P2 = { x: 0, z: -DEMON_ROOM.d / 2 + 0.55 };
+
+/**
+ * Места гостей в кафе: свободные точки зала (не в мебели и не у дверей), сначала ближе к
+ * середине, где играют кошки.
+ */
+export function guestSpots(tier: number, boxes: readonly Box[], n: number): P2[] {
+  const { L, R, B, F, cx, cz } = houseRect(tier);
+  const out: P2[] = [];
+  const cand: P2[] = [];
+  for (let x = L + 1.6; x <= R - 1.6; x += 1.5) for (let z = B + 2.2; z <= F - 1.4; z += 1.5) cand.push({ x, z });
+  cand.sort((a, b) => Math.hypot(a.x - cx, a.z - cz) - Math.hypot(b.x - cx, b.z - cz));
+  for (const p of cand) {
+    if (out.length >= n) break;
+    if (blocked(p, boxes, 0.55)) continue;
+    if (out.some((q) => Math.hypot(q.x - p.x, q.z - p.z) < 1.3)) continue;
+    out.push(p);
+  }
   return out;
 }
 
-/** Места учеников: ряды лицом к тренеру. */
-export function clientSpot(i: number): P2 {
-  const row = Math.floor(i / 5);
-  const k = i % 5;
-  return { x: (k - 2) * 2.1 + (row % 2) * 1.05, z: -1.4 - row * 2.2 };
-}
-
-/** Где можно ходить: в доме ступени house или в зале ступени gym. */
+/** Где можно ходить: в кафе ступени house или в лавке демона. */
 export const bounds = (scene: SceneId, tier?: number): Box => {
-  if (scene === 'home') {
+  if (scene === 'cafe') {
     const h = houseRect(tier ?? 0);
     return { x0: h.L + 0.35, x1: h.R - 0.35, z0: h.B + 0.35, z1: h.F - 0.2 };
   }
-  const r = gymRect(tier ?? 2);
+  const r = DEMON_ROOM;
   return { x0: -r.w / 2 + 0.35, x1: r.w / 2 - 0.35, z0: -r.d / 2 + 0.35, z1: r.d / 2 - 0.2 };
 };
 
 /** Точка появления у входной двери. */
 export function spawn(scene: SceneId, tier?: number): P2 {
-  const door = scene === 'home' ? homeLayout([], false, tier ?? 0).find((p) => p.id === 'door')! : gymLayout(false, false, tier ?? 2).find((p) => p.id === 'gym_door')!;
+  const door = scene === 'cafe' ? homeLayout([], false, tier ?? 0).find((p) => p.id === 'door')! : demonLayout().find((p) => p.id === 'demon_door')!;
   return { x: door.use.x + 0.4, z: door.use.z };
 }
 
@@ -338,58 +341,4 @@ export function detourPoint(from: P2, to: P2, b0: Box, boxes: readonly Box[]): P
     }
   }
   return best;
-}
-
-/** Оборудование зала по уровню (для модели и столкновений). */
-export type GearKind = 'ac' | 'speakers' | 'lightpanels' | 'greenwall' | 'cooler' | 'lockers' | 'sauna' | 'mat' | 'rack' | 'kettlebells' | 'squat_rack' | 'bench' | 'treadmill' | 'bag' | 'cable' | 'bike' | 'plant' | 'neon';
-
-export interface Gear {
-  kind: GearKind;
-  pos: P2;
-  rot: number;
-  box: Box | null;
-}
-
-export function gymGear(tier: number, extras: readonly string[] = []): Gear[] {
-  const { w, d } = gymRect(tier);
-  const L = -w / 2;
-  const R = w / 2;
-  const B = -d / 2;
-  const g: Gear[] = [
-    { kind: 'rack', pos: { x: -1.5, z: B + 0.5 }, rot: 0, box: box(-1.5, B + 0.5, 1.1, 0.35) },
-    { kind: 'kettlebells', pos: { x: 1.5, z: B + 0.5 }, rot: 0, box: box(1.5, B + 0.5, 0.9, 0.3) },
-  ];
-  for (let i = 0; i < 10; i += 1) {
-    const s = clientSpot(i);
-    if (i < [2, 4, 6, 8, 10][Math.min(4, tier)]!) g.push({ kind: 'mat', pos: s, rot: 0, box: null });
-  }
-  if (tier >= 1) {
-    g.push({ kind: 'squat_rack', pos: { x: L + 1.1, z: -2.6 }, rot: Math.PI / 2, box: box(L + 1.1, -2.6, 0.8, 1.1) });
-    g.push({ kind: 'bench', pos: { x: L + 1.2, z: -0.3 }, rot: Math.PI / 2, box: box(L + 1.2, -0.3, 0.3, 0.7) });
-  }
-  if (tier >= 2) {
-    for (const z of [-0.6, 1.3]) g.push({ kind: 'treadmill', pos: { x: R - 1.1, z }, rot: -Math.PI / 2, box: box(R - 1.1, z, 0.9, 0.45) });
-  }
-  if (tier >= 3) {
-    g.push({ kind: 'bag', pos: { x: -5.2, z: B + 1.2 }, rot: 0, box: box(-5.2, B + 1.2, 0.35, 0.35) });
-    g.push({ kind: 'bag', pos: { x: 5.0, z: B + 1.2 }, rot: 0, box: box(5.0, B + 1.2, 0.35, 0.35) });
-    g.push({ kind: 'cable', pos: { x: L + 0.8, z: B + 1.0 }, rot: Math.PI / 4, box: box(L + 0.8, B + 1.0, 0.7, 0.7) });
-  }
-  if (tier >= 4) {
-    for (const z of [3.4]) g.push({ kind: 'bike', pos: { x: R - 3.2, z }, rot: -Math.PI / 2, box: box(R - 3.2, z, 0.35, 0.6) });
-    g.push({ kind: 'plant', pos: { x: L + 0.5, z: d / 2 - 0.6 }, rot: 0, box: box(L + 0.5, d / 2 - 0.6, 0.3, 0.3) });
-    g.push({ kind: 'plant', pos: { x: R - 0.5, z: B + 0.5 }, rot: 0, box: null });
-    g.push({ kind: 'neon', pos: { x: 0, z: B + 0.02 }, rot: 0, box: null });
-  }
-  // Купленные удобства: на стенах — без препятствий, на полу — с ними.
-  const F = d / 2;
-  const has = (id: string): boolean => extras.includes(id);
-  if (has('gym_ac')) for (const x of [-w / 4, w / 4]) g.push({ kind: 'ac', pos: { x, z: B + 0.02 }, rot: 0, box: null });
-  if (has('gym_music')) for (const x of [L + 1.0, R - 1.0]) g.push({ kind: 'speakers', pos: { x, z: B + 0.02 }, rot: 0, box: null });
-  if (has('gym_lights')) g.push({ kind: 'lightpanels', pos: { x: 0, z: 0 }, rot: 0, box: null });
-  if (has('gym_green')) g.push({ kind: 'greenwall', pos: { x: R - 0.03, z: 0.4 }, rot: -Math.PI / 2, box: null });
-  if (has('gym_cooler')) g.push({ kind: 'cooler', pos: { x: L + 0.45, z: F - 1.4 }, rot: Math.PI / 2, box: box(L + 0.45, F - 1.4, 0.25, 0.25) });
-  if (has('gym_lockers')) g.push({ kind: 'lockers', pos: { x: 3.6, z: B + 0.3 }, rot: 0, box: box(3.6, B + 0.3, 1.0, 0.25) });
-  if (has('gym_sauna')) g.push({ kind: 'sauna', pos: { x: R - 0.75, z: 2.75 }, rot: -Math.PI / 2, box: box(R - 0.75, 2.75, 0.7, 0.8) });
-  return g;
 }

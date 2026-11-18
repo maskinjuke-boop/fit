@@ -76,7 +76,7 @@ describe('3D-персонаж', () => {
 
   it('вещи в руке и сумки лежат в кулаке за ручку и не входят в тело', () => {
     const held = ITEMS.filter((i) => i.slot === 'weapon' || i.slot === 'offhand');
-    expect(held.length).toBeGreaterThan(20);
+    expect(held.length).toBeGreaterThan(12);
     const problems: string[] = [];
     for (const figure of ['male', 'female'] as const) {
       const body = bodyGeometry(figure, [true, true]);

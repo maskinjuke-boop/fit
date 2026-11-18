@@ -5,54 +5,42 @@ import {
   actionsAt,
   autoChoice,
   blocker,
-  clientAppearance,
-  clientForm,
-  clientName,
-  clientOutfit,
-  clientTarget,
-  clock,
-  dailyQuota,
-  effectiveAppearance,
-  clientFee,
-  extraBlocker,
-  gymComfort,
-  houseBlocker,
-  oldStuff,
-  payFactors,
-  sessionPay,
-  fitness,
+  cafeOpen,
   catGrowth,
   catMood,
   catName,
+  clock,
   comfort,
-  litterDirty,
-  gymBlocker,
-  gymOpen,
+  guestAppearance,
+  guestDemand,
+  guestOutfit,
+  guestsNow,
   hasObject,
-  mood,
-  repsOn,
-  sessionTarget,
-  skillLevel,
-  skillNext,
-  trainerLevel,
-  SKILL_NAME,
+  hourlyIncome,
+  houseBlocker,
+  litterDirty,
+  maxCats,
+  oldStuff,
+  seats,
+  ticket,
   type Blocker,
+  type Guest,
 } from '../../game/life';
 import { Renovation } from './Renovation';
 import { catBreedText, catMeta } from './catText';
-import { BOWL_MAX, GYMS, GYM_EXTRAS, GYM_HOURS, HOUSES, OBJECTS, SESSION_EXERCISES, actionById, lifeEventById } from '../../game/lifeContent';
-import { gymLayout, homeLayout, type P2 } from '../../game/lifeMap';
-import { NEEDS, SKILLS, type ActionDef, type Client, type NeedId, type ObjectId } from '../../game/lifeTypes';
+import { BOWL_MAX, CAFE_HOURS, HOUSES, OBJECTS, actionById, lifeEventById } from '../../game/lifeContent';
+import { demonLayout, homeLayout, type P2 } from '../../game/lifeMap';
+import type { ActionDef, ObjectId } from '../../game/lifeTypes';
 import { useI18n, type I18nKey } from '../../i18n';
 import type { ExerciseId } from '../../tracking/exercise';
 import { animFor } from './three/actionAnims';
 import type { Member } from './three/people';
-import { HeroPortrait } from './Renders';
+import { DemonCard } from './DemonCard';
 
 const LifeScene3D = lazy(() => import('./three/LifeScene3D'));
 
 /** Предметы текущей локации (для похода сима к ним). */
-const layoutOf = (st: GameState) => (st.life.scene === 'home' ? homeLayout(st.life.furniture, st.life.cats.length > 0, st.life.house) : gymLayout(GYMS[st.life.gym]!.shower, GYMS[st.life.gym]!.bar, st.life.gym));
+const layoutOf = (st: GameState) => (st.life.scene === 'cafe' ? homeLayout(st.life.furniture, st.life.cats.length > 0, st.life.house) : demonLayout());
 
 /** Нужные поля события указателя (общие для React и DOM). */
 interface PointerLike {
@@ -61,7 +49,6 @@ interface PointerLike {
 }
 
 const AUTO_KEY = 'fitness-rpg.lifeAuto';
-/** Через сколько после управления игроком сим снова действует сам (между своими делами — без паузы). */
 /** Сим начинает действовать сам, если игрок ничего не трогал столько времени. */
 const INPUT_GRACE_MS = 15000;
 /** Сим бросает затею, если столько времени не приближается к цели (упёрся), и в любом случае через TASK_MAX_MS. */
@@ -69,9 +56,8 @@ const TASK_STUCK_MS = 6000;
 const TASK_MAX_MS = 60000;
 /**
  * Передышка после своего дела: на каждую потраченную игровую минуту — столько мс, пока сим
- * прохаживается, потягивается и гладит кошку без траты игрового времени (срочное — голод,
- * ночь, пустая миска — делает сразу). Иначе при постоянной занятости день пролетает за
- * 3–4 минуты; так — около 8 минут на игровые сутки.
+ * прохаживается и гладит кошку без траты игрового времени (срочное — пустая миска, грязный
+ * лоток, ночь — делает сразу). Так игровые сутки идут около 8 минут.
  */
 const REST_MS_PER_MINUTE = 400;
 const REST_MIN_MS = 4000;
@@ -95,12 +81,11 @@ interface Perform {
   self?: boolean;
 }
 
-const NEED_ICON: Record<NeedId, string> = { food: '🍔', energy: '⚡', hygiene: '🚿', fun: '🎉', social: '💬' };
-const CLIENT_COLORS = ['#e85d2a', '#2f6fb5', '#3a9d6a', '#8e44ad', '#d4a017', '#c0392b', '#16a085', '#e84393'];
+const GUEST_COLORS = ['#e85d2a', '#2f6fb5', '#3a9d6a', '#8e44ad', '#d4a017', '#c0392b', '#16a085', '#e84393'];
 
-/** Ученик как 3D-персонаж (общий для зала и занятия). */
-export function clientMember(c: Client): Member {
-  return { id: c.id, color: CLIENT_COLORS[c.seed % CLIENT_COLORS.length]!, appearance: clientAppearance(c), equipped: clientOutfit(c) };
+/** Гость кафе как 3D-персонаж. */
+export function guestMember(g: Guest): Member {
+  return { id: g.id, color: GUEST_COLORS[g.seed % GUEST_COLORS.length]!, appearance: guestAppearance(g), equipped: guestOutfit(g) };
 }
 
 function Joystick({ stick, onInput }: { stick: { current: { x: number; y: number } }; onInput(): void }) {
@@ -144,20 +129,6 @@ function Joystick({ stick, onInput }: { stick: { current: { x: number; y: number
   );
 }
 
-function NeedBar({ need, value, wide = false }: { need: NeedId; value: number; wide?: boolean }) {
-  const { t } = useI18n();
-  const v = Math.round(value);
-  return (
-    <div className={`need ${wide ? 'wide' : ''} ${v < 25 ? 'low' : v < 50 ? 'mid' : ''}`} title={t(`need.${need}` as I18nKey)}>
-      <span className="need-icon">{NEED_ICON[need]}</span>
-      {wide && <span className="need-name">{t(`need.${need}` as I18nKey)}</span>}
-      <span className="need-bar">
-        <span style={{ width: `${v}%` }} />
-      </span>
-      {wide && <span className="need-val">{v}</span>}
-    </div>
-  );
-}
 
 const hours = (m: number): string => (m >= 60 ? `${Math.floor(m / 60)} ч${m % 60 ? ` ${m % 60} мин` : ''}` : `${m} мин`);
 const hoursEn = (m: number): string => (m >= 60 ? `${Math.floor(m / 60)}h${m % 60 ? ` ${m % 60}m` : ''}` : `${m}m`);
@@ -168,7 +139,7 @@ function ActionButton({ state, a, onRun }: { state: GameState; a: ActionDef; onR
   const b: Blocker = blocker(state, a);
   const dur = lang === 'ru' ? hours(a.minutes) : hoursEn(a.minutes);
   return (
-    <button className={`btn life-act ${a.open === 'session' ? 'primary' : ''}`} disabled={b !== null} onClick={onRun}>
+    <button className={`btn life-act ${a.rescue ? 'primary' : ''}`} disabled={b !== null} onClick={onRun}>
       <span>
         {a.icon} {a.label[lang]}
       </span>
@@ -196,12 +167,8 @@ function ResultCard({ state }: { state: GameState }) {
   if (!r) return null;
   const chips: Array<{ text: string; cls: string }> = [];
   if (r.minutes) chips.push({ text: `⏱ ${lang === 'ru' ? hours(r.minutes) : hoursEn(r.minutes)}`, cls: '' });
+  if (r.guests) chips.push({ text: `👥 +${r.guests}`, cls: 'good' });
   if (r.money) chips.push({ text: `◈ ${r.money > 0 ? '+' : ''}${r.money}`, cls: r.money > 0 ? 'good' : 'bad' });
-  for (const n of NEEDS) {
-    const d = Math.round(r.needs[n] ?? 0);
-    if (Math.abs(d) >= 2) chips.push({ text: `${NEED_ICON[n]} ${d > 0 ? '+' : ''}${d}`, cls: d > 0 ? 'good' : 'bad' });
-  }
-  for (const [k, xp] of Object.entries(r.skills ?? {})) chips.push({ text: `${SKILL_NAME[k as keyof typeof SKILL_NAME][lang]} +${xp}`, cls: 'good' });
   return (
     <div className={`life-result ${r.ok ? 'ok' : 'fail'}`} role="status">
       <div className="life-result-head">
@@ -237,13 +204,12 @@ function EventCard({ state }: { state: GameState }) {
   const e = state.life.event;
   const def = e ? lifeEventById(e.id) : undefined;
   if (!e || !def) return null;
-  const name = state.life.clients[0] ? clientName(state.life.clients[0])[lang] : '';
   return (
     <div className="overlay">
       <div className="sheet center life-event">
         <div className="story-icon">{def.icon}</div>
         <h2>{def.title[lang]}</h2>
-        <p>{def.text[lang].replace('{client}', name)}</p>
+        <p>{def.text[lang]}</p>
         <div className="choices">
           {def.choices.map((c) => (
             <button key={c.id} className="choice" disabled={(c.cost ?? 0) > state.gold} onClick={() => life.answer(c.id)}>
@@ -257,162 +223,72 @@ function EventCard({ state }: { state: GameState }) {
   );
 }
 
-/** Полоса нормы дня. */
-function QuotaBar({ state, wide = false }: { state: GameState; wide?: boolean }) {
-  const { t } = useI18n();
-  const quota = dailyQuota(state);
-  const done = Math.min(quota, repsOn(state, state.today));
-  return (
-    <div className={`quota ${done >= quota ? 'done' : ''} ${wide ? 'wide' : ''}`} title={t('life.quota')}>
-      <span>🎯</span>
-      {wide && <span className="need-name">{t('life.quota')}</span>}
-      <span className="need-bar">
-        <span style={{ width: `${(done / quota) * 100}%` }} />
-      </span>
-      <span className="need-val">
-        {done}/{quota}
-      </span>
-    </div>
-  );
-}
-
-/** Выбор упражнения для занятия. */
-function SessionSheet({ state, onPick }: { state: GameState; onPick(ex: ExerciseId): void }) {
-  const { t, tf } = useI18n();
-  const n = state.life.clients.length;
-  return (
-    <div>
-      <p className="muted small">{t('life.sessionPick')}</p>
-      <p className="small">{tf('life.payNow', { n, pay: sessionPay(state) })}</p>
-      <ul className="life-list">
-        {SESSION_EXERCISES.map(([ex]) => {
-          const reps = sessionTarget(state, ex);
-          return (
-            <li key={ex}>
-              <div>
-                <b>{t(`exercise.${ex}` as I18nKey)}</b>
-                <div className="muted small">{tf('life.sessionLine', { n: reps, pay: sessionPay(state) })}</div>
-              </div>
-              <button className="btn small primary" onClick={() => onPick(ex)}>
-                {t('life.sessionGo')}
-              </button>
-            </li>
-          );
-        })}
-      </ul>
-    </div>
-  );
-}
-
-function ClientsList({ state }: { state: GameState }) {
+/** Кафе сейчас: гости, вход, уют, доход; кошки и их потребности; миски и лоток. */
+function CafeStatus({ state }: { state: GameState }) {
   const { t, tf, lang } = useI18n();
   const L = state.life;
   return (
     <>
-      <p className="small">{tf('life.clientsInfo', { n: L.clients.length, cap: GYMS[L.gym]!.cap, target: clientTarget(state) })}</p>
-      {L.clients.length === 0 && <p className="muted">{t('life.noClients')}</p>}
+      <div className="stat-grid">
+        <span>🐈 {t('cafe.cats')}</span>
+        <b>
+          {L.cats.length}/{maxCats(L)}
+        </b>
+        <span>👥 {t('cafe.guestsHour')}</span>
+        <b>
+          {Math.round(guestDemand(L) * 10) / 10}/{seats(L)}
+        </b>
+        <span>🎟️ {t('cafe.ticket')}</span>
+        <b>◈ {ticket(L)}</b>
+        <span>✨ {t('life.comfort')}</span>
+        <b>{comfort(L)}</b>
+        <span>💰 {t('cafe.income')}</span>
+        <b>◈ {hourlyIncome(L)}</b>
+        <span>🕙 {t('cafe.hours')}</span>
+        <b>
+          {CAFE_HOURS[0]}:00–{CAFE_HOURS[1]}:00
+        </b>
+      </div>
+      <p className="muted small">{t('cafe.how')}</p>
+      {L.cats.length === 0 && <p className="muted">{t('cafe.noCats')}</p>}
       <ul className="life-list">
-        {L.clients.map((c) => {
-          const m = clientMember(c);
-          return (
-            <li key={c.id}>
-              <HeroPortrait color={m.color} appearance={m.appearance} equipped={m.equipped} size={48} remember={false} />
-              <div>
-                <b>{clientName(c)[lang]}</b>
-                <div className="small">{tf('life.clientLine', { form: Math.round(clientForm(c) * 100), n: c.sessions, loyalty: Math.round(c.loyalty) })}</div>
-                <div className="small good">{tf('life.clientPays', { n: clientFee(state, c) })}</div>
-                <span className="need-bar">
-                  <span style={{ width: `${clientForm(c) * 100}%` }} />
-                </span>
+        {L.cats.length > 0 && (
+          <li>
+            <div>
+              <div className={`small ${L.bowl === 0 ? 'bad' : ''}`}>🥣 {tf('life.bowl', { n: L.bowl, m: BOWL_MAX })}</div>
+              <div className={`small ${L.water <= 0 ? 'bad' : ''}`}>💧 {tf('life.water', { n: Math.round(L.water) })}</div>
+              <div className={`small ${litterDirty(L) ? 'bad' : ''}`}>🧻 {tf('life.litter', { n: Math.round(L.litter) })}</div>
+            </div>
+          </li>
+        )}
+        {L.cats.map((c) => (
+          <li key={c.id}>
+            <div>
+              <b>🐈 {catName(c)[lang]}</b>
+              <div className="muted small">
+                {catBreedText(c, lang, t)} · {tf('life.catMood', { n: catMood(c, L) })}
               </div>
-            </li>
-          );
-        })}
+              <div className="small">{catMeta(c, L.day, t, tf)}</div>
+              {(['fed', 'play', 'toilet'] as const).map((k) => (
+                <div key={k} className={`need wide ${c[k] < 25 ? 'low' : c[k] < 50 ? 'mid' : ''}`}>
+                  <span className="need-name">{t(k === 'fed' ? 'life.catFed' : k === 'play' ? 'life.catPlay' : 'life.catToilet')}</span>
+                  <span className="need-bar">
+                    <span style={{ width: `${Math.round(c[k])}%` }} />
+                  </span>
+                </div>
+              ))}
+            </div>
+          </li>
+        ))}
       </ul>
-      <p className="muted small">{t('life.wantFitter')}</p>
+      <p className="muted small">
+        {tf('cafe.stats', { visitors: L.stats.visitors, earned: L.stats.earned, rescued: L.stats.rescued, lost: L.stats.lost })}
+      </p>
     </>
   );
 }
 
-function GymCard({ state }: { state: GameState }) {
-  const { t, tf, lang } = useI18n();
-  const { life } = useGame();
-  const g = GYMS[state.life.gym]!;
-  const next = GYMS[state.life.gym + 1];
-  const b = gymBlocker(state);
-  return (
-    <div className="gym-card">
-      <div className="card inner">
-        <div className="muted small">{t('life.gymCurrent')}</div>
-        <b>
-          {g.icon} {g.name[lang]}
-        </b>
-        <div className="small">{g.desc[lang]}</div>
-        <div className="small">{tf('life.gymCap', { cap: g.cap, mult: g.mult })}</div>
-        <PayBreakdown state={state} />
-      </div>
-      {next ? (
-        <div className="card inner">
-          <b>
-            {next.icon} {tf('life.gymNext', { name: next.name[lang] })}
-          </b>
-          <div className="small">{next.desc[lang]}</div>
-          <div className="small">{tf('life.gymCap', { cap: next.cap, mult: next.mult })}</div>
-          <button className="btn primary small" disabled={b !== null} onClick={() => life.upgradeGym()}>
-            {b === 'level' ? tf('life.gymNeedLevel', { n: next.level }) : tf('life.gymUpgrade', { n: next.cost })}
-          </button>
-        </div>
-      ) : (
-        <p className="good small">{t('life.gymMax')}</p>
-      )}
-      <h3>{tf('life.extras', { n: gymComfort(state.life) })}</h3>
-      <p className="muted small">{t('life.extrasHint')}</p>
-      <ul className="life-list">
-        {GYM_EXTRAS.map((x) => {
-          const xb = extraBlocker(state, x.id);
-          return (
-            <li key={x.id}>
-              <div>
-                <b>
-                  {x.icon} {x.name[lang]}
-                </b>
-                <div className="muted small">
-                  {x.desc[lang]} · {tf('life.extraComfort', { n: x.comfort })}
-                </div>
-              </div>
-              {xb === 'owned' ? (
-                <span className="good small">✓</span>
-              ) : (
-                <button className="btn small" disabled={xb !== null} onClick={() => life.buyExtra(x.id)}>
-                  {xb === 'gym' ? tf('life.extraNeedGym', { name: GYMS[x.gym]!.name[lang] }) : `◈ ${x.price}`}
-                </button>
-              )}
-            </li>
-          );
-        })}
-      </ul>
-    </div>
-  );
-}
-
-/** Из чего складывается оплата занятия. */
-function PayBreakdown({ state }: { state: GameState }) {
-  const { tf } = useI18n();
-  const f = payFactors(state);
-  const pct = (k: number): string => `×${k.toFixed(2)}`;
-  return (
-    <div className="pay-breakdown small">
-      <div>{tf('life.payBase', { n: f.base })}</div>
-      <div>{tf('life.paySize', { k: pct(f.size) })}</div>
-      <div>{tf('life.payComfort', { k: pct(f.comfort), n: gymComfort(state.life) })}</div>
-      {f.charisma > 1 && <div>{tf('life.payCharisma', { k: pct(f.charisma) })}</div>}
-      <div>{tf('life.payAthlete', {})}</div>
-      <b>{tf('life.payNow', { n: state.life.clients.length, pay: sessionPay(state) })}</b>
-    </div>
-  );
-}
-
-/** Жильё: текущая ступень и расширение. */
+/** Ступень кафе и расширение (по числу кошек). */
 function HouseCard({ state }: { state: GameState }) {
   const { t, tf, lang } = useI18n();
   const { life } = useGame();
@@ -427,7 +303,7 @@ function HouseCard({ state }: { state: GameState }) {
           {h.icon} {h.name[lang]}
         </b>
         <div className="small">{h.desc[lang]}</div>
-        <div className="small">{tf('life.houseInfo', { w: h.w, d: h.d, slots: h.slots, cats: h.cats, comfort: h.comfort })}</div>
+        <div className="small">{tf('life.houseInfo', { w: h.w, d: h.d, slots: h.slots, cats: h.cats, seats: h.seats, comfort: h.comfort })}</div>
       </div>
       {next ? (
         <div className="card inner">
@@ -435,9 +311,10 @@ function HouseCard({ state }: { state: GameState }) {
             {next.icon} {tf('life.houseNext', { name: next.name[lang] })}
           </b>
           <div className="small">{next.desc[lang]}</div>
-          <div className="small">{tf('life.houseInfo', { w: next.w, d: next.d, slots: next.slots, cats: next.cats, comfort: next.comfort })}</div>
+          <div className="small">{tf('life.houseInfo', { w: next.w, d: next.d, slots: next.slots, cats: next.cats, seats: next.seats, comfort: next.comfort })}</div>
+          <div className={`small ${state.life.cats.length >= next.needCats ? 'good' : 'bad'}`}>{tf('life.houseNeedCats', { n: next.needCats, have: state.life.cats.length })}</div>
           <button className="btn primary small" disabled={b !== null} onClick={() => life.upgradeHouse()}>
-            {b === 'level' ? tf('life.gymNeedLevel', { n: next.level }) : tf('life.houseUpgrade', { n: next.cost })}
+            {b === 'cats' ? tf('life.houseNeedCatsBtn', { n: next.needCats }) : tf('life.houseUpgrade', { n: next.cost })}
           </button>
         </div>
       ) : (
@@ -448,7 +325,7 @@ function HouseCard({ state }: { state: GameState }) {
 }
 
 function FurnitureList({ state }: { state: GameState }) {
-  const { t, tf, lang } = useI18n();
+  const { t, lang } = useI18n();
   const { life } = useGame();
   const owned = state.life.furniture;
   const [reno, setReno] = useState(false);
@@ -462,36 +339,8 @@ function FurnitureList({ state }: { state: GameState }) {
       <p className="small">
         {t('life.comfort')}: <b>{comfort(state.life)}</b>
       </p>
-      {owned.length === 0 && state.life.cats.length === 0 && <p className="muted small">{t('life.homeEmpty')}</p>}
+      {owned.length === 0 && <p className="muted small">{t('life.homeEmpty')}</p>}
       <ul className="life-list">
-        {state.life.cats.length > 0 && (
-          <li>
-            <div>
-              <div className={`small ${state.life.bowl === 0 ? 'bad' : ''}`}>🥣 {tf('life.bowl', { n: state.life.bowl, m: BOWL_MAX })}</div>
-              <div className={`small ${state.life.water <= 0 ? 'bad' : ''}`}>💧 {tf('life.water', { n: Math.round(state.life.water) })}</div>
-              <div className={`small ${litterDirty(state.life) ? 'bad' : ''}`}>🧻 {tf('life.litter', { n: Math.round(state.life.litter) })}</div>
-            </div>
-          </li>
-        )}
-        {state.life.cats.map((c) => (
-          <li key={c.id}>
-            <div>
-              <b>🐈 {catName(c)[lang]}</b>
-              <div className="muted small">
-                {catBreedText(c, lang, t)} · {tf('life.catMood', { n: catMood(c, state.life) })}
-              </div>
-              <div className="small">{catMeta(c, state.life.day, t, tf)}</div>
-              {(['fed', 'play', 'toilet'] as const).map((k) => (
-                <div key={k} className={`need wide ${c[k] < 25 ? 'low' : c[k] < 50 ? 'mid' : ''}`}>
-                  <span className="need-name">{t(k === 'fed' ? 'life.catFed' : k === 'play' ? 'life.catPlay' : 'life.catToilet')}</span>
-                  <span className="need-bar">
-                    <span style={{ width: `${Math.round(c[k])}%` }} />
-                  </span>
-                </div>
-              ))}
-            </div>
-          </li>
-        ))}
         {owned.map((id: ObjectId) => {
           const o = OBJECTS[id];
           return (
@@ -514,74 +363,27 @@ function FurnitureList({ state }: { state: GameState }) {
   );
 }
 
-type Sheet = null | 'phone' | 'session' | 'gym';
-type PhoneTab = 'status' | 'clients' | 'gym' | 'home';
+type Sheet = null | 'phone' | 'demon';
+type PhoneTab = 'status' | 'cafe';
 
 function PhoneSheet({ state, tab, setTab }: { state: GameState; tab: PhoneTab; setTab(t: PhoneTab): void }) {
-  const { t, tf, lang } = useI18n();
-  const L = state.life;
-  const quota = dailyQuota(state);
+  const { t } = useI18n();
   return (
     <div className="phone">
       <div className="segmented">
-        {(['status', 'clients', 'gym', 'home'] as const).map((x) => (
+        {(['status', 'cafe'] as const).map((x) => (
           <button key={x} className={tab === x ? 'on' : ''} onClick={() => setTab(x)}>
             {t(`life.tab.${x}` as I18nKey)}
           </button>
         ))}
       </div>
-      {tab === 'status' && (
-        <div className="phone-body">
-          <QuotaBar state={state} wide />
-          <p className="muted small">{tf('life.quotaHint', { n: quota, fine: 20 + 8 * trainerLevel(state) })}</p>
-          {NEEDS.map((n) => (
-            <NeedBar key={n} need={n} value={L.needs[n]} wide />
-          ))}
-          <div className="stat-grid">
-            <span>⭐ {t('life.level')}</span>
-            <b>{trainerLevel(state)}</b>
-            <span>😊 {t('life.mood')}</span>
-            <b>{mood(L)}</b>
-            <span>💪 {t('life.fitness')}</span>
-            <b>{fitness(state)}</b>
-            <span>⚖️ {t('life.body')}</span>
-            <b>{L.fat > 0.25 ? t('life.body.heavy') : L.fat < -0.25 ? t('life.body.lean') : t('life.body.normal')}</b>
-            <span>🥕 {t('life.groceries')}</span>
-            <b>{L.groceries}</b>
-          </div>
-          <h3>{t('life.skills')}</h3>
-          {SKILLS.map((k) => (
-            <div key={k} className="skill-row">
-              <span>{SKILL_NAME[k][lang]}</span>
-              <b>{skillLevel(L.skills[k])}</b>
-              <span className="need-bar">
-                <span style={{ width: `${Math.min(100, (L.skills[k] / skillNext(L.skills[k])) * 100)}%` }} />
-              </span>
-            </div>
-          ))}
-        </div>
-      )}
-      {tab === 'clients' && (
-        <div className="phone-body">
-          <ClientsList state={state} />
-        </div>
-      )}
-      {tab === 'gym' && (
-        <div className="phone-body">
-          <GymCard state={state} />
-        </div>
-      )}
-      {tab === 'home' && (
-        <div className="phone-body">
-          <FurnitureList state={state} />
-        </div>
-      )}
+      <div className="phone-body">{tab === 'status' ? <CafeStatus state={state} /> : <FurnitureList state={state} />}</div>
     </div>
   );
 }
 
-/** Вкладка «Тренер»: дом и фитнес-зал в 3D, потребности, норма дня, занятия, телефон. */
-export function LifeTab({ state, onTrain, onSession }: { state: GameState; onTrain(): void; onSession(exercise: ExerciseId): void }) {
+/** Вкладка «Кафе»: котокафе и лавка демона в 3D, гости, кошки, кошка дня, телефон. */
+export function LifeTab({ state, onTrain, onRescue }: { state: GameState; onTrain(): void; onRescue(exercise: ExerciseId): void }) {
   const { t, tf, lang } = useI18n();
   const { life } = useGame();
   const L = state.life;
@@ -640,18 +442,17 @@ export function LifeTab({ state, onTrain, onSession }: { state: GameState; onTra
   useEffect(() => () => clearTimeout(settleWait.current), []);
 
   const heroLook = useMemo(
-    () => ({ color: state.character.color, appearance: effectiveAppearance(state.character.appearance, state), equipped: state.equipped }),
-    // Фигура меняется с тренировками и питанием.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [state.character.color, state.character.appearance, state.equipped, state.statXp, L.fat],
+    () => ({ color: state.character.color, appearance: state.character.appearance, equipped: state.equipped }),
+    [state.character.color, state.character.appearance, state.equipped],
   );
-  const open = gymOpen(L.minute);
+  const open = cafeOpen(L.minute);
   const pets = useMemo(() => ({ bowl: L.bowl, water: L.water, litter: L.litter }), [L.bowl, L.water, L.litter]);
-  const clientsKey = JSON.stringify(L.clients.map((c) => [c.id, c.fat.toFixed(2), c.muscle.toFixed(2)]));
-  const clients = useMemo(
-    () => (L.scene === 'gym' && open ? L.clients.map(clientMember) : []),
+  // Гости в кафе: меняются по часам (внешность — по номеру гостя).
+  const guestKey = L.scene === 'cafe' ? guestsNow(L).map((g) => g.id).join(',') : '';
+  const guests = useMemo(
+    () => (L.scene === 'cafe' ? guestsNow(L).map(guestMember) : []),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [L.scene, open, clientsKey],
+    [guestKey],
   );
 
   live.current = { state, near, sheet, auto, failed };
@@ -690,15 +491,13 @@ export function LifeTab({ state, onTrain, onSession }: { state: GameState; onTra
     const spec = animFor(a.id);
     const st = stateRef.current;
     lastInput.current = performance.now();
-    if (!spec || a.train || a.open || a.go || blocker(st, a) || st.life.event) {
+    if (!spec || a.train || a.rescue || a.open || a.go || a.close || blocker(st, a) || st.life.event) {
       const out = lifeRef.current.act(a.id);
       if (out.train) onTrain();
-      if (out.open === 'session') setSheet('session');
-      else if (out.open === 'gym') {
-        setPhoneTab('gym');
-        setSheet('phone');
-      } else if (out.open === 'furniture') {
-        setPhoneTab('home');
+      if (out.rescue) onRescue(out.rescue);
+      if (out.open === 'demon') setSheet('demon');
+      else if (out.open === 'cafe') {
+        setPhoneTab('cafe');
         setSheet('phone');
       }
       return;
@@ -778,9 +577,8 @@ export function LifeTab({ state, onTrain, onSession }: { state: GameState; onTra
         if (strolled.current && Math.random() < 0.65) {
           strolled.current = false;
           const near = catSpots.current[0];
-          const petting = st.life.scene === 'home' && near && Math.hypot(near.x - hero.x, near.z - hero.z) < 4 && Math.random() < 0.4;
-          const list = st.life.scene === 'home' ? ['free_look'] : ['free_look', 'free_circles'];
-          doFreeRef.current(petting ? 'free_pet' : list[Math.floor(Math.random() * list.length)]!);
+          const petting = st.life.scene === 'cafe' && near && Math.hypot(near.x - hero.x, near.z - hero.z) < 4 && Math.random() < 0.5;
+          doFreeRef.current(petting ? 'free_pet' : 'free_look');
           return;
         }
         const spots = layoutOf(st);
@@ -842,9 +640,9 @@ export function LifeTab({ state, onTrain, onSession }: { state: GameState; onTra
           <b>
             {OBJECTS[near].icon} {OBJECTS[near].name[lang]}
           </b>
-          {near === 'coach' && (
+          {near === 'demon' && L.demon && (
             <span className="muted small">
-              👥 {L.clients.length} · ◈ {sessionPay(state)}
+              🐈 {catName(L.demon)[lang]} · {L.demon.progress}/{L.demon.target}
             </span>
           )}
         </div>
@@ -857,14 +655,16 @@ export function LifeTab({ state, onTrain, onSession }: { state: GameState; onTra
     );
   }
 
-  const m = mood(L);
-  const homeHint = L.cats.length && L.bowl === 0 ? t('life.bowlEmpty') : L.cats.length && L.water <= 0 ? t('life.waterEmpty') : litterDirty(L) ? t('life.litterDirty') : t('life.hintHome');
-  const hint = L.scene === 'home' ? homeHint : open ? t('life.hintGym') : tf('life.hintClosed', { from: GYM_HOURS[0], to: GYM_HOURS[1] });
+  const cafeHint = L.cats.length === 0 ? t('life.hintNoCats') : L.bowl === 0 ? t('life.bowlEmpty') : L.water <= 0 ? t('life.waterEmpty') : litterDirty(L) ? t('life.litterDirty') : open ? t('life.hintHome') : tf('life.hintClosed', { from: CAFE_HOURS[0], to: CAFE_HOURS[1] });
+  const hint = L.scene === 'cafe' ? cafeHint : t('life.hintDemon');
   const callCat = actionById('call_cat');
   const catsView = useMemo(() => L.cats.map((c) => ({ ...c, grow: catGrowth(c, L.day) })), [L.cats, L.day]);
+  const offer = L.demon;
+  const offerView = useMemo(() => (L.scene === 'demon' && offer?.status === 'waiting' ? { breed: offer.breed, mix: offer.mix, grow: catGrowth({ born: L.day - offer.age }, L.day) } : null), [L.scene, offer?.status, offer?.breed, offer?.mix, offer?.age, L.day]);
+  const travel = actionById(L.scene === 'cafe' ? 'go_demon' : 'go_cafe');
   return (
     <div className="world-tab life-tab">
-      <div className={`world-view life-view ${perform && /^(sleep|nap)$/.test(perform.action) ? 'sleeping' : ''}`}>
+      <div className={`world-view life-view ${L.scene === 'demon' ? 'demon-view' : ''} ${!open && L.scene === 'cafe' ? 'closed' : ''}`}>
         {failed ? (
           <div className="world-fallback">
             <p className="muted" style={{ padding: 16 }}>
@@ -882,19 +682,18 @@ export function LifeTab({ state, onTrain, onSession }: { state: GameState; onTra
             <LifeScene3D
               scene={L.scene}
               furniture={L.furniture}
-              gym={L.gym}
-              gymExtras={L.gymExtras}
               house={L.house}
               home={{ decor: L.decor, kit: L.kit }}
               minute={L.minute}
               hero={heroLook}
-              clients={clients}
+              guests={guests}
+              offer={offerView}
               stick={stick}
               goto={goto}
               onNear={setNear}
               onInput={playerInput}
               onSettled={(k: number) => settled.current(k)}
-              cats={catsView}
+              cats={L.scene === 'cafe' ? catsView : []}
               pets={pets}
               perform={perform}
               catSpots={catSpots}
@@ -908,28 +707,25 @@ export function LifeTab({ state, onTrain, onSession }: { state: GameState; onTra
             <b>{clock(L.minute)}</b>
             <span>{tf('life.day', { n: L.day })}</span>
             <span>◈ {state.gold}</span>
-            <span title={t('life.clients')}>👥 {L.clients.length}</span>
-            <span title={t('life.mood')}>{m >= 70 ? '😄' : m >= 45 ? '🙂' : m >= 25 ? '😕' : '😫'}</span>
+            <span title={t('cafe.cats')}>
+              🐈 {L.cats.length}/{maxCats(L)}
+            </span>
+            {L.scene === 'cafe' && <span title={t('cafe.guestsNow')}>{open ? `👥 ${L.guests}` : `🌙 ${t('cafe.closedShort')}`}</span>}
           </div>
-          <div className="life-needs">
-            {NEEDS.map((n) => (
-              <NeedBar key={n} need={n} value={L.needs[n]} />
-            ))}
-          </div>
-          <QuotaBar state={state} />
+          {offer && offer.status === 'waiting' && (
+            <button className="demon-chip" onClick={() => setSheet('demon')}>
+              😈 {catName(offer)[lang]}: {offer.progress}/{offer.target}
+            </button>
+          )}
         </div>
         <button className="phone-btn" onClick={() => setSheet('phone')} aria-label={t('life.phone')}>
           📱
         </button>
-        {(() => {
-          const go = actionById(L.scene === 'home' ? 'go_gym' : 'go_home');
-          if (!go) return null;
-          return (
-            <button className="travel-btn" disabled={!!perform && !perform.free} onClick={() => doAction(go)} title={go.label[lang]}>
-              {L.scene === 'home' ? `🏋️ ${t('life.toGym')}` : `🏠 ${t('life.toHome')}`}
-            </button>
-          );
-        })()}
+        {travel && (
+          <button className="travel-btn" disabled={!!perform && !perform.free} onClick={() => doAction(travel)} title={travel.label[lang]}>
+            {L.scene === 'cafe' ? `😈 ${t('life.toDemon')}` : `🏠 ${t('life.toCafe')}`}
+          </button>
+        )}
         <button className={`auto-btn ${auto ? 'on' : ''}`} onClick={toggleAuto} title={t('life.autoHint')}>
           🤖 {t(auto ? 'life.autoOn' : 'life.autoOff')}
         </button>
@@ -938,7 +734,7 @@ export function LifeTab({ state, onTrain, onSession }: { state: GameState; onTra
             💭 {actionById(autoTask.action)?.icon} {actionById(autoTask.action)?.label[lang]}
           </div>
         )}
-        {L.scene === 'home' && L.cats.length > 0 && callCat && (!perform || perform.free) && (
+        {L.scene === 'cafe' && L.cats.length > 0 && callCat && (!perform || perform.free) && (
           <button className="btn ghost small call-cat-btn" onClick={() => doAction(callCat)} title={callCat.label[lang]}>
             🐈 {t('life.callCat')}
           </button>
@@ -953,23 +749,21 @@ export function LifeTab({ state, onTrain, onSession }: { state: GameState; onTra
         <div className="overlay" onClick={() => setSheet(null)}>
           <div className="sheet wide-sheet life-sheet" onClick={(e: { stopPropagation(): void }) => e.stopPropagation()}>
             <div className="row between">
-              <h2>{sheet === 'phone' ? `📱 ${t('life.phone')}` : sheet === 'session' ? `📣 ${t('life.session')}` : `🏋️ ${t('life.tab.gym')}`}</h2>
+              <h2>{sheet === 'phone' ? `📱 ${t('life.phone')}` : `😈 ${t('demon.title')}`}</h2>
               <button className="btn ghost" onClick={() => setSheet(null)}>
                 ✕
               </button>
             </div>
             {sheet === 'phone' && <PhoneSheet state={state} tab={phoneTab} setTab={setPhoneTab} />}
-            {sheet === 'session' && (
-              <SessionSheet
+            {sheet === 'demon' && (
+              <DemonCard
                 state={state}
-                onPick={(ex) => {
+                onRescue={(ex) => {
                   setSheet(null);
-                  life.startSession(ex);
-                  onSession(ex);
+                  onRescue(ex);
                 }}
               />
             )}
-            {sheet === 'gym' && <GymCard state={state} />}
           </div>
         </div>
       )}

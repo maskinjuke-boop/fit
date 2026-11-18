@@ -168,7 +168,7 @@ export function TrackingScreen({ exercise, engine, onBack, onRep, overlay }: Tra
           return;
         }
         const text = eventText(tRef.current, tfRef.current, ev, langRef.current);
-        if (text) fresh.push({ id: now + i, text, big: ev.kind === 'levelUp' || ev.kind === 'questDone' || ev.kind === 'dailyBonus' || ev.kind === 'achievement' || ev.kind === 'sessionDone' || ev.kind === 'quotaDone' });
+        if (text) fresh.push({ id: now + i, text, big: ev.kind === 'levelUp' || ev.kind === 'questDone' || ev.kind === 'dailyBonus' || ev.kind === 'achievement' || ev.kind === 'catSaved' });
       });
       if (xp > 0) setXpGain({ amount: xp, over, id: now });
       if (fresh.length > 0) setBanners((b) => [...b, ...fresh].slice(-3));
@@ -322,7 +322,7 @@ export function TrackingScreen({ exercise, engine, onBack, onRep, overlay }: Tra
   const hintText = hint ? t(`hint.${hint}` as I18nKey) : null;
 
   return (
-    <div className={`tracking ${overlay ? 'with-crew' : ''}`}>
+    <div className="tracking">
       <div className={`stage ${mirrored ? 'mirrored' : ''}`}>
         <video ref={videoRef} playsInline muted onEnded={onVideoEnded} />
         <canvas ref={canvasRef} />

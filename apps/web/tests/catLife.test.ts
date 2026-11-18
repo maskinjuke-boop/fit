@@ -8,7 +8,7 @@ import { createCatLife, perchSpots, type CatHeroAct, type CatWorld } from '../sr
 function home(needs: { fed: number; play: number; toilet: number }, pets = { bowl: 4, water: 80, litter: 20 }) {
   // Обычная квартира (ступень 1): там стоит лоток PETS.
   const placed = homeLayout([...FURNITURE.filter((x) => x === 'armchair' || x === 'big_tv' || x === 'bookshelf')], true, 1);
-  const b = bounds('home', 1);
+  const b = bounds('cafe', 1);
   const boxes: Box[] = [...placed.filter((x) => x.id !== 'cat_bowl' && x.id !== 'litter').map((x) => x.box).filter((x): x is Box => x !== null), ...homeObstacles()];
   const hero = { x: -2, z: 2 };
   const world: CatWorld = { bounds: b, boxes, perches: perchSpots(placed, b, boxes), litterSurface: 0.07, hero, act: null, pets, need: () => needs };

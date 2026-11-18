@@ -12,20 +12,22 @@ export interface Look {
   color: string;
   appearance: Appearance;
   equipped: Partial<Record<Slot, string>>;
+  /** Свой цвет кожи вне палитры (демон). */
+  skin?: { base: string; shade: string };
 }
 
 export interface Member extends Look {
   id: string;
 }
 
-export const lookKey = (l: Look): string => JSON.stringify([l.color, l.appearance, l.equipped]);
+export const lookKey = (l: Look): string => JSON.stringify([l.color, l.appearance, l.equipped, l.skin ?? null]);
 
 /** Загружает сетки и волосы, затем строит персонажа с тенями. */
 export async function loadCharacter(l: Look): Promise<CharacterParts> {
   // Мульт-модели; если не загрузились — прежняя модель (лепка тела и одежды, текстуры).
   await loadToonPeople();
   if (!toonReady(toonModelFor(l.appearance.figure, l.appearance.hair))) await Promise.all([prepare(l.appearance.figure, garmentsFor(l.appearance.figure, l.equipped)), loadHairTexture(l.appearance.hair), loadSkinTextures()]);
-  const parts = buildCharacter(l.appearance, l.color, l.equipped);
+  const parts = buildCharacter(l.appearance, l.color, l.equipped, l.skin ? { skin: l.skin } : {});
   parts.root.traverse((o) => {
     const m = o as THREE.Mesh;
     if (m.isMesh) m.castShadow = true;

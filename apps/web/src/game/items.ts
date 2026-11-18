@@ -29,7 +29,6 @@ export const MAX_EQUIPMENT_BONUS = 0.25;
 
 export const ITEMS: readonly ItemDef[] = [
   // Голова
-  { id: 'headband', slot: 'head', price: 80, level: 1, xpBonus: 0, rarity: 'common' },
   { id: 'sports_cap', slot: 'head', price: 120, level: 1, xpBonus: 0.01, rarity: 'common' },
   { id: 'bandana', slot: 'head', price: 90, level: 1, xpBonus: 0.01, rarity: 'common' },
   { id: 'beanie', slot: 'head', price: 150, level: 1, xpBonus: 0.01, rarity: 'common' },
@@ -55,7 +54,6 @@ export const ITEMS: readonly ItemDef[] = [
   { id: 'spiked_collar', slot: 'neck', price: 850, level: 5, xpBonus: 0.05, rarity: 'rare' },
   { id: 'crystal_pendant', slot: 'neck', price: 1180, level: 6, xpBonus: 0.06, rarity: 'rare' },
   { id: 'feather_boa', slot: 'neck', price: 1500, level: 8, xpBonus: 0.07, rarity: 'rare' },
-  { id: 'marathon_medal', slot: 'neck', price: 2250, level: 10, xpBonus: 0.09, rarity: 'epic' },
   { id: 'diamond_necklace', slot: 'neck', price: 3500, level: 12, xpBonus: 0.1, rarity: 'legendary' },
   // Верх
   { id: 'basic_tee', slot: 'body', price: 100, level: 1, xpBonus: 0.01, rarity: 'common' },
@@ -63,14 +61,12 @@ export const ITEMS: readonly ItemDef[] = [
   { id: 'bandeau_top', slot: 'body', price: 130, level: 1, xpBonus: 0.01, rarity: 'common' },
   { id: 'string_bikini_top', slot: 'body', price: 160, level: 1, xpBonus: 0.01, rarity: 'common' },
   { id: 'crop_top', slot: 'body', price: 180, level: 2, xpBonus: 0.02, rarity: 'common' },
-  { id: 'sports_bra', slot: 'body', price: 200, level: 2, xpBonus: 0.02, rarity: 'common' },
   { id: 'hoodie', slot: 'body', price: 250, level: 2, xpBonus: 0.02, rarity: 'common' },
   { id: 'lace_bralette', slot: 'body', price: 280, level: 2, xpBonus: 0.03, rarity: 'uncommon' },
   { id: 'denim_crop', slot: 'body', price: 320, level: 2, xpBonus: 0.03, rarity: 'uncommon' },
   { id: 'button_shirt', slot: 'body', price: 350, level: 3, xpBonus: 0.03, rarity: 'uncommon' },
   { id: 'mesh_top', slot: 'body', price: 380, level: 3, xpBonus: 0.03, rarity: 'uncommon' },
   { id: 'halter_top', slot: 'body', price: 410, level: 3, xpBonus: 0.03, rarity: 'uncommon' },
-  { id: 'tracksuit', slot: 'body', price: 450, level: 3, xpBonus: 0.04, rarity: 'uncommon' },
   { id: 'leather_harness', slot: 'body', price: 470, level: 3, xpBonus: 0.04, rarity: 'uncommon' },
   { id: 'open_vest', slot: 'body', price: 540, level: 4, xpBonus: 0.04, rarity: 'uncommon' },
   { id: 'kimono', slot: 'body', price: 600, level: 4, xpBonus: 0.04, rarity: 'uncommon' },
@@ -83,8 +79,6 @@ export const ITEMS: readonly ItemDef[] = [
   { id: 'gold_bikini', slot: 'body', price: 2700, level: 11, xpBonus: 0.09, rarity: 'epic' },
   { id: 'diamond_bikini', slot: 'body', price: 3500, level: 12, xpBonus: 0.1, rarity: 'legendary' },
   // Спина
-  { id: 'rolled_mat', slot: 'back', price: 100, level: 1, xpBonus: 0.01, rarity: 'common' },
-  { id: 'gym_backpack', slot: 'back', price: 120, level: 1, xpBonus: 0.01, rarity: 'common' },
   { id: 'crossbody_bag', slot: 'back', price: 200, level: 2, xpBonus: 0.02, rarity: 'common' },
   { id: 'mini_backpack', slot: 'back', price: 300, level: 2, xpBonus: 0.03, rarity: 'uncommon' },
   { id: 'denim_jacket', slot: 'back', price: 450, level: 3, xpBonus: 0.04, rarity: 'uncommon' },
@@ -97,8 +91,6 @@ export const ITEMS: readonly ItemDef[] = [
   // Руки
   { id: 'bead_bracelets', slot: 'hands', price: 90, level: 1, xpBonus: 0.01, rarity: 'common' },
   { id: 'fingerless_gloves', slot: 'hands', price: 100, level: 1, xpBonus: 0.01, rarity: 'common' },
-  { id: 'fitness_tracker', slot: 'hands', price: 120, level: 1, xpBonus: 0.01, rarity: 'common' },
-  { id: 'boxing_wraps', slot: 'hands', price: 160, level: 2, xpBonus: 0.02, rarity: 'common' },
   { id: 'gold_bracelets', slot: 'hands', price: 280, level: 2, xpBonus: 0.03, rarity: 'uncommon' },
   { id: 'wrist_watch', slot: 'hands', price: 400, level: 3, xpBonus: 0.03, rarity: 'uncommon' },
   { id: 'lace_gloves', slot: 'hands', price: 440, level: 3, xpBonus: 0.04, rarity: 'uncommon' },
@@ -108,10 +100,8 @@ export const ITEMS: readonly ItemDef[] = [
   { id: 'diamond_bracelet', slot: 'hands', price: 2250, level: 10, xpBonus: 0.08, rarity: 'epic' },
   // Низ
   { id: 'bikini_bottom', slot: 'legs', price: 90, level: 1, xpBonus: 0.01, rarity: 'common' },
-  { id: 'gym_shorts', slot: 'legs', price: 100, level: 1, xpBonus: 0.01, rarity: 'common' },
   { id: 'sweatpants', slot: 'legs', price: 130, level: 1, xpBonus: 0.01, rarity: 'common' },
   { id: 'jeans', slot: 'legs', price: 150, level: 1, xpBonus: 0.01, rarity: 'common' },
-  { id: 'yoga_leggings', slot: 'legs', price: 160, level: 1, xpBonus: 0.02, rarity: 'common' },
   { id: 'denim_micro_shorts', slot: 'legs', price: 220, level: 2, xpBonus: 0.02, rarity: 'common' },
   { id: 'mini_skirt', slot: 'legs', price: 300, level: 2, xpBonus: 0.03, rarity: 'uncommon' },
   { id: 'ripped_jeans', slot: 'legs', price: 380, level: 3, xpBonus: 0.03, rarity: 'uncommon' },
@@ -129,7 +119,6 @@ export const ITEMS: readonly ItemDef[] = [
   { id: 'house_slippers', slot: 'feet', price: 60, level: 1, xpBonus: 0, rarity: 'common' },
   { id: 'flip_flops', slot: 'feet', price: 80, level: 1, xpBonus: 0.01, rarity: 'common' },
   { id: 'sneakers', slot: 'feet', price: 120, level: 1, xpBonus: 0.01, rarity: 'common' },
-  { id: 'running_shoes', slot: 'feet', price: 180, level: 1, xpBonus: 0.02, rarity: 'common' },
   { id: 'sandals', slot: 'feet', price: 220, level: 2, xpBonus: 0.02, rarity: 'common' },
   { id: 'anklets', slot: 'feet', price: 280, level: 2, xpBonus: 0.03, rarity: 'uncommon' },
   { id: 'platform_sneakers', slot: 'feet', price: 390, level: 3, xpBonus: 0.03, rarity: 'uncommon' },
@@ -143,24 +132,16 @@ export const ITEMS: readonly ItemDef[] = [
   { id: 'designer_heels', slot: 'feet', price: 3500, level: 12, xpBonus: 0.1, rarity: 'legendary' },
   // В руке
   { id: 'coffee_cup', slot: 'weapon', price: 80, level: 1, xpBonus: 0.01, rarity: 'common' },
-  { id: 'water_bottle', slot: 'weapon', price: 90, level: 1, xpBonus: 0.01, rarity: 'common' },
   { id: 'phone', slot: 'weapon', price: 100, level: 1, xpBonus: 0.01, rarity: 'common' },
-  { id: 'dumbbell', slot: 'weapon', price: 120, level: 1, xpBonus: 0.02, rarity: 'common' },
-  { id: 'shaker', slot: 'weapon', price: 160, level: 2, xpBonus: 0.02, rarity: 'common' },
   { id: 'umbrella', slot: 'weapon', price: 280, level: 2, xpBonus: 0.03, rarity: 'uncommon' },
-  { id: 'tennis_racket', slot: 'weapon', price: 380, level: 3, xpBonus: 0.03, rarity: 'uncommon' },
-  { id: 'kettlebell', slot: 'weapon', price: 450, level: 3, xpBonus: 0.04, rarity: 'uncommon' },
   { id: 'flower_bouquet', slot: 'weapon', price: 600, level: 4, xpBonus: 0.04, rarity: 'uncommon' },
   { id: 'skateboard', slot: 'weapon', price: 850, level: 5, xpBonus: 0.05, rarity: 'rare' },
   { id: 'acoustic_guitar', slot: 'weapon', price: 1180, level: 6, xpBonus: 0.06, rarity: 'rare' },
   { id: 'microphone', slot: 'weapon', price: 1340, level: 7, xpBonus: 0.07, rarity: 'rare' },
   { id: 'champagne_glass', slot: 'weapon', price: 1800, level: 8, xpBonus: 0.08, rarity: 'epic' },
-  { id: 'gold_trophy', slot: 'weapon', price: 3500, level: 12, xpBonus: 0.1, rarity: 'legendary' },
   // Сумка
   { id: 'grocery_bag', slot: 'offhand', price: 60, level: 1, xpBonus: 0, rarity: 'common' },
   { id: 'tote_bag', slot: 'offhand', price: 100, level: 1, xpBonus: 0.01, rarity: 'common' },
-  { id: 'yoga_mat', slot: 'offhand', price: 120, level: 1, xpBonus: 0.02, rarity: 'common' },
-  { id: 'gym_bag', slot: 'offhand', price: 200, level: 2, xpBonus: 0.02, rarity: 'common' },
   { id: 'handbag', slot: 'offhand', price: 400, level: 3, xpBonus: 0.03, rarity: 'uncommon' },
   { id: 'briefcase', slot: 'offhand', price: 450, level: 3, xpBonus: 0.04, rarity: 'uncommon' },
   { id: 'clutch', slot: 'offhand', price: 600, level: 4, xpBonus: 0.04, rarity: 'uncommon' },
@@ -176,7 +157,9 @@ export const itemById = (id: string): ItemDef | undefined => ITEMS.find((i) => i
  * с похожим смыслом. Предметы без соответствия (оружие, доспехи, щиты) в каталог не
  * переходят и при загрузке сохранения отбрасываются.
  */
-export const RENAMED_ITEMS: Readonly<Record<string, string>> = {
+const RENAMED_RAW: Readonly<Record<string, string>> = {
+  // Спортивные вещи убраны вместе с залом — у игроков они заменяются похожими повседневными.
+  headband: 'bandana', marathon_medal: 'gold_chain', sports_bra: 'bandeau_top', tracksuit: 'hoodie', rolled_mat: 'mini_backpack', gym_backpack: 'mini_backpack', fitness_tracker: 'wrist_watch', boxing_wraps: 'fingerless_gloves', gym_shorts: 'denim_micro_shorts', yoga_leggings: 'latex_leggings', running_shoes: 'sneakers', dumbbell: 'coffee_cup', shaker: 'coffee_cup', kettlebell: 'umbrella', gold_trophy: 'flower_bouquet', yoga_mat: 'tote_bag', gym_bag: 'tote_bag', tennis_racket: 'umbrella', water_bottle: 'coffee_cup',
   sport_set: 'sports_bra', fitness_set: 'tank_top', iron_dumbbell: 'dumbbell', aviator_goggles: 'sunglasses', yoga_shorts: 'gym_shorts', canvas_sneakers: 'sneakers',
   leather_cap: 'sports_cap', feathered_cap: 'sports_cap', ranger_hood: 'beanie', champion_crown: 'silver_tiara', gold_circlet: 'silver_tiara', jester_cap: 'cat_ears',
   hennin: 'bunny_ears', plague_mask: 'sunglasses', pilgrim_hat: 'cowboy_hat', ruby_amulet: 'diamond_necklace', leather_vest: 'open_vest', gambeson: 'hoodie',
@@ -194,6 +177,15 @@ export const RENAMED_ITEMS: Readonly<Record<string, string>> = {
 };
 
 /** Новый id предмета для старого сохранения (или тот же id, если он не менялся). */
+/** Переименования идут цепочкой (старое → промежуточное → нынешнее): здесь — сразу нынешнее. */
+export const RENAMED_ITEMS: Readonly<Record<string, string>> = Object.fromEntries(
+  Object.keys(RENAMED_RAW).map((k) => {
+    let cur = k;
+    for (let i = 0; i < 6 && RENAMED_RAW[cur]; i += 1) cur = RENAMED_RAW[cur]!;
+    return [k, cur];
+  }),
+);
+
 export const renamedItem = (id: string): string => RENAMED_ITEMS[id] ?? id;
 
 export const RARITY_COLOR: Record<Rarity, string> = {

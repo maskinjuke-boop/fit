@@ -18,10 +18,11 @@ export function addXp(s: GameState, amount: number, stat: StatId | null, events:
 }
 
 /**
- * Награда за квест или задание: только опыт. Деньги в игре приносят только
- * проведённые занятия с учениками, поэтому золото из наград не начисляется.
+ * Награда за квест, задание или достижение: опыт и деньги — упражнения приносят деньги на кафе
+ * (вместе с платой за каждый повтор и гостями кафе).
  */
 export function grantReward(s: GameState, reward: { xp: number; gold: number }, events: GameEvent[]): { xp: number; gold: number } {
   addXp(s, reward.xp, null, events);
-  return { xp: reward.xp, gold: 0 };
+  s.gold += reward.gold;
+  return { xp: reward.xp, gold: reward.gold };
 }

@@ -1,10 +1,10 @@
 import type { Txt } from './lifeTypes';
 
 /**
- * Ремонт дома: отделка (обои, пол, панели, шторы, ковёр, свет) и базовая мебель
- * (кровать, диван, кухня, душ). Игра начинается в убитой квартире: облезлые обои,
- * старый линолеум, голая лампочка, продавленный диван. Отделку можно купить и
- * менять — купленная остаётся в запасе, вернуть её можно бесплатно.
+ * Ремонт котокафе: отделка (обои, пол, панели, шторы, ковёр, свет, плитка у стойки) и базовая
+ * мебель (гостевой диван). Кафе начинается в старом помещении: облезлые обои, старый линолеум,
+ * голая лампочка, продавленный диван. Отделку можно купить и менять — купленная остаётся
+ * в запасе, вернуть её можно бесплатно.
  */
 
 const t = (ru: string, en: string): Txt => ({ ru, en });
@@ -19,12 +19,12 @@ export const DECOR_KIND_NAME: Record<DecorKind, Txt> = {
   curtains: t('Шторы', 'Curtains'),
   rug: t('Ковёр', 'Rug'),
   light: t('Свет', 'Lighting'),
-  kitchen: t('Кухня: плитка и фартук', 'Kitchen tiles & backsplash'),
+  kitchen: t('Плитка у стойки', 'Counter tiles'),
   window: t('Окна', 'Windows'),
-  door: t('Входная дверь', 'Front door'),
+  door: t('Входная дверь кафе', 'Café front door'),
 };
 
-export const DECOR_KIND_ICON: Record<DecorKind, string> = { wall: '🧱', floor: '🪵', trim: '📏', curtains: '🎀', rug: '🟫', light: '💡', kitchen: '🍽️', window: '🪟', door: '🚪' };
+export const DECOR_KIND_ICON: Record<DecorKind, string> = { wall: '🧱', floor: '🪵', trim: '📏', curtains: '🎀', rug: '🟫', light: '💡', kitchen: '🛎️', window: '🪟', door: '🚪' };
 
 /** Как выглядит отделка: рисунок и цвета (рисует 3D-сцена и образцы в магазине). */
 export interface FinishLook {
@@ -40,7 +40,7 @@ export interface FinishDef {
   price: number;
   /** Уют (у старой отделки — отрицательный). */
   comfort: number;
-  /** С какого уровня тренера продаётся. */
+  /** С какого уровня героя продаётся. */
   level?: number;
   /** Старьё из стартовой квартиры: при переезде заменяется простой новой отделкой. */
   old?: boolean;
@@ -125,12 +125,12 @@ export const finishesOf = (kind: DecorKind): FinishDef[] => FINISHES.filter((x) 
 
 export type Decor = Record<DecorKind, string>;
 
-/** Стартовая убитая квартира. */
+/** Стартовое старое помещение. */
 export const OLD_DECOR: Decor = { wall: 'wall_peeling', floor: 'floor_linoleum', trim: 'trim_old', curtains: 'curt_old', rug: 'rug_old', light: 'light_bulb', kitchen: 'ktile_old', window: 'win_old', door: 'door_old' };
-/** Простой новый ремонт (так выглядел дом до ремонтов; им же заменяется старьё при переезде). */
+/** Простой новый ремонт (им заменяется старьё при расширении кафе). */
 export const BASIC_DECOR: Decor = { wall: 'wall_plaster', floor: 'floor_parquet', trim: 'trim_beige', curtains: 'curt_linen', rug: 'rug_red', light: 'light_warm', kitchen: 'ktile_blue', window: 'win_pvc', door: 'door_oak' };
 
-/** Внешний вид дома для сцены: отделка и состояние базовой мебели. */
+/** Внешний вид кафе для сцены: отделка и состояние базовой мебели. */
 export interface HomeLook {
   decor: Decor;
   kit: Kit;
@@ -138,12 +138,12 @@ export interface HomeLook {
 
 // ─── Базовая мебель ────────────────────────────────────────────────────
 
-export type KitId = 'bed' | 'sofa' | 'kitchen' | 'bath';
-export const KIT_IDS: readonly KitId[] = ['bed', 'sofa', 'kitchen', 'bath'];
-/** 0 — старьё из стартовой квартиры, 1 — новое. */
+export type KitId = 'sofa';
+export const KIT_IDS: readonly KitId[] = ['sofa'];
+/** 0 — старьё из стартового помещения, 1 — новое. */
 export type Kit = Record<KitId, number>;
-export const OLD_KIT: Kit = { bed: 0, sofa: 0, kitchen: 0, bath: 0 };
-export const NEW_KIT: Kit = { bed: 1, sofa: 1, kitchen: 1, bath: 1 };
+export const OLD_KIT: Kit = { sofa: 0 };
+export const NEW_KIT: Kit = { sofa: 1 };
 
 export interface KitDef {
   id: KitId;
@@ -158,15 +158,10 @@ export interface KitDef {
 }
 
 export const KITS: readonly KitDef[] = [
-  { id: 'bed', icon: '🛏️', old: t('Скрипучая раскладушка', 'Creaky camp bed'), name: t('Новая кровать', 'New bed'), desc: t('Сон восстанавливает больше сил.', 'Sleep restores more energy.'), price: 220, objects: ['bed'] },
-  { id: 'sofa', icon: '🛋️', old: t('Продавленный диван и старый телевизор', 'Saggy sofa and an old TV'), name: t('Новый диван и телевизор', 'New sofa and TV'), desc: t('Отдых на диване приятнее.', 'Resting on the sofa is nicer.'), price: 280, objects: ['sofa'] },
-  { id: 'kitchen', icon: '🍳', old: t('Ржавая плита и гудящий холодильник', 'Rusty stove and a humming fridge'), name: t('Новая кухня', 'New kitchen'), desc: t('Еда сытнее.', 'Meals are more filling.'), price: 350, objects: ['stove', 'fridge'] },
-  { id: 'bath', icon: '🚿', old: t('Душ со шторкой и ржавчиной', 'Rusty shower with a curtain'), name: t('Душевая кабина', 'Shower cabin'), desc: t('Душ освежает лучше.', 'Showers freshen you up better.'), price: 200, objects: ['shower'] },
-];
+  { id: 'sofa', icon: '🛋️', old: t('Продавленный диван и старый телевизор', 'Saggy sofa and an old TV'), name: t('Новый гостевой диван', 'New guest sofa'), desc: t('Гостям уютнее — их больше.', 'Guests are cosier — more of them come.'), price: 280, objects: ['sofa'] },
+]
 export const kitById = (id: KitId): KitDef => KITS.find((k) => k.id === id)!;
-/** К какой базовой мебели относится предмет дома. */
+/** К какой базовой мебели относится предмет кафе. */
 export const kitOf = (object: string): KitId | undefined => KITS.find((k) => k.objects.includes(object))?.id;
-/** Старая вещь: польза от неё меньше. */
-export const OLD_KIT_FACTOR = 0.75;
-/** Уют от старой базовой мебели (за каждую): старьё не уютно, но и не отнимает уют — оно просто хуже работает. */
-export const OLD_KIT_COMFORT = 0;
+/** Уют от старой базовой мебели (за каждую): старьё отнимает уют. */
+export const OLD_KIT_COMFORT = -1;

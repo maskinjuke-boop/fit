@@ -1,38 +1,29 @@
-import { lazy, Suspense, useState } from 'react';
 import type { GameState } from '../../game/state';
+import { catName, maxCats } from '../../game/life';
 import { useI18n } from '../../i18n';
-import { clientMember } from './Life';
-
-const SessionCrew3D = lazy(() => import('./three/SessionCrew3D'));
+import type { ExerciseId } from '../../tracking/exercise';
 
 /**
- * Слой занятия поверх камеры: ученики в 3D повторяют каждое засчитанное движение тренера,
- * сверху — прогресс занятия. После последнего повтора — сообщение об оплате;
- * ученики продолжают повторять, пока тренер не закончит.
+ * Полоса поверх камеры, пока герой спасает кошку дня: сколько повторов назначенного демоном
+ * упражнения сделано. После последнего — «спасена!».
  */
-export function SessionOverlay({ state, count }: { state: GameState; count: number }) {
-  const { tf } = useI18n();
-  // Состав и упражнение фиксируются при открытии экрана.
-  const [start] = useState(() => {
-    const s = state.life.session;
-    if (!s) return null;
-    return { exercise: s.exercise, target: s.target, members: state.life.clients.filter((c) => s.clients.includes(c.id)).map(clientMember) };
-  });
-  if (!start) return null;
-  const sess = state.life.session;
-  const progress = sess ? sess.progress : start.target;
-  const pay = !sess && state.life.last ? state.life.last.money : 0;
+export function DemonOverlay({ state, exercise }: { state: GameState; exercise: ExerciseId }) {
+  const { t, tf, lang } = useI18n();
+  const o = state.life.demon;
+  if (!o || o.exercise !== exercise || o.status === 'lost') return null;
+  const name = catName(o)[lang];
+  const saved = o.status === 'saved';
   return (
-    <div className="session-layer">
-      <div className={`session-bar ${sess ? '' : 'done'}`}>
-        <span>{sess ? tf('life.sessionBar', { n: progress, m: start.target }) : tf('life.sessionDoneBar', { pay })}</span>
-        <span className="need-bar">
-          <span style={{ width: `${Math.min(100, (progress / start.target) * 100)}%` }} />
-        </span>
+    <div className="session-layer demon-layer">
+      <div className={`session-bar ${saved ? 'done' : ''}`}>
+        <span>{saved ? tf('demon.savedBar', { name }) : tf('demon.bar', { name, n: o.progress, m: o.target })}</span>
+        {!saved && (
+          <span className="need-bar">
+            <span style={{ width: `${Math.min(100, (o.progress / o.target) * 100)}%` }} />
+          </span>
+        )}
+        {!saved && state.life.cats.length >= maxCats(state.life) && <span className="bad small">{t('demon.full')}</span>}
       </div>
-      <Suspense fallback={null}>
-        <SessionCrew3D clients={start.members} exercise={start.exercise} reps={count} />
-      </Suspense>
     </div>
   );
 }

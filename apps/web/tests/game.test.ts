@@ -1,3 +1,4 @@
+import { itemById } from '../src/game/items';
 import { describe, expect, it } from 'vitest';
 import { qualityBonus } from '../src/game/config';
 import { generateDailies, taskProgress, tiredGroups } from '../src/game/dailies';
@@ -76,9 +77,10 @@ describe('Повторы и опыт', () => {
   it('XP = 10 × множитель × бонус качества', () => {
     const r = applyRep(hero(), { exercise: 'pushup', quality: 100 }, day0);
     const xp = r.events.find((e) => e.kind === 'xp');
-    // Страж начинает с деревянным щитом: +2% к опыту.
-    expect(xp?.kind === 'xp' ? xp.amount : 0).toBeCloseTo(24 * 1.02, 6);
-    expect(r.state.statXp.strength).toBeCloseTo(24 * 1.02, 6);
+    // Стартовая вещь даёт свой бонус к опыту.
+    const k = 1 + r.state.inventory.reduce((a, id) => a + (itemById(id)?.xpBonus ?? 0), 0);
+    expect(xp?.kind === 'xp' ? xp.amount : 0).toBeCloseTo(24 * k, 6);
+    expect(r.state.statXp.strength).toBeCloseTo(24 * k, 6);
   });
 
   it('повышение уровня', () => {

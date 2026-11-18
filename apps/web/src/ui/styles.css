@@ -2437,3 +2437,78 @@ button {
   background: radial-gradient(ellipse at 50% 45%, transparent 55%, rgba(0, 0, 0, 0.32) 100%);
   z-index: 1;
 }
+
+/* ── Котокафе: кошка дня у демона и карточка кафе ─────────────────── */
+.demon-card {
+  display: grid;
+  gap: 10px;
+  border: 1px solid rgba(255, 90, 60, 0.35);
+  background: linear-gradient(160deg, rgba(91, 16, 32, 0.55), rgba(20, 16, 24, 0.9));
+}
+.demon-card.saved {
+  border-color: rgba(61, 220, 132, 0.4);
+}
+.demon-card.lost {
+  opacity: 0.8;
+}
+.demon-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.demon-face {
+  font-size: 30px;
+}
+.demon-cat {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.demon-cat > img,
+.demon-cat > canvas,
+.demon-cat > span {
+  flex: none;
+}
+.demon-cat .big {
+  font-size: 20px;
+}
+.demon-quote {
+  font-style: italic;
+  color: #ffb3a1;
+  margin: 6px 0 0;
+}
+.demon-card .need.wide {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 8px;
+}
+.cafe-card {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+}
+.demon-chip {
+  margin-top: 6px;
+  align-self: flex-start;
+  border: 1px solid rgba(255, 90, 60, 0.5);
+  background: rgba(60, 12, 24, 0.85);
+  color: #ffd6cc;
+  border-radius: 999px;
+  padding: 4px 12px;
+  font-size: 13px;
+  pointer-events: auto;
+}
+.life-view.demon-view {
+  background: #140c12;
+}
+.center {
+  text-align: center;
+}
+/* Полоса спасения кошки — над видео, под счётчиком повторов (кнопки внизу её не закрывают). */
+.session-layer.demon-layer {
+  top: calc(env(safe-area-inset-top) + 236px);
+  bottom: auto;
+  z-index: 4;
+}

@@ -208,7 +208,7 @@ const paint = (c: string, r = 0.8): THREE.Material => mat(c, r);
  * Старьё из убитой однушки: те же размеры и места для действий, что у новой мебели
  * (на раскладушке лежат, на диване сидят так же), но облезлое и потёртое.
  */
-function oldModel(id: ObjectId): THREE.Group | null {
+function oldModel(id: string): THREE.Group | null {
   const g = new THREE.Group();
   g.userData.tick = [] as HomeAnim[];
   switch (id) {
@@ -351,7 +351,7 @@ function drop(g: THREE.Group, idx: number[]): void {
 }
 const range = (a: number, b: number): number[] => Array.from({ length: b - a }, (_, i) => a + i);
 
-const KENNEY_SWAP: Partial<Record<ObjectId, (g: THREE.Group) => void>> = {
+const KENNEY_SWAP: Partial<Record<string, (g: THREE.Group) => void>> = {
   bed: (g) => {
     drop(g, range(0, 6));
     g.add(kenney('bedDouble', [2.15, 1.25, 2.7], [0, 0, -0.03], { carpet: '#5b7fb3' }));
@@ -414,7 +414,7 @@ const KENNEY_SWAP: Partial<Record<ObjectId, (g: THREE.Group) => void>> = {
   },
 };
 
-function procModel(id: ObjectId): THREE.Group {
+function procModel(id: string): THREE.Group {
   const g = new THREE.Group();
   const tick: HomeAnim[] = [];
   g.userData.tick = tick;
@@ -573,6 +573,20 @@ function procModel(id: ObjectId): THREE.Group {
       g.add(mesh(new THREE.BoxGeometry(0.45, 0.9, 0.4), paint('#1b1d21', 0.4), [1.3, 0.45, 0.2]));
       g.add(mesh(new THREE.CylinderGeometry(0.14, 0.14, 0.02, 20), paint('#555', 0.3), [1.3, 0.62, 0.41]).rotateX(Math.PI / 2));
       g.add(mesh(new THREE.CylinderGeometry(0.08, 0.08, 0.02, 20), paint('#555', 0.3), [1.3, 0.3, 0.41]).rotateX(Math.PI / 2));
+      break;
+    }
+    case 'counter': {
+      // Стойка администратора котокафе: корпус, деревянная столешница, светлая полоса спереди,
+      // касса, банка с кошачьими вкусняшками и фигурка «манэки-нэко».
+      g.add(mesh(new THREE.BoxGeometry(1.0, 1.1, 2.4), paint('#f3e3cf', 0.5), [0, 0.55, 0]));
+      g.add(mesh(new THREE.BoxGeometry(1.1, 0.06, 2.5), wood('#a0784a'), [0, 1.13, 0]));
+      g.add(mesh(new THREE.BoxGeometry(0.04, 0.5, 2.2), M.glow('#ff9ac2', 0.7), [0.52, 0.6, 0]));
+      g.add(mesh(new THREE.BoxGeometry(0.45, 0.3, 0.04), paint('#15171b', 0.3), [-0.2, 1.35, 0.3]).rotateY(Math.PI / 2));
+      g.add(mesh(new THREE.CylinderGeometry(0.1, 0.1, 0.22, 14), mat('#d8eef5', 0.1, 0, { transparent: true, opacity: 0.6 }), [0.15, 1.27, -0.75]));
+      g.add(mesh(new THREE.SphereGeometry(0.09, 14, 10), paint('#fffaf2', 0.5), [0.15, 1.25, 0.85]));
+      g.add(mesh(new THREE.SphereGeometry(0.07, 14, 10), paint('#fffaf2', 0.5), [0.15, 1.38, 0.85]));
+      for (const z of [0.8, 0.9]) g.add(mesh(new THREE.ConeGeometry(0.025, 0.05, 6), paint('#fffaf2', 0.5), [0.15, 1.46, z]));
+      g.add(mesh(new THREE.SphereGeometry(0.02, 8, 6), paint('#e04848', 0.4), [0.23, 1.3, 0.85]));
       break;
     }
     case 'reception': {

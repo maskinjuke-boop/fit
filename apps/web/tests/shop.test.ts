@@ -38,8 +38,8 @@ describe('Магазин', () => {
   it('новая покупка надевается, старая остаётся в инвентаре', () => {
     let s = rich(1000, 3);
     s = buyItem(s, 'coffee_cup').state;
-    s = buyItem(s, 'tennis_racket').state;
-    expect(s.equipped.weapon).toBe('tennis_racket');
+    s = buyItem(s, 'umbrella').state;
+    expect(s.equipped.weapon).toBe('umbrella');
     expect(s.inventory).toContain('coffee_cup');
     s = equipItem(s, 'coffee_cup');
     expect(s.equipped.weapon).toBe('coffee_cup');
@@ -118,7 +118,7 @@ describe('Миграция сохранений', () => {
       expect(renamedItem(from)).toBe(to);
     }
     expect(renamedItem('gambeson')).toBe('hoodie');
-    expect(renamedItem('healing_flask')).toBe('water_bottle');
+    expect(renamedItem('healing_flask')).toBe('coffee_cup');
     expect(renamedItem('phone')).toBe('phone');
     expect(renamedItem('longsword')).toBe('longsword');
   });

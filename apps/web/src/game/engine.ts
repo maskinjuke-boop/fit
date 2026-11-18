@@ -21,7 +21,9 @@ import { levelOf, xpForLevel } from './levels';
 import { QUESTS, effectiveObjective, objectiveTarget, questById, type QuestDef } from './quests';
 import { checkAchievements } from './achievements';
 import { addXp, grantReward } from './progress';
-import { lifeNewRealDay, lifeOnRep } from './life';
+import { lifeNewRealDay, lifeOnRep, lifeRepMoney } from './life';
+import { REP_MONEY } from './lifeContent';
+import type { CatBreed } from './lifeTypes';
 import { emptyDay, type Character, type DayStats, type GameState } from './state';
 
 export type GameEvent =
@@ -37,19 +39,19 @@ export type GameEvent =
   | { kind: 'freezeUsed'; days: number }
   | { kind: 'streakLost' }
   | { kind: 'achievement'; id: string; xp: number; gold: number }
-  | { kind: 'sessionDone'; pay: number }
-  | { kind: 'quotaDone'; quota: number }
-  | { kind: 'quotaMissed'; fine: number; left: number; days: number };
+  | { kind: 'catSaved'; name: number; breed: CatBreed }
+  | { kind: 'catLost'; name: number; breed: CatBreed };
 
 export type ShopError = 'owned' | 'level' | 'gold' | 'unknown';
 
-/** Деньги на старте жизни. */
+/** Деньги на старте: на первый корм и мелочи для кафе. */
 export const START_MONEY = 100;
 
+/** Стартовая вещь по выбранному характеру. */
 const STARTER_ITEM: Record<Character['archetype'], string> = {
-  guardian: 'dumbbell',
-  ranger: 'running_shoes',
-  mystic: 'yoga_mat',
+  guardian: 'cat_ears',
+  ranger: 'sneakers',
+  mystic: 'tote_bag',
 };
 
 export interface Result {
@@ -205,7 +207,7 @@ export function ensureDay(state: GameState, now: Date): Result {
   }
 
   if (s.dailies && s.dailies.day !== today) s.prevDailyKeys = s.dailies.tasks.map((t) => t.key);
-  // Норма тренера за прошедшие дни: не выполнена — штраф.
+  // Кошка дня у демона: вчерашняя пропадает, если её не спасли, появляется новая.
   lifeNewRealDay(s, s.today, today, events);
   s.today = today;
   s.dailies = { day: today, tasks: generateDailies(s, today), rerollUsed: false, bonusClaimed: false };
@@ -261,6 +263,8 @@ export function applyRep(state: GameState, rep: { exercise: ExerciseId; quality:
   events.push({ kind: 'xp', amount: xp, stat: info.stat, overLimit });
   addXp(s, xp, info.stat, events);
   questRepProgress(s, rep.exercise, rep.quality);
+  // Деньги за повтор (сверх дневного лимита — без денег) и кошка дня.
+  if (!overLimit) lifeRepMoney(s, REP_MONEY);
   lifeOnRep(s, rep.exercise, events);
   settleDailies(s, events);
   settleStreak(s, events);
@@ -329,8 +333,8 @@ export function reroll(state: GameState, index: number): GameState {
 export function newCharacterState(character: Omit<Character, 'id' | 'createdDay'>, now: Date, createState: (c: Character) => GameState): GameState {
   const id = typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `c${Date.now()}${Math.random()}`;
   const s = createState({ ...character, id, createdDay: dayKey(now) });
-  // Стартовый предмет по выбранному пути — чтобы экипировка была видна сразу.
-  // Немного денег на первые продукты в симуляторе жизни.
+  // Стартовый предмет по выбранному характеру — чтобы экипировка была видна сразу.
+  // Немного денег на первый корм и мелочи для кафе.
   s.gold = START_MONEY;
   const starter = STARTER_ITEM[character.archetype];
   s.inventory.push(starter);

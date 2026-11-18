@@ -5,11 +5,11 @@ import { ITEMS } from './items';
 import { levelOf } from './levels';
 import { addXp } from './progress';
 import type { GameState } from './state';
-import { GYMS } from './lifeContent';
+import { HOUSES } from './lifeContent';
 import type { Txt } from './lifeTypes';
 
 /**
- * Достижения: разовые награды за вехи в тренировках, серии, уровни, коллекцию и историю.
+ * Достижения: разовые награды за вехи в упражнениях, серии, уровни, коллекцию, кошек и кафе.
  * Некоторые дают титул — его можно показать под именем героя.
  */
 
@@ -57,12 +57,11 @@ export const ACHIEVEMENTS: readonly AchievementDef[] = [
   { id: 'items_15', icon: '🧳', name: t('Запасливый', 'Well stocked'), desc: t('15 предметов в сумке', '15 items in your bag'), progress: (s) => [s.inventory.length, 15], reward: { xp: 400, gold: 150 } },
   { id: 'items_all', icon: '👑', name: t('Коллекционер', 'Collector'), desc: t('Все предметы', 'Every item'), progress: (s) => [s.inventory.length, ITEMS.length], reward: { xp: 2000, gold: 0 }, title: 'collector' },
   { id: 'quests_10', icon: '📜', name: t('Искатель заданий', 'Quest seeker'), desc: t('Выполните 10 квестов', 'Complete 10 quests'), progress: (s) => [doneQuests(s), 10], reward: { xp: 300, gold: 120 } },
-  { id: 'life_class', icon: '📣', name: t('Первое занятие', 'First class'), desc: t('Проведите занятие', 'Run a class'), progress: (s) => [s.life.stats.sessions, 1], reward: { xp: 50, gold: 30 } },
-  { id: 'life_classes', icon: '⏱️', name: t('Трудоголик', 'Workaholic'), desc: t('Проведите 30 занятий', 'Run 30 classes'), progress: (s) => [s.life.stats.sessions, 30], reward: { xp: 400, gold: 200 }, title: 'workaholic' },
-  { id: 'life_group', icon: '👥', name: t('Своя группа', 'Your own group'), desc: t('5 учеников одновременно', '5 clients at once'), progress: (s) => [s.life.clients.length, 5], reward: { xp: 300, gold: 150 }, title: 'social' },
-  { id: 'life_gym', icon: '🌟', name: t('Лучший зал города', 'Best gym in town'), desc: t('Улучшите зал до премиум-центра', 'Upgrade to a premium centre'), progress: (s) => [s.life.gym, GYMS.length - 1], reward: { xp: 800, gold: 0 }, title: 'tycoon' },
-  { id: 'life_rich', icon: '💰', name: t('Карьерист', 'Go-getter'), desc: t('Заработайте 5000 на занятиях', 'Earn 5,000 from classes'), progress: (s) => [s.life.stats.earned, 5000], reward: { xp: 500, gold: 250 }, title: 'career' },
-  { id: 'life_chef', icon: '👨‍🍳', name: t('Шеф', 'Chef'), desc: t('Приготовьте 20 блюд', 'Cook 20 meals'), progress: (s) => [s.life.stats.meals, 20], reward: { xp: 200, gold: 80 } },
+  { id: 'life_cat', icon: '🐈', name: t('Первая спасённая', 'First rescue'), desc: t('Спасите кошку у демона', 'Save a cat from the demon'), progress: (s) => [s.life.stats.rescued, 1], reward: { xp: 50, gold: 30 } },
+  { id: 'life_cats', icon: '🐾', name: t('Кошачий ангел', 'Cat angel'), desc: t('Спасите 10 кошек', 'Save 10 cats'), progress: (s) => [s.life.stats.rescued, 10], reward: { xp: 600, gold: 300 }, title: 'workaholic' },
+  { id: 'life_group', icon: '👥', name: t('Полный зал', 'Full house'), desc: t('Примите 100 гостей', 'Welcome 100 guests'), progress: (s) => [s.life.stats.visitors, 100], reward: { xp: 300, gold: 150 }, title: 'social' },
+  { id: 'life_gym', icon: '👑', name: t('Котодворец', 'Cat palace'), desc: t('Расширьте кафе до котодворца', 'Grow the café into a cat palace'), progress: (s) => [s.life.house, HOUSES.length - 1], reward: { xp: 800, gold: 0 }, title: 'tycoon' },
+  { id: 'life_rich', icon: '💰', name: t('Хозяин кафе', 'Café owner'), desc: t('Заработайте 5000 на гостях', 'Earn 5,000 from guests'), progress: (s) => [s.life.stats.earned, 5000], reward: { xp: 500, gold: 250 }, title: 'career' },
 ];
 
 const ACHIEVEMENT_TITLES: Record<string, Txt> = {
@@ -77,10 +76,10 @@ const ACHIEVEMENT_TITLES: Record<string, Txt> = {
   veteran: t('Ветеран', 'Veteran'),
   all_rounder: t('Всесторонний', 'All-rounder'),
   collector: t('Коллекционер', 'Collector'),
-  workaholic: t('Трудоголик', 'Workaholic'),
-  career: t('Карьерист', 'Go-getter'),
-  social: t('Тренер группы', 'Group Coach'),
-  tycoon: t('Магнат', 'Tycoon'),
+  workaholic: t('Кошачий ангел', 'Cat Angel'),
+  career: t('Хозяин кафе', 'Café Owner'),
+  social: t('Душа кафе', 'Heart of the Café'),
+  tycoon: t('Котомагнат', 'Cat Tycoon'),
 };
 
 /** Название титула из достижений. */

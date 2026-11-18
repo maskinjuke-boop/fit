@@ -6,11 +6,11 @@ import { useI18n, type I18nKey } from '../../i18n';
 import { AppearanceEditor } from './AppearanceEditor';
 import { Hero3D } from './Hero3D';
 
-/** Стартовый предмет пути — показываем его на портрете сразу при выборе. */
-const STARTER: Record<Archetype, { slot: 'weapon' | 'feet' | 'offhand'; id: string }> = {
-  guardian: { slot: 'weapon', id: 'dumbbell' },
-  ranger: { slot: 'feet', id: 'running_shoes' },
-  mystic: { slot: 'offhand', id: 'yoga_mat' },
+/** Стартовая вещь по характеру — показываем её на портрете сразу при выборе. */
+const STARTER: Record<Archetype, { slot: 'head' | 'feet' | 'offhand'; id: string }> = {
+  guardian: { slot: 'head', id: 'cat_ears' },
+  ranger: { slot: 'feet', id: 'sneakers' },
+  mystic: { slot: 'offhand', id: 'tote_bag' },
 };
 
 type Step = 'welcome' | 'health' | 'hero' | 'setup';
@@ -44,7 +44,7 @@ export function Onboarding() {
             <Hero3D
               color={COLORS[1]}
               appearance={{ ...DEFAULT_APPEARANCE, figure: 'female', hair: 'ponytail', hairColor: 3, skin: 2 }}
-              equipped={{ body: 'gambeson', weapon: 'flail', offhand: 'healing_flask' }}
+              equipped={{ head: 'cat_ears', body: 'crop_top', legs: 'pleated_skirt', feet: 'sneakers', offhand: 'crossbody_bag' }}
               height={230}
               interactive={false}
             />

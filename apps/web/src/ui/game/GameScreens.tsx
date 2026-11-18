@@ -1,4 +1,6 @@
-import { effectiveAppearance } from '../../game/life';
+import { guestDemand, hourlyIncome, maxCats } from '../../game/life';
+import { HOUSES } from '../../game/lifeContent';
+import { DemonCard } from './DemonCard';
 import { useState, type ChangeEvent, type ReactNode } from 'react';
 import { ACHIEVEMENTS, titleText, unlockedTitles } from '../../game/achievements';
 import { STATS } from '../../game/config';
@@ -32,7 +34,7 @@ export function HeroHeader({ state }: { state: GameState }) {
   const c = state.character;
   return (
     <header className="hero-header">
-      <HeroPortrait color={c.color} appearance={effectiveAppearance(c.appearance, state)} equipped={state.equipped} size={56} />
+      <HeroPortrait color={c.color} appearance={c.appearance} equipped={state.equipped} size={56} />
       <div className="hero-header-main">
         <div className="hero-name">
           {c.name} <span className="lvl-chip">{info.level}</span>
@@ -56,7 +58,7 @@ export function BottomNav({ tab, onTab }: { tab: Tab; onTab(t: Tab): void }) {
   const items: Array<[Tab, string, I18nKey]> = [
     ['home', '⌂', 'tab.home'],
     ['train', '▶', 'tab.train'],
-    ['life', '🏋️', 'tab.life'],
+    ['life', '🐾', 'tab.life'],
     ['quests', '✦', 'tab.quests'],
     ['shop', '◈', 'tab.shop'],
     ['hero', '☺', 'tab.hero'],
@@ -163,11 +165,24 @@ function QuestCard({ state, id }: { state: GameState; id: string }) {
   );
 }
 
-export function HomeTab({ state, onTrain }: { state: GameState; onTrain(): void }) {
-  const { t } = useI18n();
+export function HomeTab({ state, onTrain, onRescue, onCafe }: { state: GameState; onTrain(): void; onRescue(exercise: ExerciseId): void; onCafe(): void }) {
+  const { t, tf, lang } = useI18n();
   const active = Object.values(state.quests).filter((q) => q.status === 'active');
+  const L = state.life;
   return (
     <div className="tab-body">
+      <DemonCard state={state} onRescue={onRescue} />
+      <section className="card cafe-card">
+        <div>
+          <b>
+            {HOUSES[L.house]!.icon} {HOUSES[L.house]!.name[lang]}
+          </b>
+          <div className="muted small">{tf('cafe.summary', { cats: L.cats.length, max: maxCats(L), guests: Math.round(guestDemand(L)), income: hourlyIncome(L) })}</div>
+        </div>
+        <button className="btn small" onClick={onCafe}>
+          🐾 {t('cafe.open')}
+        </button>
+      </section>
       <section className="card streak-card">
         <div>
           <div className="big">🔥 {state.streak.count}</div>
@@ -191,6 +206,7 @@ export function HomeTab({ state, onTrain }: { state: GameState; onTrain(): void 
       <button className="btn primary wide big-cta" onClick={onTrain}>
         ▶ {t('train')}
       </button>
+      <p className="muted small center">{t('train.money')}</p>
     </div>
   );
 }
@@ -236,7 +252,7 @@ export function HeroTab({ state, onAccuracy }: { state: GameState; onAccuracy():
     <div className="tab-body">
       <section className="card hero-card">
         <div className="hero-stage">
-          <Hero3D color={c.color} appearance={effectiveAppearance(c.appearance, state)} equipped={state.equipped} height={340} zoomable />
+          <Hero3D color={c.color} appearance={c.appearance} equipped={state.equipped} height={340} zoomable />
           <span className="hero-stage-level">{info.level}</span>
           <span className="hero-stage-hint muted small">⟲ {t('rotateHint')}</span>
         </div>

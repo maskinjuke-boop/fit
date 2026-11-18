@@ -15,7 +15,7 @@ import { Onboarding } from './game/Onboarding';
 import { preloadItemImages } from './game/Renders';
 import { ShopTab } from './game/Shop';
 import { LifeTab } from './game/Life';
-import { SessionOverlay } from './game/SessionOverlay';
+import { DemonOverlay } from './game/SessionOverlay';
 import { SessionSummary, type Session } from './game/SessionSummary';
 import { eventText } from './game/text';
 import { TrackingScreen } from './TrackingScreen';
@@ -72,7 +72,7 @@ export function App() {
 
   // Сообщение о переходе дня (сгоревшая серия, заморозка).
   useEffect(() => {
-    const e = game.dayEvents.find((x) => x.kind === 'quotaMissed' || x.kind === 'streakLost' || x.kind === 'freezeUsed');
+    const e = game.dayEvents.find((x) => x.kind === 'catLost' || x.kind === 'streakLost' || x.kind === 'freezeUsed');
     if (e) setDayBanner(eventText(t, tf, e, lang));
   }, [game.dayEvents, t, tf, lang]);
 
@@ -88,17 +88,16 @@ export function App() {
     s.reps += 1;
     for (const e of events) {
       if (e.kind === 'xp') s.xp += e.amount;
-      if (e.kind === 'questDone' || e.kind === 'dailyDone' || e.kind === 'dailyBonus') s.xp += e.xp;
-      // Деньги — только за проведённое занятие.
-      if (e.kind === 'sessionDone') s.gold += e.pay;
+      if (e.kind === 'questDone' || e.kind === 'dailyDone' || e.kind === 'dailyBonus') {
+        s.xp += e.xp;
+        s.gold += e.gold;
+      }
       if (e.kind !== 'xp') s.events.push(e);
     }
     return events;
   };
 
   const finishExercise = (): void => {
-    // Выход посреди занятия — оплата за выполненную часть.
-    if (game.state?.life.session) game.life.endSession();
     setExercise(null);
     setTab(returnTab);
     if (session.current.reps > 0) setSummary({ ...session.current });
@@ -106,7 +105,9 @@ export function App() {
 
   if (!game.state) return <Onboarding />;
   const state = game.state;
-  const sessionOverlay = returnTab === 'life' ? (count: number) => <SessionOverlay state={state} count={count} /> : undefined;
+  // Спасение кошки дня: полоса прогресса поверх камеры.
+  const demon = state.life.demon;
+  const sessionOverlay = exercise && demon?.status !== 'lost' && demon?.exercise === exercise.id ? () => <DemonOverlay state={state} exercise={exercise.id} /> : undefined;
 
   if (exercise && engine.status === 'ready') {
     return <TrackingScreen exercise={exercise} engine={engine.engine} onBack={finishExercise} onRep={onRep} overlay={sessionOverlay} />;
@@ -121,17 +122,17 @@ export function App() {
         </button>
       )}
       <div className="shell-body">
-        {tab === 'home' && <HomeTab state={state} onTrain={() => setTab('train')} />}
+        {tab === 'home' && <HomeTab state={state} onTrain={() => setTab('train')} onRescue={(id) => startExercise(getExercise(id), 'home')} onCafe={() => setTab('life')} />}
         {tab === 'train' && <ExercisePicker embedded onPick={(def) => startExercise(def, pickReturn)} />}
         {tab === 'life' && (
           <LifeTab
             state={state}
             onTrain={() => {
-              // Тренировка из жизни: выбрать упражнение, после — назад в жизнь.
+              // Упражнения из кафе: выбрать упражнение, после — назад в кафе.
               setPickReturn('life');
               setTab('train');
             }}
-            onSession={(id) => startExercise(getExercise(id), 'life')}
+            onRescue={(id) => startExercise(getExercise(id), 'life')}
           />
         )}
         {tab === 'quests' && <QuestsTab state={state} />}

@@ -1,22 +1,29 @@
 import { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { actionsAt } from '../../../game/life';
-import { BOWL_MAX, GYMS } from '../../../game/lifeContent';
-import { REACH, gymRect, houseRect, STICK_WALK, WALK_SPEED, bounds as sceneBounds, blocked, clientSpot, detourPoint, dist, freeSpot, gymGear, gymLayout, homeLayout, homeObstacles, petsAt, resolve, spawn, stickSpeed, type Box, type GearKind, type P2, type Placed } from '../../../game/lifeMap';
+import { BOWL_MAX } from '../../../game/lifeContent';
+import { DEMON_ROOM, DEMON_SPOT, REACH, demonLayout, guestSpots, houseRect, STICK_WALK, WALK_SPEED, bounds as sceneBounds, blocked, detourPoint, dist, freeSpot, homeLayout, homeObstacles, petsAt, resolve, spawn, stickSpeed, type Box, type P2, type Placed } from '../../../game/lifeMap';
 import type { CatBreed, ObjectId, SceneId } from '../../../game/lifeTypes';
 import { animFor } from './actionAnims';
 import { disposeObject, type CharacterParts } from './buildCharacter';
 import { addOutlines } from './outline';
 import { furnitureReady, loadFurniture } from './kenney';
 import { createCatLife, perchSpots, type CatAI, type CatHeroAct, type CatWorld, type Perch } from './catLife';
-import { buildBowls, buildLitter } from './cats3d';
+import { buildBowls, buildCat, buildLitter, poseCat, type Cat3D } from './cats3d';
 import { BASIC_DECOR, NEW_KIT, kitOf, type HomeLook } from '../../../game/homeDecor';
 import { contactShadow, objectModel, plasterTexture, ticksOf, type HomeAnim } from './homeModels';
-import { curtains, doorModel, floorMesh, kitchenTiles, lampHalo, roomLights, roomOcclusion, roomWalls, rugMesh, windowStyle } from './interior';
-import { rubberTexture } from './gymBackdrop';
+import { curtains, doorModel, floorMesh, kitchenTiles, roomLights, roomOcclusion, roomWalls, rugMesh, windowStyle } from './interior';
 
-/** Дом без данных о ремонте — простой новый ремонт и новая мебель. */
+/** Кафе без данных о ремонте — простой новый ремонт и новая мебель. */
 const DEFAULT_LOOK: HomeLook = { decor: BASIC_DECOR, kit: NEW_KIT };
+
+/** Демон-лавочник: красная кожа, рожки, крылья летучей мыши, тёмная одежда. */
+const DEMON_LOOK: Look = {
+  color: '#5b1020',
+  appearance: { figure: 'male', skin: 1, hair: 'curly', hairColor: 0, beard: true, eyes: 5 },
+  equipped: { head: 'devil_horns', back: 'bat_wings', body: 'button_shirt', legs: 'leather_pants', feet: 'chelsea_boots' },
+  skin: { base: '#c8403a', shade: '#8f2a26' },
+};
 import { M, mat, mesh } from './kit';
 import { blobShadow, loadCharacter, lookKey, type Look, type Member } from './people';
 import { prepareFists, showProps, tickProps, type PropKind } from './props3d';
@@ -25,11 +32,10 @@ import { expressionFor } from './face';
 import { createStudio, setupRenderer } from './studio';
 
 /**
- * 3D-сцены тренера: свой дом (комната в разрезе) и фитнес-зал, который растёт с уровнем:
- * коврики, стойки, беговые дорожки, груши, душевая и фитнес-бар. Ученики стоят рядами
- * лицом к месту тренера и разминаются. Герой ходит джойстиком, клавишами или по
- * касанию пола — со скелетной анимацией шага; рядом с предметом сцена сообщает,
- * с чем можно взаимодействовать.
+ * 3D-сцены котокафе: само кафе (зал в разрезе, растёт со ступенью) с кошками и гостями,
+ * которые с ними играют, и лавка демона: тёмная комната со свечами, демон за прилавком
+ * и клетка с кошкой дня. Герой ходит джойстиком, клавишами или по касанию пола — со
+ * скелетной анимацией шага; рядом с предметом сцена сообщает, с чем можно взаимодействовать.
  */
 
 export type { Look, Member };
@@ -37,18 +43,17 @@ export type { Look, Member };
 export interface LifeScene3DProps {
   scene: SceneId;
   furniture: ObjectId[];
-  gym: number;
-  /** Купленные удобства зала. */
-  gymExtras: string[];
-  /** Ступень жилья. */
+  /** Ступень кафе. */
   house: number;
   /** Ремонт: отделка и базовая мебель (без него — простой новый ремонт). */
   home?: HomeLook;
   minute: number;
   hero: Look;
-  /** Ученики в зале (пусто, если зал закрыт или герой дома). */
-  clients: Member[];
-  /** Свои кошки (живут дома) и их потребности 0…100 (сытость, игра, туалет). */
+  /** Гости кафе (пусто ночью и в лавке демона). */
+  guests: Member[];
+  /** Кошка дня в клетке у демона (null — клетка пуста). */
+  offer: { breed: CatBreed; mix?: CatBreed; grow: number } | null;
+  /** Кошки кафе и их потребности 0…100 (сытость, игра, туалет). */
   cats: Array<{ id: string; breed: CatBreed; mix?: CatBreed; grow?: number; fed?: number; play?: number; toilet?: number }>;
   /** Корм в миске (порций), вода в миске 0…100 и грязь в лотке 0…100. */
   pets?: { bowl: number; water: number; litter: number };
@@ -82,150 +87,6 @@ function loadZoom(): number {
   }
 }
 
-
-// ─── Оборудование зала ─────────────────────────────────────────────────
-
-function gearModel(kind: GearKind, tier: number, premium = false): THREE.Group {
-  const g = new THREE.Group();
-  switch (kind) {
-    case 'mat': {
-      const colors = ['#2f6fb5', '#3a9d6a', '#8e44ad', '#d35400', '#c0392b'];
-      // Мягкие коврики толще, со скруглённым краем и полосой.
-      const h = premium ? 0.05 : 0.025;
-      g.add(mesh(new THREE.BoxGeometry(0.72, h, 1.75), mat(colors[tier % colors.length]!, premium ? 0.75 : 0.95), [0, h / 2, 0]));
-      if (premium) g.add(mesh(new THREE.BoxGeometry(0.06, 0.004, 1.7), mat('#ffffff', 0.6), [0.27, h + 0.002, 0]));
-      break;
-    }
-    case 'ac': {
-      g.add(mesh(new THREE.BoxGeometry(1.1, 0.32, 0.24), mat('#f4f6f8', 0.4), [0, 2.85, 0.12]));
-      for (let i = 0; i < 5; i += 1) g.add(mesh(new THREE.BoxGeometry(1.0, 0.012, 0.03), mat('#c9cfd5', 0.4), [0, 2.75 + i * 0.012, 0.245]));
-      g.add(mesh(new THREE.CircleGeometry(0.012, 10), M.glow('#5bc8ff', 1.4), [0.45, 2.93, 0.242]));
-      break;
-    }
-    case 'speakers': {
-      g.add(mesh(new THREE.BoxGeometry(0.4, 0.6, 0.32), mat('#15171b', 0.5), [0, 2.55, 0.18]));
-      for (const y of [2.42, 2.68]) g.add(mesh(new THREE.CylinderGeometry(y > 2.5 ? 0.06 : 0.12, y > 2.5 ? 0.06 : 0.12, 0.02, 20), mat('#2d3036', 0.4, 0.4), [0, y, 0.345]).rotateX(Math.PI / 2));
-      g.add(mesh(new THREE.BoxGeometry(0.05, 0.25, 0.3), M.darkSteel(), [0, 2.15, 0.16]));
-      break;
-    }
-    case 'lightpanels': {
-      for (const x of [-4.5, -1.5, 1.5, 4.5]) for (const z of [-2.5, 1]) g.add(mesh(new THREE.BoxGeometry(1.6, 0.04, 0.5), M.glow('#ffffff', 1.6), [x, 3.32, z]));
-      break;
-    }
-    case 'greenwall': {
-      g.add(mesh(new THREE.BoxGeometry(3.2, 1.7, 0.08), mat('#4a3a2a', 0.9), [0, 2.05, 0.04]));
-      const leaf = mat('#3f8f3a', 0.7);
-      const leaf2 = mat('#5aa84a', 0.7);
-      for (let i = 0; i < 70; i += 1) {
-        const x = -1.5 + ((i * 37) % 100) / 100 * 3.0;
-        const y = 1.3 + ((i * 53) % 100) / 100 * 1.5;
-        g.add(mesh(new THREE.SphereGeometry(0.09 + (i % 3) * 0.025, 8, 6), i % 2 ? leaf : leaf2, [x, y, 0.1], [1.2, 0.9, 0.6]));
-      }
-      break;
-    }
-    case 'cooler': {
-      g.add(mesh(new THREE.BoxGeometry(0.34, 1.0, 0.34), mat('#f4f6f8', 0.4), [0, 0.5, 0]));
-      g.add(mesh(new THREE.CylinderGeometry(0.15, 0.15, 0.42, 18), mat('#9fd0ee', 0.05, 0, { transparent: true, opacity: 0.6 }), [0, 1.22, 0]));
-      g.add(mesh(new THREE.BoxGeometry(0.06, 0.04, 0.05), mat('#3a7bd5', 0.4), [-0.07, 0.75, 0.18]), mesh(new THREE.BoxGeometry(0.06, 0.04, 0.05), mat('#d0312d', 0.4), [0.07, 0.75, 0.18]));
-      break;
-    }
-    case 'lockers': {
-      const colors = ['#2f6fb5', '#3a9d6a', '#e85d2a', '#8e44ad'];
-      for (let i = 0; i < 5; i += 1) {
-        const x = -0.8 + i * 0.4;
-        g.add(mesh(new THREE.BoxGeometry(0.38, 1.8, 0.45), mat(colors[i % colors.length]!, 0.5, 0.2), [x, 0.9, 0]));
-        g.add(mesh(new THREE.BoxGeometry(0.03, 0.12, 0.02), M.chrome(), [x + 0.12, 1.0, 0.235]));
-        for (const y of [1.6, 1.65, 1.7]) g.add(mesh(new THREE.BoxGeometry(0.22, 0.012, 0.01), mat('#1b1d21', 0.6), [x, y, 0.228]));
-      }
-      break;
-    }
-    case 'sauna': {
-      const wood = M.wood('#b98a5a', 1, 2);
-      g.add(mesh(new THREE.BoxGeometry(1.6, 2.2, 1.4), wood, [0, 1.1, 0]));
-      g.add(mesh(new THREE.BoxGeometry(0.6, 1.8, 0.04), mat('#d8b07a', 0.25, 0, { transparent: true, opacity: 0.55 }), [0.3, 0.95, 0.71]));
-      g.add(mesh(new THREE.BoxGeometry(0.03, 0.25, 0.04), M.chrome(), [0.05, 0.95, 0.74]));
-      g.add(mesh(new THREE.PlaneGeometry(0.5, 0.18), M.glow('#ff9a3d', 0.8), [-0.45, 1.9, 0.705]));
-      break;
-    }
-    case 'rack': {
-      g.add(mesh(new THREE.BoxGeometry(2.1, 0.06, 0.5), M.darkSteel(), [0, 0.45, 0]), mesh(new THREE.BoxGeometry(2.1, 0.06, 0.5), M.darkSteel(), [0, 0.85, -0.05]));
-      for (const x of [-1, 1]) g.add(mesh(new THREE.BoxGeometry(0.06, 0.9, 0.5), M.darkSteel(), [x, 0.45, 0]));
-      for (let i = 0; i < 6; i += 1) {
-        const x = -0.85 + i * 0.34;
-        for (const y of [0.55, 0.95]) {
-          g.add(mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.28, 8), M.chrome(), [x, y, 0]).rotateX(Math.PI / 2));
-          for (const z of [-0.11, 0.11]) g.add(mesh(new THREE.CylinderGeometry(0.05 + i * 0.008, 0.05 + i * 0.008, 0.05, 14), M.iron(), [x, y, z]).rotateX(Math.PI / 2));
-        }
-      }
-      break;
-    }
-    case 'kettlebells': {
-      const colors = ['#e74c3c', '#f1c40f', '#3498db', '#2ecc71', '#9b59b6'];
-      for (let i = 0; i < 5; i += 1) {
-        const r = 0.1 + i * 0.015;
-        const x = -0.7 + i * 0.35;
-        g.add(mesh(new THREE.SphereGeometry(r, 14, 10), mat(colors[i]!, 0.5, 0.3), [x, r, 0]));
-        const h = new THREE.Mesh(new THREE.TorusGeometry(r * 0.6, 0.018, 6, 16, Math.PI), M.iron());
-        h.position.set(x, r * 1.8, 0);
-        g.add(h);
-      }
-      break;
-    }
-    case 'squat_rack': {
-      for (const x of [-0.6, 0.6]) for (const z of [-0.4, 0.4]) g.add(mesh(new THREE.BoxGeometry(0.07, 2.3, 0.07), M.iron(), [x, 1.15, z]));
-      g.add(mesh(new THREE.BoxGeometry(1.3, 0.07, 0.07), M.iron(), [0, 2.3, -0.4]), mesh(new THREE.BoxGeometry(1.3, 0.07, 0.07), M.iron(), [0, 2.3, 0.4]));
-      g.add(mesh(new THREE.CylinderGeometry(0.025, 0.025, 2, 10), M.chrome(), [0, 1.4, 0.4]).rotateZ(Math.PI / 2));
-      for (const x of [-0.85, 0.85]) g.add(mesh(new THREE.CylinderGeometry(0.22, 0.22, 0.06, 20), M.iron(), [x, 1.4, 0.4]).rotateZ(Math.PI / 2));
-      g.add(mesh(new THREE.BoxGeometry(1.6, 0.03, 2.2), mat('#2b2b2b', 0.9), [0, 0.015, 0]));
-      break;
-    }
-    case 'bench': {
-      g.add(mesh(new THREE.BoxGeometry(0.35, 0.1, 1.3), M.leather('#1d1f23'), [0, 0.45, 0]));
-      for (const z of [-0.5, 0.5]) g.add(mesh(new THREE.BoxGeometry(0.3, 0.4, 0.06), M.iron(), [0, 0.2, z]));
-      break;
-    }
-    case 'treadmill': {
-      g.add(mesh(new THREE.BoxGeometry(0.8, 0.18, 1.8), mat('#24272c', 0.6), [0, 0.09, 0]));
-      g.add(mesh(new THREE.BoxGeometry(0.6, 0.02, 1.6), mat('#111', 0.9), [0, 0.19, 0]));
-      for (const x of [-0.37, 0.37]) g.add(mesh(new THREE.BoxGeometry(0.05, 1.2, 0.05), M.darkSteel(), [x, 0.7, -0.75]).rotateX(-0.15));
-      g.add(mesh(new THREE.BoxGeometry(0.8, 0.35, 0.08), mat('#24272c', 0.4), [0, 1.3, -0.85]).rotateX(-0.5));
-      g.add(mesh(new THREE.PlaneGeometry(0.5, 0.2), M.glow('#39d0ff', 0.7), [0, 1.33, -0.8]).rotateX(-0.5));
-      break;
-    }
-    case 'bag': {
-      g.add(mesh(new THREE.CylinderGeometry(0.22, 0.22, 1.1, 18), M.leather('#9b1c1c'), [0, 1.35, 0]));
-      g.add(mesh(new THREE.CylinderGeometry(0.01, 0.01, 1.4, 6), M.chrome(), [0, 2.6, 0]));
-      break;
-    }
-    case 'cable': {
-      for (const x of [-0.55, 0.55]) g.add(mesh(new THREE.BoxGeometry(0.12, 2.2, 0.12), mat('#d9dde1', 0.4, 0.5), [x, 1.1, 0]));
-      g.add(mesh(new THREE.BoxGeometry(1.25, 0.12, 0.2), mat('#d9dde1', 0.4, 0.5), [0, 2.2, 0]));
-      g.add(mesh(new THREE.BoxGeometry(0.3, 0.8, 0.15), M.iron(), [0, 0.5, 0]));
-      g.add(mesh(new THREE.CylinderGeometry(0.008, 0.008, 1.6, 6), mat('#111', 0.5), [0, 1.4, 0.1]));
-      break;
-    }
-    case 'bike': {
-      g.add(mesh(new THREE.BoxGeometry(0.15, 0.08, 1.0), M.darkSteel(), [0, 0.05, 0]));
-      g.add(mesh(new THREE.BoxGeometry(0.08, 0.9, 0.08), M.darkSteel(), [0, 0.5, 0.25]).rotateX(0.2));
-      g.add(mesh(new THREE.BoxGeometry(0.25, 0.06, 0.32), M.leather('#111'), [0, 0.95, 0.32]));
-      g.add(mesh(new THREE.BoxGeometry(0.08, 1.0, 0.08), M.darkSteel(), [0, 0.6, -0.35]).rotateX(-0.2));
-      g.add(mesh(new THREE.BoxGeometry(0.45, 0.04, 0.04), M.chrome(), [0, 1.1, -0.45]));
-      g.add(mesh(new THREE.CylinderGeometry(0.22, 0.22, 0.06, 20), mat('#e85d2a', 0.4, 0.4), [0, 0.35, -0.2]).rotateZ(Math.PI / 2));
-      break;
-    }
-    case 'plant': {
-      g.add(mesh(new THREE.CylinderGeometry(0.28, 0.22, 0.55, 14), mat('#f4f4f4', 0.5), [0, 0.27, 0]));
-      for (let i = 0; i < 7; i += 1) g.add(mesh(new THREE.SphereGeometry(0.24, 10, 8), mat('#3d7f3a', 0.7), [Math.sin(i * 1.7) * 0.15, 0.8 + (i % 3) * 0.22, Math.cos(i * 1.7) * 0.15], [0.7, 1.4, 0.7]));
-      break;
-    }
-    case 'neon': {
-      g.add(mesh(new THREE.BoxGeometry(6, 0.08, 0.04), M.glow('#ff3d7f', 2.2), [0, 3.0, 0.03]));
-      g.add(mesh(new THREE.BoxGeometry(6, 0.08, 0.04), M.glow('#3dd6ff', 2.2), [0, 2.75, 0.03]));
-      break;
-    }
-  }
-  return g;
-}
 
 function signTexture(text: string, color: string): THREE.CanvasTexture {
   const c = document.createElement('canvas');
@@ -345,9 +206,10 @@ function addPlaced(g: THREE.Group, placed: ReadonlyArray<Placed & { y?: number }
       }
       continue;
     }
-    // Старая базовая мебель; дверь и зеркало в убитой однушке тоже старые.
+    // Старая базовая мебель; дверь в старом помещении тоже старая.
     const kit = kitOf(p.id);
-    const old = look ? (kit ? !look.kit[kit] : p.id === 'door' ? look.decor.door === 'door_old' : tier <= 0 && p.id === 'mirror') : false;
+    const old = look ? (kit ? !look.kit[kit] : p.id === 'door' && look.decor.door === 'door_old') : false;
+    void tier;
     const custom = look && p.id === 'door' && !old ? doorModel(look) : null;
     const m = custom ?? objectModel(p.id, old);
     m.position.set(p.pos.x, p.y ?? 0, p.pos.z);
@@ -391,59 +253,94 @@ function house(placed: Array<Placed & { y?: number }>, night: boolean, pets: { c
   return g;
 }
 
-function gymRoom(tier: number, placed: Placed[], night: boolean, extras: readonly string[]): THREE.Group {
+/** Лавка демона: тёмные стены, доски пола, прилавок, полки с банками, свечи, клетка, вывеска. */
+function demonRoom(placed: Placed[], night: boolean): THREE.Group {
   const g = new THREE.Group();
-  const { w, d } = gymRect(tier);
-  const floorTone = ['#3a3d42', '#34383e', '#2e3238', '#2a2d33', '#24262b'][tier]!;
-  // Резиновое покрытие с крошкой (оттенок — по уровню зала).
-  const floorMat = mat(floorTone, 0.95);
-  const rubber = rubberTexture(w, d);
-  if (rubber) {
-    floorMat.map = rubber;
-    // Холст тёмный (#2b2e33): цвет материала поднимает его до тона зала.
-    const base = new THREE.Color('#2b2e33');
-    const tone = new THREE.Color(floorTone);
-    floorMat.color.setRGB(tone.r / base.r, tone.g / base.g, tone.b / base.b);
-  }
-  const floor = mesh(new THREE.PlaneGeometry(w, d), floorMat, [0, 0, 0]);
+  const { w, d } = DEMON_ROOM;
+  const floor = mesh(new THREE.PlaneGeometry(w, d), mat('#3b2a2a', 0.9), [0, 0, 0]);
   floor.rotation.x = -Math.PI / 2;
   floor.name = 'ground';
   floor.receiveShadow = true;
-  g.add(floor, walls(w, d, ['#c9c4bb', '#dfe3e6', '#e9edf0', '#f0f0f0', '#f5f2ec'][tier]!, 3.4), roomOcclusion(w, d, 0.8));
-  // Деревянная дорожка у входа (с ростом зала).
-  if (tier >= 2) {
-    const strip = mesh(new THREE.PlaneGeometry(4.2, d), mat('#a87a4c', 0.7), [-w / 2 + 2.1, 0.004, 0]);
-    strip.rotation.x = -Math.PI / 2;
-    g.add(strip);
+  // Доски пола.
+  for (let x = -w / 2 + 0.55; x < w / 2; x += 1.1) {
+    const seam = mesh(new THREE.PlaneGeometry(0.03, d), mat('#24191a', 0.9), [x, 0.003, 0]);
+    seam.rotation.x = -Math.PI / 2;
+    g.add(seam);
   }
-  // Зеркальная стена за учениками.
-  const mirror = mesh(new THREE.PlaneGeometry(Math.min(w - 4, 4 + tier * 2.5), 2.1), mat('#cfe3f2', 0.04, 1), [0, 1.35, -d / 2 + 0.02]);
-  g.add(mirror);
-  // Окна по правой стене.
-  for (const z of [-3.5, 0.5]) g.add(mesh(new THREE.PlaneGeometry(2.2, 1.3), night ? M.glow('#1d2b55', 0.5) : M.glow('#bfe3ff', 0.7), [w / 2 - 0.01, 2.2, z]).rotateY(-Math.PI / 2));
-  // Вывеска над зеркалом.
-  const def = GYMS[tier]!;
-  g.add(mesh(new THREE.PlaneGeometry(3.4, 0.85), new THREE.MeshBasicMaterial({ map: signTexture(`${def.icon} FIT`, ['#7a5a3a', '#2f6fb5', '#e85d2a', '#8e44ad', '#111111'][tier]!), toneMapped: false }), [0, 2.95, -d / 2 + 0.03]));
-  const premium = extras.includes('gym_mats');
-  for (const x of gymGear(tier, extras)) {
-    const m = gearModel(x.kind, tier, premium);
-    m.position.set(x.pos.x, 0, x.pos.z);
-    m.rotation.y = x.rot;
-    g.add(m);
-  }
-  addPlaced(g, placed);
-  for (const x of [-4, 4]) {
-    const lamp = new THREE.PointLight('#fff4e0', 9 + tier * 2 + (extras.includes('gym_lights') ? 5 : 0), 16, 1.6);
-    lamp.position.set(x, 3.2, 0);
-    g.add(lamp);
-    if (night) {
-      const halo = lampHalo('#fff1d6', 1.6, 0.4);
-      if (halo) {
-        halo.position.set(x, 3.25, 0);
-        g.add(halo);
-      }
+  g.add(floor, walls(w, d, '#3d2346', 3.2, '#2a1630'), roomOcclusion(w, d, 0.9));
+  const B = -d / 2;
+  const L = -w / 2;
+  // Пентаграмма-ковёр (мягкий круг со звездой) перед прилавком.
+  const rug = mesh(new THREE.CircleGeometry(1.6, 40), mat('#5a1f2c', 0.95), [0, 0.006, B + 3.6]);
+  rug.rotation.x = -Math.PI / 2;
+  g.add(rug);
+  const ring = mesh(new THREE.RingGeometry(1.35, 1.45, 48), M.glow('#ff5a3c', 0.6), [0, 0.008, B + 3.6]);
+  ring.rotation.x = -Math.PI / 2;
+  g.add(ring);
+  // Полки с банками и черепками у задней стены.
+  for (const y of [1.5, 2.2]) {
+    g.add(mesh(new THREE.BoxGeometry(5.4, 0.06, 0.35), mat('#2b1b16', 0.8), [-2.6, y, B + 0.2]));
+    for (let i = 0; i < 7; i += 1) {
+      const c = ['#7fd6a0', '#d65a8f', '#e8c35a', '#7aa0e8'][i % 4]!;
+      g.add(mesh(new THREE.CylinderGeometry(0.1, 0.1, 0.24, 10), mat(c, 0.2, 0, { transparent: true, opacity: 0.75 }), [-4.9 + i * 0.7, y + 0.15, B + 0.2]));
     }
   }
+  // Прилавок (демон стоит за ним).
+  const counter = new THREE.Group();
+  counter.add(mesh(new THREE.BoxGeometry(3.0, 1.05, 0.9), mat('#2a1b1f', 0.7), [0, 0.525, 0]));
+  counter.add(mesh(new THREE.BoxGeometry(3.15, 0.08, 1.0), mat('#5b2330', 0.5), [0, 1.09, 0]));
+  counter.add(mesh(new THREE.BoxGeometry(2.6, 0.08, 0.04), M.glow('#ff5a3c', 0.9), [0, 0.8, 0.46]));
+  // Свечи на прилавке.
+  for (const x of [-1.2, 1.25]) {
+    counter.add(mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.22, 10), mat('#efe6d6', 0.6), [x, 1.24, 0.1]));
+    counter.add(mesh(new THREE.SphereGeometry(0.04, 8, 6), M.glow('#ffb347', 2), [x, 1.39, 0.1]));
+  }
+  const dm = placed.find((x) => x.id === 'demon');
+  if (dm) {
+    counter.position.set(dm.pos.x, 0, dm.pos.z + 0.35);
+    g.add(counter);
+  }
+  // Клетка для кошки дня.
+  const cg = placed.find((x) => x.id === 'cage');
+  if (cg) {
+    const cage = new THREE.Group();
+    cage.add(mesh(new THREE.BoxGeometry(1.1, 0.06, 0.9), mat('#1c1416', 0.6), [0, 0.03, 0]));
+    cage.add(mesh(new THREE.BoxGeometry(1.1, 0.04, 0.9), M.darkSteel(), [0, 0.95, 0]));
+    for (let i = 0; i <= 10; i += 1) {
+      const x = -0.55 + i * 0.11;
+      cage.add(mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.9, 6), M.darkSteel(), [x, 0.5, 0.45]));
+      cage.add(mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.9, 6), M.darkSteel(), [x, 0.5, -0.45]));
+    }
+    for (let i = 0; i <= 8; i += 1) {
+      const z = -0.45 + i * 0.1125;
+      cage.add(mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.9, 6), M.darkSteel(), [0.55, 0.5, z]));
+      cage.add(mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.9, 6), M.darkSteel(), [-0.55, 0.5, z]));
+    }
+    cage.add(mesh(new THREE.TorusGeometry(0.12, 0.015, 6, 16), M.darkSteel(), [0, 1.1, 0]));
+    cage.position.set(cg.pos.x, 0, cg.pos.z);
+    cage.rotation.y = cg.rot;
+    cage.name = 'cage';
+    g.add(cage);
+  }
+  // Дверь-выход.
+  const door = placed.find((x) => x.id === 'demon_door');
+  if (door) {
+    const dg = new THREE.Group();
+    dg.add(mesh(new THREE.BoxGeometry(1.3, 2.3, 0.08), mat('#2b1716', 0.7), [0, 1.15, 0]));
+    dg.add(mesh(new THREE.SphereGeometry(0.05, 10, 8), M.glow('#ffb347', 1.2), [0.5, 1.1, 0.06]));
+    dg.position.set(door.pos.x, 0, door.pos.z);
+    dg.rotation.y = door.rot;
+    g.add(dg);
+  }
+  // Вывеска.
+  g.add(mesh(new THREE.PlaneGeometry(3.6, 0.8), new THREE.MeshBasicMaterial({ map: signTexture('😈 ЛАВКА', '#5b1020'), toneMapped: false }), [0, 2.85, B + 0.03]));
+  void L;
+  // Свет: тёплые свечные огоньки и багровая подсветка.
+  const red = new THREE.PointLight('#ff4a3a', 10, 9, 1.8);
+  red.position.set(0, 2.4, B + 2.2);
+  const warm = new THREE.PointLight('#ffb36b', night ? 7 : 6, 10, 1.6);
+  warm.position.set(2.8, 2.6, 0.8);
+  g.add(red, warm);
   return g;
 }
 
@@ -471,7 +368,7 @@ export default function LifeScene3D(props: LifeScene3DProps) {
   const host = useRef<HTMLDivElement | null>(null);
   const propsRef = useRef(props);
   propsRef.current = props;
-  const api = useRef<{ rebuildScene(): void; rebuildHero(): void; syncClients(): void; syncCats(): void; zoomBy(k: number): void } | null>(null);
+  const api = useRef<{ rebuildScene(): void; rebuildHero(): void; syncClients(): void; syncCats(): void; syncDemon(): void; zoomBy(k: number): void } | null>(null);
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
@@ -512,7 +409,7 @@ export default function LifeScene3D(props: LifeScene3DProps) {
     const world = new THREE.Group();
     scene.add(world);
     let ground: THREE.Object3D | null = null;
-    let bounds: Box = sceneBounds('home');
+    let bounds: Box = sceneBounds('cafe');
     let boxes: Box[] = [];
     let catBoxes: Box[] = [];
     const petModels: { current: PetModels | null } = { current: null };
@@ -529,9 +426,8 @@ export default function LifeScene3D(props: LifeScene3DProps) {
       disposeObject(world);
       world.clear();
       const night = isNight(p.minute);
-      const tier = Math.max(0, Math.min(GYMS.length - 1, p.gym));
       petModels.current = null;
-      if (p.scene === 'home') {
+      if (p.scene === 'cafe') {
         const placed = homeLayout(p.furniture, p.cats.length > 0, p.house);
         world.add(house(placed, night, petModels, p.house, p.home ?? DEFAULT_LOOK));
         boxes = [...placed.map((x) => x.box).filter((b): b is Box => b !== null), ...homeObstacles()];
@@ -539,16 +435,15 @@ export default function LifeScene3D(props: LifeScene3DProps) {
         catBoxes = [...placed.filter((x) => x.id !== 'cat_bowl' && x.id !== 'litter').map((x) => x.box).filter((b): b is Box => b !== null), ...homeObstacles()];
         placedNow = placed;
       } else {
-        const def = GYMS[tier]!;
-        const placed = gymLayout(def.shower, def.bar, tier);
-        world.add(gymRoom(tier, placed, night, p.gymExtras));
-        boxes = [...placed.map((x) => x.box), ...gymGear(tier, p.gymExtras).map((x) => x.box)].filter((b): b is Box => b !== null);
+        const placed = demonLayout();
+        world.add(demonRoom(placed, night));
+        boxes = placed.map((x) => x.box).filter((b): b is Box => b !== null);
         catBoxes = boxes;
         placedNow = placed;
       }
-      // Мульт-контур у мебели и тренажёров (пол и стены — без контура).
+      // Мульт-контур у мебели (пол и стены — без контура).
       addOutlines(world, { thickness: 0.035 });
-      bounds = sceneBounds(p.scene, p.scene === 'home' ? p.house : tier);
+      bounds = sceneBounds(p.scene, p.house);
       perches = perchSpots(placedNow, bounds, catBoxes);
       // Подойти можно только к предметам с действиями (декор просто украшает).
       targets = placedNow.filter((x) => actionsAt(x.id).length > 0).map((x) => ({ id: x.id, pos: x.use, obj: x }));
@@ -558,7 +453,7 @@ export default function LifeScene3D(props: LifeScene3DProps) {
       // Новое место — герой у двери; та же сцена — остаётся где был.
       if (builtScene !== p.scene) {
         builtScene = p.scene;
-        const sp = spawn(p.scene, p.scene === 'home' ? p.house : tier);
+        const sp = spawn(p.scene, p.house);
         pos.set(sp.x, 0, sp.z);
         camPos.set(sp.x * 0.6, 7, sp.z + 7);
         facing = Math.PI / 2;
@@ -569,7 +464,8 @@ export default function LifeScene3D(props: LifeScene3DProps) {
       lastNear = undefined;
       syncClients();
       syncCats();
-      vacuum.visible = p.scene === 'home' && p.furniture.includes('robot_vacuum');
+      syncDemon();
+      vacuum.visible = p.scene === 'cafe' && p.furniture.includes('robot_vacuum');
     };
 
     // Текущее действие героя (объявлено до кошек: они на него реагируют).
@@ -619,7 +515,7 @@ export default function LifeScene3D(props: LifeScene3DProps) {
     };
     const syncCats = (): void => {
       const p = propsRef.current;
-      catLife.sync(p.scene === 'home' ? p.cats : [], catWorld());
+      catLife.sync(p.scene === 'cafe' ? p.cats : [], catWorld());
     };
 
     // Робот-пылесос: катается по дому и отворачивает от препятствий.
@@ -641,57 +537,34 @@ export default function LifeScene3D(props: LifeScene3DProps) {
       });
     };
 
-    // Ученики в зале.
+    // Гости кафе: играют с кошками, фотографируют их, болтают.
     const crew = new Map<string, Crew>();
-    /** Разминка и упражнения учеников: [движение, повторов, длительность повтора (с)]. */
-    const DRILLS: ReadonlyArray<[Motion, number, number]> = [
-      ['squat', 6, 2.2],
-      ['stand:stretch', 1, 6],
-      ['jumping_jack', 10, 0.9],
-      ['pushup', 5, 2.2],
-      ['lunge', 6, 2.3],
-      ['stand:circles', 4, 1.5],
-      ['situp', 6, 2.0],
-      ['high_knees', 12, 0.7],
+    /** Чем занят гость (по кругу, у каждого свой порядок): движение и сколько секунд. */
+    const GUEST_ACTS: ReadonlyArray<[Motion, number]> = [
+      ['crouch:pet', 7],
+      ['stand:phone', 5],
+      ['crouch:play', 6],
+      ['stand:talk', 5],
+      ['idle', 3],
     ];
-    const REST = 1.2;
-    /** Упражнения лёжа: ученик сначала приседает и опускается на пол, после — так же встаёт. */
-    const LYING_DRILLS: ReadonlySet<Motion> = new Set<Motion>(['pushup', 'situp']);
-    const DOWN = 1.1;
-    const UP = 0.9;
-    const lens = DRILLS.map(([m, n, d]) => n * d + REST + (LYING_DRILLS.has(m) ? DOWN + UP : 0));
-    const total = lens.reduce((a, x) => a + x, 0);
-    /** Что ученик делает в момент t: упражнение и фаза повтора (подходы по кругу без простоя). */
+    const guestLen = GUEST_ACTS.reduce((a, x) => a + x[1], 0);
     const crewSet = (e: Crew, t: number): { motion: Motion; phase: number } => {
-      // Свой порядок: сдвиг по кругу и своя скорость (±10%).
-      const tt = (t * (0.92 + ((e.seed * 7.3) % 0.16)) + e.seed * 37) % total;
-      const start = Math.floor(e.seed * 3.1) % DRILLS.length;
+      const tt = (t + e.seed * 13) % guestLen;
+      const start = Math.floor(e.seed * 3.1) % GUEST_ACTS.length;
       let acc = 0;
-      for (let k = 0; k < DRILLS.length; k += 1) {
-        const i = (start + k) % DRILLS.length;
-        const len = lens[i]!;
-        if (tt < acc + len) {
-          const [m, n, d] = DRILLS[i]!;
-          let x = tt - acc;
-          if (LYING_DRILLS.has(m)) {
-            // Присед, затем на пол; в конце подхода — снова через присед вверх (без кувырка через стопы).
-            if (x < DOWN * 0.45) return { motion: 'squat', phase: 0.5 };
-            if (x < DOWN) return { motion: m, phase: 0 };
-            x -= DOWN;
-            if (x > n * d && x < n * d + UP) return { motion: 'squat', phase: 0.5 };
-            if (x > n * d) return { motion: 'idle', phase: 0 };
-          }
-          if (x > n * d) return { motion: 'idle', phase: 0 };
-          return { motion: m, phase: (x / d) % 1 };
-        }
-        acc += len;
+      for (let k = 0; k < GUEST_ACTS.length; k += 1) {
+        const [m, d] = GUEST_ACTS[(start + k) % GUEST_ACTS.length]!;
+        if (tt < acc + d) return { motion: m, phase: (tt - acc) / d };
+        acc += d;
       }
       return { motion: 'idle', phase: 0 };
     };
+    const catSpotsNow = (): P2[] => [...cats.values()].map((c) => c.pos);
     let crewQueue: Promise<void> = Promise.resolve();
     const syncClients = (): void => {
       const p = propsRef.current;
-      const want = p.scene === 'gym' ? p.clients : [];
+      const want = p.scene === 'cafe' ? p.guests : [];
+      const spots = guestSpots(p.house, boxes, want.length);
       for (const [id, e] of crew) {
         if (!want.some((w) => w.id === id && lookKey(w) === e.key)) {
           scene.remove(e.root, e.shadow);
@@ -700,7 +573,7 @@ export default function LifeScene3D(props: LifeScene3DProps) {
         }
       }
       want.forEach((w, i) => {
-        const spot = clientSpot(i);
+        const spot = spots[i] ?? spots[spots.length - 1] ?? { x: 0, z: 0 };
         const e = crew.get(w.id);
         if (e) {
           e.spot = spot;
@@ -725,6 +598,45 @@ export default function LifeScene3D(props: LifeScene3DProps) {
           // Ученик без модели не должен останавливать загрузку остальных.
         });
       });
+    };
+
+    // Демон за прилавком и кошка дня в клетке (только в лавке).
+    const demonRoot = new THREE.Group();
+    demonRoot.position.set(DEMON_SPOT.x, 0, DEMON_SPOT.z);
+    scene.add(demonRoot);
+    let demonParts: CharacterParts | null = null;
+    let demonLoading = false;
+    let caged: Cat3D | null = null;
+    let cagedKey = '';
+    const syncDemon = (): void => {
+      const p = propsRef.current;
+      const show = p.scene === 'demon';
+      demonRoot.visible = show;
+      if (show && !demonParts && !demonLoading) {
+        demonLoading = true;
+        void track(loadCharacter(DEMON_LOOK)).then((parts) => {
+          if (disposed) {
+            disposeObject(parts.root);
+            return;
+          }
+          demonParts = parts;
+          demonRoot.add(parts.root);
+        });
+      }
+      const key = show && p.offer ? JSON.stringify(p.offer) : '';
+      if (key === cagedKey) return;
+      cagedKey = key;
+      if (caged) {
+        scene.remove(caged.root);
+        disposeObject(caged.root);
+        caged = null;
+      }
+      if (!key || !p.offer) return;
+      const cage = demonLayout().find((x) => x.id === 'cage')!;
+      caged = buildCat(p.offer.breed, 7, { mix: p.offer.mix, grow: p.offer.grow });
+      caged.root.position.set(cage.pos.x, 0.06, cage.pos.z);
+      caged.root.rotation.y = cage.rot + 0.4;
+      scene.add(caged.root);
     };
 
     // Герой.
@@ -766,7 +678,7 @@ export default function LifeScene3D(props: LifeScene3DProps) {
         }
       }, 300);
     };
-    api.current = { rebuildScene, rebuildHero, syncClients, syncCats, zoomBy };
+    api.current = { rebuildScene, rebuildHero, syncClients, syncCats, syncDemon, zoomBy };
 
     const camera = new THREE.PerspectiveCamera(48, 1, 0.1, 120);
     const resize = (): void => {
@@ -1205,8 +1117,8 @@ export default function LifeScene3D(props: LifeScene3DProps) {
       for (const f of ticks) f(t, p.minute, nightNow);
       catLife.update(t, dt, catWorld());
       updateVacuum(t, dt);
-      // Ученики смотрят на тренера и разминаются.
-      const coach = p.scene === 'gym' ? { x: 0, z: 2.4 } : pos;
+      // Гости смотрят на ближайшую кошку (или на героя) и играют с кошками.
+      const catPos = catSpotsNow();
       for (const e of crew.values()) {
         e.root.position.set(e.spot.x, 0, e.spot.z);
         e.shadow.position.set(e.spot.x, 0.02, e.spot.z);
@@ -1214,9 +1126,19 @@ export default function LifeScene3D(props: LifeScene3DProps) {
         // и плавными переходами (у каждого свой порядок и темп).
         const set = crewSet(e, t);
         // Поворачиваются только между подходами: во время упражнения стоят (лежат) ровно.
-        if (set.motion === 'idle' || !e.parts) {
-          const near = Math.hypot(pos.x - e.spot.x, pos.z - e.spot.z) < 3;
-          const look = near ? pos : coach;
+        {
+          const near = Math.hypot(pos.x - e.spot.x, pos.z - e.spot.z) < 2;
+          let look: P2 = pos;
+          if (!near) {
+            let best = Infinity;
+            for (const c of catPos) {
+              const d = Math.hypot(c.x - e.spot.x, c.z - e.spot.z);
+              if (d < best) {
+                best = d;
+                look = c;
+              }
+            }
+          }
           const want = Math.atan2(look.x - e.spot.x, look.z - e.spot.z);
           let diff = want - e.root.rotation.y;
           while (diff > Math.PI) diff -= Math.PI * 2;
@@ -1232,11 +1154,21 @@ export default function LifeScene3D(props: LifeScene3DProps) {
           for (const f of e.parts.anim) f(t + e.seed);
         }
       }
+      if (demonParts && demonRoot.visible) {
+        // Демон потирает руки и поглядывает на героя.
+        const nearHero = Math.hypot(pos.x - DEMON_SPOT.x, pos.z - DEMON_SPOT.z) < 3.5;
+        animate(demonParts.rig, nearHero ? 'stand:talk' : 'idle', t, (t * 0.4) % 1, 1 - Math.exp(-dt * 5));
+        breathe(demonParts.rig, t, 1.7, 0.8);
+        demonRoot.rotation.y = Math.atan2(pos.x - DEMON_SPOT.x, Math.max(0.5, pos.z - DEMON_SPOT.z)) * 0.6;
+        demonParts.face.want(nearHero ? 'smile' : null, 0.8);
+        demonParts.face.update(dt);
+        for (const f of demonParts.anim) f(t);
+      }
+      if (caged) poseCat(caged, Math.sin(t * 0.3) > 0.6 ? 'sit' : 'lie', t, 0, Math.min(1, dt * 4));
       // Камера сверху-спереди, комната видна в разрезе.
-      const gym = p.scene === 'gym';
       // Ближе — камера следует за героем плотнее, дальше — видна вся комната.
       const follow = 1 - 0.45 * Math.min(1, zoom);
-      const want = new THREE.Vector3(pos.x * follow, 0.9 + ((gym ? 7.8 : 6.8) - 0.9) * zoom, pos.z + (gym ? 7.4 : 6.4) * zoom);
+      const want = new THREE.Vector3(pos.x * follow, 0.9 + (6.8 - 0.9) * zoom, pos.z + 6.4 * zoom);
       camPos.lerp(want, Math.min(1, dt * 5));
       camera.position.copy(camPos);
       const lookF = 1 - 0.2 * Math.min(1, zoom);
@@ -1322,7 +1254,7 @@ export default function LifeScene3D(props: LifeScene3DProps) {
 
   // Перестройка сцены: другое место, мебель, уровень зала, смена дня и ночи.
   const night = isNight(props.minute);
-  const sceneKey = JSON.stringify([props.scene, props.furniture, props.gym, props.gymExtras, props.house, props.home, night, props.cats.length > 0]);
+  const sceneKey = JSON.stringify([props.scene, props.furniture, props.house, props.home, night, props.cats.length > 0]);
   const firstScene = useRef(sceneKey);
   useEffect(() => {
     if (sceneKey === firstScene.current) return;
@@ -1343,10 +1275,15 @@ export default function LifeScene3D(props: LifeScene3DProps) {
     api.current?.syncCats();
   }, [catsKey]);
 
-  const clientsKey = JSON.stringify(props.clients.map((c) => [c.id, lookKey(c)]));
+  const clientsKey = JSON.stringify(props.guests.map((c) => [c.id, lookKey(c)]));
   useEffect(() => {
     api.current?.syncClients();
   }, [clientsKey]);
+
+  const offerKey = JSON.stringify(props.offer);
+  useEffect(() => {
+    api.current?.syncDemon();
+  }, [offerKey]);
 
   return (
     <div ref={host} className="world3d">

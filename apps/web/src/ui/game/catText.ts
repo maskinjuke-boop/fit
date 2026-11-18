@@ -13,15 +13,14 @@ export function catBreedText(c: Pick<Cat, 'breed' | 'mix'>, lang: Lang, t: T): s
 }
 
 /** Возраст: месяцы до года, дальше — годы. */
-export function catAgeText(c: Cat, day: number, tf: TF): string {
+export function catAgeText(c: Pick<Cat, 'born'>, day: number, tf: TF): string {
   const m = catAge(c, day);
   return m < CAT_AGE.GROWN ? tf('cat.months', { n: m }) : tf('cat.years', { n: Math.floor(m / 12) });
 }
 
-/** Пол, возраст, «котёнок», «ждёт котят». */
-export function catMeta(c: Cat, day: number, t: T, tf: TF): string {
+/** Пол, возраст, «котёнок». */
+export function catMeta(c: Pick<Cat, 'sex' | 'born'>, day: number, t: T, tf: TF): string {
   const parts = [t(c.sex === 'f' ? 'cat.f' : 'cat.m'), catAgeText(c, day, tf)];
   if (isKitten(c, day)) parts.push(t('cat.kitten'));
-  if (c.pregnant) parts.push(tf('cat.pregnant', { n: Math.max(0, c.pregnant.due - day) }));
   return parts.join(' · ');
 }

@@ -21,9 +21,8 @@ import {
 import type { Slot } from './items';
 import { createState, type Appearance, type Character, type GameState } from './state';
 import { clearGame, loadGame, saveGame } from './storage';
-import { act, adoptCat, answerEvent, applyFinish, buyExtra, buyFurniture, upgradeKit, rehomeCat, dismissResult, endSession, sellFurniture, startSession, upgradeGym, upgradeHouse, type LifeOutcome } from './life';
-import type { GymExtraId } from './lifeContent';
-import type { CatBreed, ObjectId } from './lifeTypes';
+import { act, answerEvent, applyFinish, buyFurniture, upgradeKit, dismissResult, sellFurniture, upgradeHouse, type LifeOutcome } from './life';
+import type { ObjectId } from './lifeTypes';
 
 /** Действия режима администратора. */
 export interface AdminActions {
@@ -46,18 +45,12 @@ export interface AdminActions {
 export interface LifeActions {
   act(actionId: string): LifeOutcome;
   answer(choiceId: string): void;
-  startSession(exercise: ExerciseId): void;
-  endSession(): void;
-  upgradeGym(): void;
   upgradeHouse(): void;
   /** Ремонт: поставить отделку (купить, если ещё нет) и заменить старую мебель. */
   applyFinish(id: string): void;
   upgradeKit(id: KitId): void;
-  buyExtra(id: GymExtraId): void;
   buyFurniture(id: ObjectId): void;
   sellFurniture(id: ObjectId): void;
-  adoptCat(breed: CatBreed, sex?: 'f' | 'm'): void;
-  rehomeCat(id: string): void;
   dismiss(): void;
 }
 
@@ -227,17 +220,11 @@ export function GameProvider({ children }: { children: ReactNode }) {
     const life: LifeActions = {
       act: (id) => lifeRun((s) => act(s, id)),
       answer: (id) => plain((s) => answerEvent(s, id)),
-      startSession: (e) => plain((s) => startSession(s, e)),
-      endSession: () => plain(endSession),
-      upgradeGym: () => plain(upgradeGym),
       upgradeHouse: () => plain(upgradeHouse),
       applyFinish: (id) => plain((s) => applyFinish(s, id)),
       upgradeKit: (id) => plain((s) => upgradeKit(s, id)),
-      buyExtra: (id) => plain((s) => buyExtra(s, id)),
       buyFurniture: (id) => plain((s) => buyFurniture(s, id)),
       sellFurniture: (id) => plain((s) => sellFurniture(s, id)),
-      adoptCat: (b, sex) => plain((s) => adoptCat(s, b, sex)),
-      rehomeCat: (id) => plain((s) => rehomeCat(s, id)),
       dismiss: () => plain(dismissResult),
     };
     return {
