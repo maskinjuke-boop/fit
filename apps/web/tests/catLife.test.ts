@@ -216,3 +216,19 @@ describe('взаимодействие с кошками', () => {
     expect(enemies.modes.has('hiss')).toBe(true);
   });
 });
+
+describe('шаг кошки', () => {
+  it('частота шага по скорости: за время опоры корпус проходит ровно ход стопы (стопы не скользят)', async () => {
+    const { GAIT, gaitStep, CAT_SCALE } = await import('../src/ui/game/three/cats3d');
+    for (const fast of [false, true]) {
+      const g = fast ? GAIT.trot : GAIT.walk;
+      for (const speed of [0.4, 0.8, 1.8]) {
+        for (const size of [CAT_SCALE * 0.6, CAT_SCALE, CAT_SCALE * 1.3]) {
+          // Один цикл шага (2π) — сколько секунд и сколько пройдено за опору.
+          const period = (2 * Math.PI) / gaitStep(fast, speed, size, 1);
+          expect(speed * period * g.stance).toBeCloseTo(g.stride * size, 6);
+        }
+      }
+    }
+  });
+});

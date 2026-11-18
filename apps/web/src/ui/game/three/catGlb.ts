@@ -43,6 +43,9 @@ export interface CatPoseParams {
   breath: number;
   roll: number;
   purr: number;
+  /** Шаг по стопам: вперёд от покоя и высота над полом (м прежней модели) и его доля. */
+  steps?: Array<[number, number]> | null;
+  stepW?: number;
 }
 
 const URL_PATH = 'models/cats/bicolor_cat.glb';
@@ -638,8 +641,11 @@ function grounded(mode: string, i: number, up: number, low: number): number {
     case 'trot':
     case 'chase':
     case 'sniff':
-    case 'rub':
-      return Math.abs(low) < 0.04 ? 1 : 0;
+    case 'rub': {
+      // Плавно: лапа отрывается от пола по мере сгиба (без скачка стопы на границе опоры и переноса).
+      const k = Math.min(1, Math.max(0, (Math.abs(low) - 0.03) / 0.12));
+      return 1 - k * k * (3 - 2 * k);
+    }
     case 'groom':
     case 'play':
     case 'swat':
@@ -773,7 +779,9 @@ export function buildGlbCat(look: CoatLook, lookKey: string, seed: number, grow:
       const P = (b: THREE.Bone | undefined): V2 => (b ? yz(t.bones.get(b.name)!.restPos) : [0, 0]);
       const J = P(hip);
       const K = P(knee);
-      const E = P(ball);
+      // Цель лапы — запястье (скакательный сустав стопы): лапка-кисть поворачивается параллельно полу
+      // вокруг него, и подушечка не уезжает при подъёме лапы.
+      const E = P(wrist ?? ball);
       const Hk = front ? K : P(hock);
       const u = sub(K, J);
       const m1 = front ? sub(E, K) : sub(Hk, K);
@@ -840,7 +848,10 @@ export function buildGlbCat(look: CoatLook, lookKey: string, seed: number, grow:
       }
     }
     const e = lowerEnd(l, best);
-    const a1 = Math.atan2(T[1], T[0]) - Math.atan2(e[1], e[0]);
+    // Угол — в (−π, π]: иначе на переходе через ±π кисть (её поворот считается от суммы углов) перескакивает.
+    let a1 = Math.atan2(T[1], T[0]) - Math.atan2(e[1], e[0]);
+    while (a1 > Math.PI) a1 -= Math.PI * 2;
+    while (a1 <= -Math.PI) a1 += Math.PI * 2;
     return [a1, best];
   };
   const neck = [B(/Neck_01/), B(/Neck_02/), B(/Neck_Top/)];
@@ -888,7 +899,7 @@ export function buildGlbCat(look: CoatLook, lookKey: string, seed: number, grow:
     // Передние лапы модели короче прежних относительно корпуса: если опорной лапе не достать
     // до пола (сидит — грудь высоко), корпус наклоняется вперёд ровно настолько, чтобы достала.
     let pitch = p.pitch;
-    if (Math.abs(p.roll) < 0.5 && (grounded(mode, 0, p.legs[0]![0], p.legs[0]![1]) || grounded(mode, 1, p.legs[1]![0], p.legs[1]![1]))) {
+    if (Math.abs(p.roll) < 0.5 && (p.stepW ?? 0) < 0.5 && (grounded(mode, 0, p.legs[0]![0], p.legs[0]![1]) || grounded(mode, 1, p.legs[1]![0], p.legs[1]![1]))) {
       const l = legs[0]!;
       const high = (a: number): number => p.hipY * unit + l.J[0] * Math.cos(a) - l.J[1] * Math.sin(a) - l.ground - l.reach * 0.97;
       if (high(pitch) > 0) {
@@ -910,6 +921,13 @@ export function buildGlbCat(look: CoatLook, lookKey: string, seed: number, grow:
       const q = R([-l.upLen + R([-0.076, 0.01], low)[0], R([-0.076, 0.01], low)[1]], up);
       // Покой — точно поза модели; отклонение подушечки от покоя — как у прежней лапы (в единицах модели).
       const T: V2 = [l.v0[0] + (q[0] - l.q0[0]) * unit, l.v0[1] + (q[1] - l.q0[1]) * unit];
+      // Шаг: стопа задана прямо (опора — на полу, перенос — по дуге), смешивается с позой лап.
+      const st = p.steps?.[i];
+      const sw = st ? Math.min(1, p.stepW ?? 0) : 0;
+      if (st && sw > 0) {
+        T[0] += (l.v0[0] + st[1] * unit - T[0]) * sw;
+        T[1] += (l.v0[1] + st[0] * unit - T[1]) * sw;
+      }
       // Опорные лапы — на полу (у модели другие пропорции, поэтому точку сдвигаем по вертикали мира);
       // поднятые (шаг, умывание, удар лапой) — не ниже пола.
       if (Math.abs(p.roll) < 0.5) {
@@ -920,7 +938,10 @@ export function buildGlbCat(look: CoatLook, lookKey: string, seed: number, grow:
         const newY = p.hipY * unit + ny * cp - nz * sp;
         const g = grounded(mode, i, up, low);
         const floorY = l.ground;
-        const want = g >= 1 ? floorY : Math.max(floorY + (1 - g) * Math.abs(low) * 0.05, newY);
+        const free = Math.max(floorY + Math.abs(low) * 0.05, newY);
+        let want = g >= 1 ? floorY : floorY * g + free * (1 - g);
+        // В шаге высота стопы — из шага (опорная — ровно на полу).
+        if (st && sw > 0) want = want + (floorY + st[1] * unit - want) * sw;
         const dy = want - newY;
         T[0] += dy * cp;
         T[1] -= dy * sp;

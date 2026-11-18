@@ -168,6 +168,8 @@ export interface Cat3D {
   legLen: number;
   /** Текущие параметры позы (для плавных переходов). */
   pose: Pose;
+  /** Фаза шага (копится по пройденному пути) и время прошлого кадра. */
+  gait?: { phase: number; t: number };
   /** У реалистичной модели — поза через скелет (вместо групп прежней модели). */
   apply?: (p: CatPoseParams, t: number, mode?: string) => void;
 }
@@ -187,6 +189,10 @@ interface Pose {
   roll: number;
   /** Мелкая дрожь (мурлыканье). */
   purr: number;
+  /** Шаг: где стопа каждой лапы — вперёд от покоя и высота над полом (м прежней модели); null — по углам лап. */
+  steps?: Array<[number, number]> | null;
+  /** Доля шага по стопам (плавный переход из стойки в шаг). */
+  stepW?: number;
 }
 
 const tmp = new THREE.Vector3();
@@ -499,7 +505,7 @@ function restPose(): Pose {
  * Целевая поза для режима. legs: [плечо/бедро, нижнее звено] (+ — лапа назад);
  * tail: [подъём, вбок]; tilt — наклон в прыжке (+ — носом вниз).
  */
-function target(mode: CatMode, t: number, speed: number, look: number, tilt: number): Pose {
+function target(mode: CatMode, t: number, speed: number, look: number, tilt: number, gait?: number): Pose {
   const p = restPose();
   const blink = (Math.sin(t * 0.7) > 0.985 ? 0.1 : 1) as number;
   switch (mode) {
@@ -775,17 +781,22 @@ function target(mode: CatMode, t: number, speed: number, look: number, tilt: num
     case 'walk':
     case 'trot': {
       const fast = mode === 'trot' || mode === 'chase';
-      const f = fast ? 11 : 7;
-      const a = t * f * Math.max(0.4, Math.min(1.6, (mode === 'chase' ? 0.9 : speed) / 0.45));
-      const sw = fast ? 0.6 : 0.45;
+      // Фаза шага копится по пройденному пути (см. poseCat): стопы не скользят при разгоне и торможении.
+      const a = gait ?? t * (fast ? 11 : 7);
+      const sw = fast ? GAIT.trotSwing : GAIT.walkSwing;
       // Диагональные пары лап: левая передняя с правой задней.
       const ph = [0, Math.PI, Math.PI, 0];
       p.legs = p.legs.map((_, i) => {
         const s = Math.sin(a + ph[i]!);
+        // Лапа поднимается, пока идёт вперёд (перенос), и стоит на полу, пока уходит назад (опора).
+        const lift = Math.max(0, Math.cos(a + ph[i]!));
         const front = i < 2;
-        return [s * sw, front ? -Math.max(0, -s) * 0.7 : Math.max(0, s) * 0.8] as [number, number];
+        // Задние лапы длиннее: размах меньше, чтобы шаг передних и задних совпадал.
+        return [s * sw * (front ? 1 : GAIT.hindK), front ? -lift * 0.75 : lift * 0.85] as [number, number];
       });
-      p.hipY = 0.175 + Math.abs(Math.sin(a)) * 0.008;
+      p.steps = gaitSteps(fast, a);
+      // Корпус чуть покачивается на каждом шаге, голова кивает в такт.
+      p.hipY = 0.162 + Math.cos(a * 2) * 0.003;
       p.headX = 0.05 + Math.sin(a * 2) * 0.03;
       p.headY = look * 0.3;
       p.tail = p.tail.map((_, i) => [i === 0 ? 0.95 : i < 5 ? -0.06 : 0.28, Math.sin(t * 3 + i * 0.5) * 0.1] as [number, number]);
@@ -909,11 +920,53 @@ function target(mode: CatMode, t: number, speed: number, look: number, tilt: num
 const mix = (a: number, b: number, k: number): number => a + (b - a) * k;
 
 /**
+ * Шаг кошки: размах лап (шагом и рысью), доля размаха задних лап и сколько проходит опорная стопа
+ * за полшага у взрослой кошки размера CAT_SCALE (м) — по ней частота шага подбирается к скорости.
+ */
+export const GAIT = {
+  walkSwing: 0.32,
+  trotSwing: 0.42,
+  hindK: 0.7,
+  /** Ход опорной стопы за шаг (м прежней модели; в мире × размер кошки), доля опоры в цикле, высота подъёма. */
+  walk: { stride: 0.12, stance: 0.62, lift: 0.03, offs: [0.25, 0.75, 0, 0.5] },
+  trot: { stride: 0.17, stance: 0.5, lift: 0.045, offs: [0, 0.5, 0.5, 0] },
+} as const;
+
+/**
+ * Насколько продвигается фаза шага (рад) за dt при скорости speed (м/с) у кошки размера size:
+ * за время опоры корпус проходит ровно ход стопы — стопы не скользят.
+ */
+export function gaitStep(fast: boolean, speed: number, size: number, dt: number): number {
+  const g = fast ? GAIT.trot : GAIT.walk;
+  return (dt * Math.PI * 2 * g.stance * Math.max(0.12, speed)) / Math.max(0.02, g.stride * size);
+}
+
+/** Стопы в шаге: опора — стопа на полу уходит назад равномерно, перенос — по дуге вперёд. */
+function gaitSteps(fast: boolean, a: number): Array<[number, number]> {
+  const g = fast ? GAIT.trot : GAIT.walk;
+  const base = a / (Math.PI * 2);
+  return g.offs.map((o, i) => {
+    const u = (((base + o) % 1) + 1) % 1;
+    // Задние лапы ступают чуть шире.
+    const S = g.stride * (i < 2 ? 1 : 1.05);
+    if (u < g.stance) return [S / 2 - (S * u) / g.stance, 0];
+    const w = (u - g.stance) / (1 - g.stance);
+    return [-S / 2 + S * (0.5 - 0.5 * Math.cos(Math.PI * w)), g.lift * Math.sin(Math.PI * w)];
+  });
+}
+
+/**
  * Поза кошки: режим mode в момент t; speed — скорость шага (м/с), look — куда
  * повернуть голову (−1…1); blend — доля перехода к новой позе за этот кадр.
  */
 export function poseCat(cat: Cat3D, mode: CatMode, t: number, speed: number, blend: number, look = 0, tilt = 0): void {
-  const goal = target(mode, t, speed, look, tilt);
+  // Фаза шага: копится по времени и скорости (а не «время × частота» — иначе при смене скорости лапы дёргаются).
+  const g = (cat.gait ??= { phase: 0, t });
+  const dtp = Math.max(0, Math.min(0.1, t - g.t));
+  g.t = t;
+  const walking = mode === 'walk' || mode === 'trot' || mode === 'chase';
+  if (walking) g.phase += gaitStep(mode !== 'walk', mode === 'chase' ? 0.9 : speed, cat.root.children[0]?.scale.x ?? CAT_SCALE, dtp);
+  const goal = target(mode, t, speed, look, tilt, walking ? g.phase : undefined);
   const p = cat.pose;
   const k = Math.min(1, blend);
   // Ноги при ходьбе меняются быстро, поэтому их фаза не смешивается долго.
@@ -928,6 +981,10 @@ export function poseCat(cat: Cat3D, mode: CatMode, t: number, speed: number, ble
   p.breath = goal.breath;
   p.roll = mix(p.roll, goal.roll, k * 0.7);
   p.purr = mix(p.purr, goal.purr, k);
+  // Шаг по стопам: включается и выключается плавно (лапы переходят из стойки в шаг без рывка).
+  p.stepW = mix(p.stepW ?? 0, goal.steps ? 1 : 0, Math.max(k, 0.25));
+  if (goal.steps) p.steps = goal.steps;
+  else if ((p.stepW ?? 0) < 0.02) p.steps = null;
   for (let i = 0; i < 4; i += 1) {
     p.legs[i]![0] = mix(p.legs[i]![0], goal.legs[i]![0], legK);
     p.legs[i]![1] = mix(p.legs[i]![1], goal.legs[i]![1], legK);

@@ -117,6 +117,9 @@ export interface CatAI {
   /** Приседание после приземления (1 → 0), крен в повороте, эмоция над головой. */
   squash: number;
   lean: number;
+  /** Где была в прошлом кадре и настоящая скорость (для шага). */
+  last: P2;
+  vel: number;
   emote: { obj: THREE.Sprite | null; kind: Emote | null; k: number };
 }
 
@@ -757,7 +760,8 @@ export function createCatLife(parent: THREE.Object3D, shadow: () => THREE.Object
     if (Math.hypot(next.x - c.pos.x, next.z - c.pos.z) < step * 0.3) c.stuck += dt;
     else c.stuck = Math.max(0, c.stuck - dt);
     c.pos = next;
-    c.mode = c.speed > 0.75 ? 'trot' : 'walk';
+    // Рысь и шаг — с запасом (без мелькания туда-обратно на границе).
+    c.mode = c.speed > (c.mode === 'trot' ? 0.75 : 0.95) ? 'trot' : 'walk';
     return c.stuck > 0.35;
   };
   /** Обход препятствия: точка сбоку от пути к цели, свободная от мебели (null — обойти нельзя). */
@@ -829,7 +833,7 @@ export function createCatLife(parent: THREE.Object3D, shadow: () => THREE.Object
     const ahead = Math.max(0.15, Math.cos(angleTo(c.heading, want)));
     const step = c.speed * dt * ahead;
     c.pos = resolve({ x: c.pos.x + Math.sin(c.heading) * step, z: c.pos.z + Math.cos(c.heading) * step }, w.bounds, w.boxes);
-    c.mode = c.speed > 1.0 ? 'trot' : 'walk';
+    c.mode = c.speed > (c.mode === 'trot' ? 0.85 : 1.05) ? 'trot' : 'walk';
   };
 
   const updateCat = (c: CatAI, t: number, dt: number, w: CatWorld): void => {
@@ -1199,7 +1203,7 @@ export function createCatLife(parent: THREE.Object3D, shadow: () => THREE.Object
         const size = cat.root.children[0]?.scale.x ?? 1;
         cats.set(x.id, {
           cat, id: x.id, shadow: sh, pos: start, y: 0, heading: rand() * Math.PI * 2, mode: 'idle', plan: [], stepAt: -1, speed: 0, seed: i * 2.1, size, tilt: 0, hop: 0, jump: null, edge: null, stuck: 0,
-          ateAt: -999, drankAt: -999, litterAt: -999, called: -1, log: { eat: 0, drink: 0, litter: 0, perch: 0, hunt: 0, rub: 0, play: 0, fun: 0, act: 0 }, busyAt: 0, squash: 0, lean: 0, emote: { obj: null, kind: null, k: 0 },
+          ateAt: -999, drankAt: -999, litterAt: -999, called: -1, log: { eat: 0, drink: 0, litter: 0, perch: 0, hunt: 0, rub: 0, play: 0, fun: 0, act: 0 }, busyAt: 0, squash: 0, lean: 0, last: { ...start }, vel: 0, emote: { obj: null, kind: null, k: 0 },
         });
       });
       if (!want.length || w.play === null) {
@@ -1229,6 +1233,8 @@ export function createCatLife(parent: THREE.Object3D, shadow: () => THREE.Object
       c.plan = [];
       c.stepAt = -1;
       c.speed = 0;
+      c.vel = 0;
+      c.last = { ...p };
       c.heading = heading;
     },
     /** Стик: направление по полу (x, z) и сила 0…1. */
@@ -1305,11 +1311,25 @@ export function createCatLife(parent: THREE.Object3D, shadow: () => THREE.Object
         let look = 0;
         const focus = mine ? [...cats.values()].filter((o) => o !== c).sort((a1, b1) => dist(a1.pos, c.pos) - dist(b1.pos, c.pos))[0]?.pos : me?.pos;
         if (focus && dist(focus, c.pos) < 2.8 && dist(focus, c.pos) > 0.05) look = Math.max(-1, Math.min(1, angleTo(c.heading, Math.atan2(focus.x - c.pos.x, focus.z - c.pos.z)) / 1.2));
-        const mode = c.mode === 'walk' || c.mode === 'trot' ? (c.speed > 0.05 ? c.mode : 'idle') : c.mode;
-        poseCat(c.cat, mode, t + c.seed, Math.max(0.2, c.speed), blend, mode === 'sleep' || mode === 'belly' ? 0 : look, c.tilt);
-        // Крен на бегу в повороте (внутрь поворота), мягко.
+        // Скорость для шага — настоящая (сколько кошка прошла за кадр): лапы не «буксуют» у мебели и
+        // не семенят на месте; в колесе — скорость колеса.
+        const step = c.plan[0];
+        const inWheel = !!step && step.k === 'pose' && step.tag === 'wheel';
+        const moved = dt > 0 ? dist(c.last, c.pos) / dt : 0;
+        c.last = { ...c.pos };
+        c.vel += ((c.jump ? 0 : Math.min(3, moved)) - c.vel) * Math.min(1, dt * 10);
+        const pace = inWheel ? c.speed : c.vel;
         const turnRate = angleTo(h0, c.heading) / Math.max(dt, 1e-3);
-        const leanWant = c.jump || c.y > 0.05 ? 0 : Math.max(-0.22, Math.min(0.22, -turnRate * c.speed * 0.05));
+        let mode: CatMode = c.mode === 'walk' || c.mode === 'trot' ? (pace > 0.06 ? c.mode : 'idle') : c.mode;
+        // Разворот на месте — переступает лапами, а не крутится на скользящих лапах.
+        let animPace = pace;
+        if ((mode === 'idle' || mode === 'walk') && !c.jump && c.y < 0.05 && Math.abs(turnRate) > 1.2 && pace < 0.25) {
+          mode = 'walk';
+          animPace = Math.max(pace, Math.min(0.35, Math.abs(turnRate) * 0.12));
+        }
+        poseCat(c.cat, mode, t + c.seed, animPace, blend, mode === 'sleep' || mode === 'belly' ? 0 : look, c.tilt);
+        // Крен на бегу в повороте (внутрь поворота), мягко.
+        const leanWant = c.jump || c.y > 0.05 ? 0 : Math.max(-0.22, Math.min(0.22, -turnRate * pace * 0.05));
         c.lean += (leanWant - c.lean) * Math.min(1, dt * 6);
         // Приземлилась — коротко присела (и чуть раздалась в стороны).
         c.squash = Math.max(0, c.squash - dt * 5);
