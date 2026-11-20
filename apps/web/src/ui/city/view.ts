@@ -5,8 +5,10 @@ import { buildingAt, hourOf, townLevel } from '../../game/city/sim';
 import { spotsOf, type SpotPose } from '../../game/city/spots';
 import type { CityCat, CityState } from '../../game/city/types';
 import { setupRenderer } from '../game/three/studio';
-import { MAT, buildingModel, fireModel, modelKey } from './buildings';
+import { Ambient, lightPool, type Emitter } from './ambient';
+import { MAT, buildingModel, chimneyOf, fireModel, modelKey } from './buildings';
 import { animateChibi, buildChibi, disposeChibi, type Chibi, type ChibiPose } from './chibi';
+import { buildGround, disposeGround } from './nature';
 
 /**
  * 3D-город: земля с дорожками по границам клеток, лес за пределами поселения, здания, кошки.
@@ -122,6 +124,10 @@ export class CityView {
   private label: THREE.Sprite | null = null;
   private labelFor = -1;
   private zzzTex = zzzTexture();
+  private ambient = new Ambient();
+  private fog = new THREE.Fog('#bfe6ff', 60, 140);
+  /** 1 — день, 0 — ночь (для мелочей вроде бабочек и светлячков). */
+  private dayK = 1;
   /** Куда смотрит камера и насколько далеко. */
   target = new THREE.Vector3(0, 0, 2);
   distance = 22;
@@ -156,7 +162,8 @@ export class CityView {
     sc.far = 120;
     this.sun.shadow.bias = -0.0008;
     this.sun.shadow.normalBias = 0.04;
-    this.world.add(this.ground);
+    this.world.add(this.ground, this.ambient.group);
+    this.scene.fog = this.fog;
     this.marker = new THREE.Mesh(new THREE.RingGeometry(0.3, 0.38, 32), new THREE.MeshBasicMaterial({ color: '#ffffff', transparent: true, opacity: 0.85, depthWrite: false }));
     this.marker.rotation.x = -Math.PI / 2;
     this.marker.visible = false;
@@ -196,6 +203,8 @@ export class CityView {
     cancelAnimationFrame(this.raf);
     this.unbind?.();
     for (const c of this.cats.values()) disposeChibi(c.ch);
+    this.ambient.dispose();
+    for (const o of this.ground.children) disposeGround(o);
     this.renderer.dispose();
     this.renderer.domElement.remove();
   }
@@ -320,123 +329,11 @@ export class CityView {
     const key = `${R}|${c.buildings.map((b) => `${b.gx},${b.gz}`).join(';')}`;
     if (key === this.groundKey) return;
     this.groundKey = key;
-    this.ground.clear();
-    const half = (MAP + 3) * TILE;
-    const grass = new THREE.Mesh(new THREE.PlaneGeometry(half * 2 + 40, half * 2 + 40), new THREE.MeshStandardMaterial({ color: '#8fcf7a', roughness: 1 }));
-    grass.rotation.x = -Math.PI / 2;
-    grass.receiveShadow = true;
-    this.ground.add(grass);
-    // Застраиваемая часть — светлее; дорожки по границам клеток.
-    const town = new THREE.Mesh(new THREE.PlaneGeometry((2 * R + 1) * TILE, (2 * R + 1) * TILE), new THREE.MeshStandardMaterial({ color: '#a7dc8c', roughness: 1 }));
-    town.rotation.x = -Math.PI / 2;
-    town.position.y = 0.01;
-    town.receiveShadow = true;
-    this.ground.add(town);
-    const road = new THREE.MeshStandardMaterial({ color: '#f1e3c6', roughness: 0.95 });
-    // Дорожки — только вокруг застроенных клеток (по их краям), с перекрёстками.
-    const built = new Set(c.buildings.map((b) => `${b.gx},${b.gz}`));
-    const has = (gx: number, gz: number): boolean => built.has(`${gx},${gz}`);
-    const segs: THREE.BufferGeometry[] = [];
-    const seg = (x: number, z: number, w: number, d: number): void => {
-      segs.push(new THREE.PlaneGeometry(w, d).applyMatrix4(new THREE.Matrix4().makeRotationX(-Math.PI / 2)).applyMatrix4(new THREE.Matrix4().makeTranslation(x, 0.02, z)));
-    };
-    for (let gx = -MAP - 1; gx <= MAP + 1; gx += 1)
-      for (let gz = -MAP - 1; gz <= MAP + 1; gz += 1) {
-        // Нижний край клетки (z + TILE/2) и правый (x + TILE/2).
-        if (has(gx, gz) || has(gx, gz + 1)) seg(gx * TILE, (gz + 0.5) * TILE, TILE + 0.7, 0.7);
-        if (has(gx, gz) || has(gx + 1, gz)) seg((gx + 0.5) * TILE, gz * TILE, 0.7, TILE + 0.7);
-      }
-    // От поселения на юг — дорога, по которой приходят новые кошки.
-    const maxZ = Math.max(0, ...c.buildings.map((b) => b.gz));
-    for (let gz = maxZ + 1; gz <= MAP + 4; gz += 1) seg(TILE / 2, gz * TILE, 0.7, TILE + 0.7);
-    if (segs.length) {
-      const flat = (g: THREE.BufferGeometry): THREE.BufferGeometry => (g.index ? g.toNonIndexed() : g);
-      const pos: number[] = [];
-      for (const g of segs) pos.push(...(flat(g).getAttribute('position').array as Float32Array));
-      const geo = new THREE.BufferGeometry();
-      geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-      geo.computeVertexNormals();
-      const roads = new THREE.Mesh(geo, road);
-      roads.receiveShadow = true;
-      this.ground.add(roads);
+    for (const o of [...this.ground.children]) {
+      disposeGround(o);
+      this.ground.remove(o);
     }
-    // Свободные клетки поселения — участки с травкой и цветочками (здесь можно строить).
-    const plots: THREE.BufferGeometry[] = [];
-    const dots: THREE.BufferGeometry[] = [];
-    for (let gx = -R; gx <= R; gx += 1)
-      for (let gz = -R; gz <= R; gz += 1) {
-        if (has(gx, gz)) continue;
-        plots.push(new THREE.PlaneGeometry(TILE - 0.9, TILE - 0.9).applyMatrix4(new THREE.Matrix4().makeRotationX(-Math.PI / 2)).applyMatrix4(new THREE.Matrix4().makeTranslation(gx * TILE, 0.015, gz * TILE)));
-        for (let i = 0; i < 3; i += 1) {
-          const h = Math.sin(gx * 12.9898 + gz * 78.233 + i * 3.1) * 43758.5453;
-          const fx = (h - Math.floor(h) - 0.5) * 2.6;
-          const fz = (Math.sin(h) * 0.5) * 2.6;
-          dots.push(new THREE.SphereGeometry(0.07, 6, 5).applyMatrix4(new THREE.Matrix4().makeTranslation(gx * TILE + fx, 0.06, gz * TILE + fz)));
-        }
-      }
-    const merged = (gs: THREE.BufferGeometry[]): THREE.BufferGeometry => {
-      const pos: number[] = [];
-      const nor: number[] = [];
-      for (const g0 of gs) {
-        const g = g0.index ? g0.toNonIndexed() : g0;
-        pos.push(...(g.getAttribute('position').array as Float32Array));
-        nor.push(...(g.getAttribute('normal').array as Float32Array));
-      }
-      const out = new THREE.BufferGeometry();
-      out.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-      out.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
-      return out;
-    };
-    if (plots.length) {
-      const pm = new THREE.Mesh(merged(plots), new THREE.MeshStandardMaterial({ color: '#b6e39b', roughness: 1 }));
-      pm.receiveShadow = true;
-      this.ground.add(pm);
-      this.ground.add(new THREE.Mesh(merged(dots), new THREE.MeshStandardMaterial({ color: '#ffe8f2', roughness: 0.8 })));
-    }
-    // Дорога с юга (оттуда приходят новые кошки).
-    const south = new THREE.Mesh(new THREE.PlaneGeometry(0.7, 30), road);
-    south.rotation.x = -Math.PI / 2;
-    south.position.set(TILE / 2, 0.02, (R + 0.5) * TILE + 15);
-    this.ground.add(south);
-    // Лес вокруг поселения: круглые деревья (одной сеткой).
-    const trees: THREE.BufferGeometry[] = [];
-    const trunk: THREE.BufferGeometry[] = [];
-    let seed = 7;
-    const rnd = (): number => {
-      seed = (seed * 16807) % 2147483647;
-      return seed / 2147483647;
-    };
-    for (let gx = -MAP - 2; gx <= MAP + 2; gx += 1)
-      for (let gz = -MAP - 2; gz <= MAP + 2; gz += 1) {
-        if (Math.max(Math.abs(gx), Math.abs(gz)) <= R) continue;
-        if (gz > R && Math.abs(gx * TILE - TILE / 2) < 3) continue;
-        for (let i = 0; i < 2; i += 1) {
-          const x = gx * TILE + (rnd() - 0.5) * 3;
-          const z = gz * TILE + (rnd() - 0.5) * 3;
-          const s = 0.8 + rnd() * 0.7;
-          trees.push(new THREE.SphereGeometry(0.9 * s, 10, 8).applyMatrix4(new THREE.Matrix4().makeTranslation(x, 1.4 * s, z)));
-          trunk.push(new THREE.CylinderGeometry(0.12 * s, 0.16 * s, 1.0 * s, 6).applyMatrix4(new THREE.Matrix4().makeTranslation(x, 0.5 * s, z)));
-        }
-      }
-    if (trees.length) {
-      const merge = (gs: THREE.BufferGeometry[]): THREE.BufferGeometry => {
-        const out = new THREE.BufferGeometry();
-        const pos: number[] = [];
-        const nor: number[] = [];
-        for (const g of gs) {
-          const n = g.index ? g.toNonIndexed() : g;
-          pos.push(...(n.getAttribute('position').array as Float32Array));
-          nor.push(...(n.getAttribute('normal').array as Float32Array));
-        }
-        out.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-        out.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
-        return out;
-      };
-      const crowns = new THREE.Mesh(merge(trees), new THREE.MeshStandardMaterial({ color: '#4f9a52', roughness: 0.9 }));
-      const trunks = new THREE.Mesh(merge(trunk), new THREE.MeshStandardMaterial({ color: '#7a5236' }));
-      crowns.castShadow = true;
-      this.ground.add(crowns, trunks);
-    }
+    this.ground.add(buildGround(c, R));
   }
 
   // ─── Кадр ────────────────────────────────────────────────────────────
@@ -448,6 +345,7 @@ export class CityView {
     this.syncBuildings(c, t, dt);
     this.syncCats(c, t, dt);
     this.light(c);
+    this.ambient.update(t, dt, this.dayK, this.emitters(c), this.anchors(c));
     // Камера: следует за выбранной кошкой (если включено), сверху-спереди.
     if (this.follow && this.selectedCat !== null) {
       const cv = this.cats.get(this.selectedCat);
@@ -497,7 +395,8 @@ export class CityView {
     const dusk = (h > 17 && h < 21) || (h > 5 && h < 7.5) ? 1 - Math.abs(day - 0.5) * 2 : 0;
     const sky = SKY.night.clone().lerp(SKY.day, day).lerp(SKY.dusk, dusk * 0.6);
     this.scene.background = sky;
-    this.scene.fog = new THREE.Fog(sky, 60, 140);
+    this.fog.color.copy(sky);
+    this.dayK = day;
     this.sun.intensity = 0.25 + 2.3 * day;
     this.sun.color.set(dusk > 0.3 ? '#ffc890' : '#fff3df');
     this.hemi.intensity = 0.45 + 0.75 * day;
@@ -507,7 +406,41 @@ export class CityView {
     const night = 1 - day;
     MAT.window.emissiveIntensity = night * 1.3;
     MAT.glow.emissiveIntensity = 0.2 + night * 2;
+    MAT.bulb.emissiveIntensity = 0.2 + night * 1.8;
   }
+
+  /** Трубы, из которых сейчас идёт дым: дома, где кто-то не спит, и печи, у которых работают. */
+  private emitters(c: CityState): Emitter[] {
+    const out: Emitter[] = [];
+    const busy = new Map<number, number>();
+    for (const k of c.cats) if (k.act.at !== null && !k.act.path?.length && k.act.kind !== 'sleep') busy.set(k.act.at, (busy.get(k.act.at) ?? 0) + 1);
+    const h = hourOf(c.clock);
+    const cooking = (h > 6 && h < 9) || (h > 17 && h < 21);
+    for (const b of c.buildings) {
+      const p = chimneyOf(b);
+      if (!p) continue;
+      const on = b.kind === 'house' ? busy.has(b.id) || (cooking && c.cats.some((k) => k.home === b.id)) : busy.has(b.id);
+      if (on) out.push({ x: b.gx * TILE + p[0], y: p[1], z: b.gz * TILE + p[2], rate: b.kind === 'house' ? 1.1 : 1.8 });
+    }
+    return out;
+  }
+
+  /** Где порхают бабочки и светлячки: скверы, клумбы, пруд, дворы домов и опушка. */
+  private anchors(c: CityState): Array<[number, number]> {
+    if (this.anchorKey === c.buildings.length) return this.anchorList;
+    const out: Array<[number, number]> = [];
+    for (const b of c.buildings) {
+      if (b.kind === 'amenity' || b.type === 'pond' || b.type === 'playground') out.push([b.gx * TILE, b.gz * TILE + 0.5], [b.gx * TILE + 1, b.gz * TILE - 0.6]);
+      else if (b.kind === 'house') out.push([b.gx * TILE + 1.2, b.gz * TILE + 0.8]);
+    }
+    const R = (Math.min(MAP, buildRadius(c)) + 1) * TILE;
+    for (let i = 0; i < 8; i += 1) out.push([Math.cos(i * 0.785) * R, Math.sin(i * 0.785) * R]);
+    this.anchorKey = c.buildings.length;
+    this.anchorList = out;
+    return out;
+  }
+  private anchorKey = -1;
+  private anchorList: Array<[number, number]> = [];
 
   /** Насколько видна крыша здания (1 — сплошная, меньше — видно, что внутри). */
   roofAlpha(id: number): number {
@@ -537,6 +470,7 @@ export class CityView {
         if (v) this.world.remove(v.g);
         const g = buildingModel(b);
         g.position.set(b.gx * TILE, 0, b.gz * TILE);
+        addPools(g);
         this.world.add(g);
         v = { key, g, alpha: 1 };
         this.buildings.set(b.id, v);
@@ -787,4 +721,21 @@ function applyCut(g: THREE.Object3D, alpha: number): void {
     // Окна и вывеска.
     m.visible = alpha > 0.55;
   });
+}
+
+/** Под каждой светящейся деталью (фонарь, лампа) — пятно света на земле или полу, видно ночью. */
+function addPools(g: THREE.Object3D): void {
+  const found: THREE.Vector3[] = [];
+  g.traverse((o) => {
+    const m = o as THREE.Mesh;
+    if (!m.isMesh || m.material !== MAT.glow) return;
+    m.geometry.computeBoundingSphere();
+    const bs = m.geometry.boundingSphere!;
+    // Мелкие огоньки гирлянд пятен не дают; близкие пятна сливаются в одно.
+    if (bs.radius < 0.04) return;
+    const p = bs.center.clone().add(m.position);
+    if (found.some((f) => Math.hypot(f.x - p.x, f.z - p.z) < 0.6)) return;
+    found.push(p);
+  });
+  for (const p of found) g.add(lightPool(p.x, 0.17, p.z + 0.05, Math.max(0.45, Math.min(1.3, p.y * 0.95))));
 }
