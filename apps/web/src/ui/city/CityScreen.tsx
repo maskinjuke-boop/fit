@@ -25,6 +25,8 @@ import { ageText, clockText, coatText, countdown, levelName, moodFace, plural, t
 import type { ChibiPose } from './chibi';
 import { CityView, setLabelName, type Tap } from './view';
 
+const XRAY_KEY = 'fitness-rpg.city-xray';
+
 type Sel = { kind: 'cat'; id: number } | { kind: 'building'; id: number } | { kind: 'build'; gx: number; gz: number } | { kind: 'offering' } | { kind: 'news' } | null;
 
 /** Короткий выбор языка: L('по-русски', 'in English'). */
@@ -60,6 +62,24 @@ export function CityScreen({ state, onTrain }: { state: GameState; onTrain(ex?: 
   const [sel, setSel] = useState<Sel>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [follow, setFollow] = useState(false);
+  // Вид внутрь домов и мастерских (прозрачные крыши) — запоминается в браузере.
+  const [xray, setXray] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem(XRAY_KEY) === '1';
+    } catch {
+      return false;
+    }
+  });
+  const toggleXray = (): void => {
+    const next = !xray;
+    setXray(next);
+    try {
+      localStorage.setItem(XRAY_KEY, next ? '1' : '0');
+    } catch {
+      // нет доступа к хранилищу
+    }
+    say(next ? L('👁 Крыши прозрачные: видно, что кошки делают дома и в мастерских', '👁 Roofs are see-through: watch the cats at home and at work') : L('Крыши снова на месте', 'Roofs are back'));
+  };
   const c = state.city;
   const stateRef = useRef(state);
   stateRef.current = state;
@@ -149,7 +169,8 @@ export function CityScreen({ state, onTrain }: { state: GameState; onTrain(ex?: 
     const b = sel?.kind === 'building' ? buildingAt(c, sel.id) : undefined;
     v.selectedTile = sel?.kind === 'build' ? [sel.gx, sel.gz] : b ? [b.gx, b.gz] : null;
     v.follow = sel?.kind === 'cat' && follow;
-  }, [sel, follow, c]);
+    v.xray = xray;
+  }, [sel, follow, c, xray]);
 
   // Кошки больше нет (сгорела) — карточка закрывается.
   if (sel?.kind === 'cat' && !c.cats.some((k) => k.id === sel.id)) queueMicrotask(() => setSel(null));
@@ -235,6 +256,10 @@ export function CityScreen({ state, onTrain }: { state: GameState; onTrain(ex?: 
           <button className="fab" onClick={() => setSel({ kind: 'news' })}>
             <span>📜</span>
             <span>{L('Новости', 'News')}</span>
+          </button>
+          <button className={`fab ${xray ? 'on' : ''}`} onClick={toggleXray} aria-pressed={xray}>
+            <span>{xray ? '🏠' : '👁️'}</span>
+            <span>{xray ? L('Крыши', 'Roofs') : L('Внутрь', 'Inside')}</span>
           </button>
           <button className="fab main" onClick={() => (o && !o.complete ? setSel({ kind: 'offering' }) : onTrain())}>
             <span>💪</span>

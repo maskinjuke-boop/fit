@@ -61,6 +61,9 @@ export type ActivityKind =
   | 'jobhunt'
   | 'pray';
 
+/** Какое место здания занимает кошка. */
+export type SpotUse = 'inside' | 'bed' | 'table' | 'porch' | 'hammer' | 'visit';
+
 export interface Activity {
   kind: ActivityKind;
   /** Где (id здания); null — на улице. */
@@ -71,7 +74,8 @@ export interface Activity {
   path?: Array<[number, number]>;
   /** Номер места в здании (см. spots.ts) и как: внутри, на крыльце, с молотком. */
   spot?: number;
-  use?: 'inside' | 'porch' | 'hammer' | 'visit';
+  /** inside — старое «в доме» (как bed); bed — кровать, table — стол дома. */
+  use?: SpotUse;
   /** Сколько длится само занятие (минуты) — отсчёт с прихода. */
   dur?: number;
 }

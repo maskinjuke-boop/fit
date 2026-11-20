@@ -1,5 +1,5 @@
 import { TILE } from './content';
-import type { Building, BuildingId } from './types';
+import type { Building, BuildingId, SpotUse } from './types';
 
 /**
  * Места кошек в зданиях (в осях клетки: центр — 0, 0, фасад смотрит на +z, к камере):
@@ -7,7 +7,7 @@ import type { Building, BuildingId } from './types';
  * и сцене (поза кошки).
  */
 
-export type SpotPose = 'hidden' | 'stand' | 'sit' | 'work' | 'swing' | 'slide' | 'ride' | 'fish' | 'climb' | 'eat' | 'shop' | 'pray' | 'hammer' | 'play' | 'dance';
+export type SpotPose = 'hidden' | 'bed' | 'stand' | 'sit' | 'work' | 'swing' | 'slide' | 'ride' | 'fish' | 'climb' | 'eat' | 'shop' | 'pray' | 'hammer' | 'play' | 'dance';
 
 export interface Spot {
   x: number;
@@ -47,12 +47,32 @@ const SPOTS: Partial<Record<BuildingId, readonly Spot[]>> = {
 /** Рабочие места мастерской (у прилавка и станков, лицом к улице). */
 const WORK: readonly Spot[] = [s(-0.6, 0.35, 'work'), s(0.6, 0.35, 'work'), s(-0.6, -0.4, 'work'), s(0.6, -0.4, 'work')];
 
-/** Места здания по занятию: дом — внутри, на крыльце или у стены с молотком. */
-export function spotsOf(b: Pick<Building, 'kind' | 'type'>, use: 'inside' | 'porch' | 'hammer' | 'visit' = 'visit'): readonly Spot[] {
+/**
+ * Обстановка дома (общая для симуляции и 3D): кровати у задней стены — по одной на жильца
+ * (уровни 1–2 — одна, 3 — две, 4 — три), круглый столик с подушками справа.
+ * Кровать: x — центр, z — край у подушки; кошка ложится головой к подушке.
+ */
+export const HOUSE_BEDS: ReadonlyArray<{ x: number; z: number }> = [
+  { x: -0.4, z: -0.72 },
+  { x: -0.86, z: -0.95 },
+  { x: 0.92, z: -0.95 },
+];
+export const HOUSE_TABLE = { x: 0.38, z: -0.05, r: 0.17, h: 0.24 } as const;
+/** Длина и высота матраса. */
+export const BED = { w: 0.4, len: 0.72, top: 0.32 } as const;
+export const bedsOf = (level: number): number => (level >= 4 ? 3 : level >= 3 ? 2 : 1);
+
+/** Места здания по занятию: дом — кровать, столик, крыльцо или стена с молотком. */
+export function spotsOf(b: Pick<Building, 'kind' | 'type'> & { level?: number }, use: SpotUse = 'visit'): readonly Spot[] {
   if (b.kind === 'house') {
     if (use === 'porch') return [s(0.62, 1.42, 'sit', 0, 0.12), s(-0.62, 1.42, 'sit', 0, 0.12), s(0, 1.55, 'sit', 0)];
     if (use === 'hammer') return [s(-1.15, 1.35, 'hammer', Math.PI * 0.85), s(1.15, 1.35, 'hammer', -Math.PI * 0.85)];
-    return [s(0, 1.0, 'hidden'), s(0, 1.0, 'hidden'), s(0, 1.0, 'hidden')];
+    if (use === 'table') {
+      const t = HOUSE_TABLE;
+      return [s(t.x - 0.3, t.z + 0.02, 'eat', Math.PI / 2, 0.1), s(t.x + 0.3, t.z + 0.02, 'eat', -Math.PI / 2, 0.1), s(t.x, t.z + 0.32, 'eat', Math.PI, 0.1)];
+    }
+    // Кровать: точка — в ногах, кошка лежит головой к подушке у задней стены.
+    return HOUSE_BEDS.slice(0, bedsOf(b.level ?? 1)).map((p) => s(p.x, p.z + BED.len - 0.06, 'bed', 0, BED.top));
   }
   if (b.kind === 'workshop') return WORK;
   return SPOTS[b.type] ?? [s(0, 1.3, 'stand', Math.PI)];

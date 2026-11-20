@@ -35,6 +35,7 @@ interface CatView {
 
 const POSE: Record<SpotPose, ChibiPose> = {
   hidden: 'sleep',
+  bed: 'sleep',
   stand: 'idle',
   sit: 'sit',
   work: 'work',
@@ -114,7 +115,7 @@ export class CityView {
   private world = new THREE.Group();
   private ground = new THREE.Group();
   private groundKey = '';
-  private buildings = new Map<number, { key: string; g: THREE.Group; fire?: THREE.Group; zzz?: THREE.Sprite }>();
+  private buildings = new Map<number, { key: string; g: THREE.Group; fire?: THREE.Group; zzz?: THREE.Sprite; alpha: number }>();
   private cats = new Map<number, CatView>();
   private marker: THREE.Mesh;
   private tileMark: THREE.Mesh;
@@ -127,6 +128,8 @@ export class CityView {
   selectedCat: number | null = null;
   selectedTile: [number, number] | null = null;
   buildMode = false;
+  /** Вид внутрь всех домов и мастерских (крыши и фасады прозрачные). */
+  xray = false;
   follow = false;
   private raf = 0;
   private prev = 0;
@@ -442,7 +445,7 @@ export class CityView {
     const c = this.opts.live();
     if (!c) return;
     this.buildGround(c);
-    this.syncBuildings(c, t);
+    this.syncBuildings(c, t, dt);
     this.syncCats(c, t, dt);
     this.light(c);
     // Камера: следует за выбранной кошкой (если включено), сверху-спереди.
@@ -506,8 +509,23 @@ export class CityView {
     MAT.glow.emissiveIntensity = 0.2 + night * 2;
   }
 
-  private syncBuildings(c: CityState, t: number): void {
+  /** Насколько видна крыша здания (1 — сплошная, меньше — видно, что внутри). */
+  roofAlpha(id: number): number {
+    return this.buildings.get(id)?.alpha ?? 1;
+  }
+
+  private syncBuildings(c: CityState, t: number, dt: number): void {
     const seen = new Set<number>();
+    const open = new Set<number>();
+    for (const b of c.buildings) if (this.xray && (b.kind === 'house' || b.kind === 'workshop')) open.add(b.id);
+    if (this.selectedTile) {
+      const b = tileAt(c, this.selectedTile[0], this.selectedTile[1]);
+      if (b) open.add(b.id);
+    }
+    if (this.selectedCat !== null) {
+      const k = c.cats.find((x) => x.id === this.selectedCat);
+      if (k && k.act.at !== null && !k.act.path?.length) open.add(k.act.at);
+    }
     const now = Date.now();
     const sleeping = new Set<number>();
     for (const k of c.cats) if (k.act.kind === 'sleep' && !k.act.path && k.act.at !== null) sleeping.add(k.act.at);
@@ -520,7 +538,7 @@ export class CityView {
         const g = buildingModel(b);
         g.position.set(b.gx * TILE, 0, b.gz * TILE);
         this.world.add(g);
-        v = { key, g };
+        v = { key, g, alpha: 1 };
         this.buildings.set(b.id, v);
         // Появление: здание «вырастает».
         g.scale.setScalar(0.01);
@@ -549,6 +567,11 @@ export class CityView {
         v.zzz.position.set(0.6, 2.4 + b.level * 0.35 + Math.sin(t * 1.5 + b.id) * 0.1, 0);
       }
       tickBuilding(g, b.type, t, c);
+      // Прозрачная крыша и фасад: режим «внутрь», выбранное здание или здание, где сидит выбранная кошка.
+      const want = open.has(b.id) ? CUT_ALPHA : 1;
+      v.alpha += (want - v.alpha) * Math.min(1, dt * 7);
+      if (Math.abs(v.alpha - want) < 0.01) v.alpha = want;
+      applyCut(g, v.alpha);
     }
     for (const [id, v] of this.buildings)
       if (!seen.has(id)) {
@@ -602,6 +625,8 @@ export class CityView {
       const sp = spots[a.spot % spots.length]!;
       pose = POSE[sp.pose];
       if (sp.pose === 'hidden') visible = false;
+      // В доме кошку видно, только когда крыша и фасад прозрачные.
+      if (b.kind === 'house' && (a.use === 'bed' || a.use === 'table' || a.use === 'inside') && this.roofAlpha(b.id) > 0.6) visible = false;
       y = sp.y;
       h = sp.h;
       const cx = b.gx * TILE;
@@ -642,10 +667,13 @@ export class CityView {
         z = cz + sp.z;
       }
     }
-    if (a.kind === 'sleep' && !walking) {
-      visible = false;
+    // Спит в кровати: лёжа на спинке, головой на подушке.
+    const lying = !walking && a.kind === 'sleep' && !!b && b.kind === 'house';
+    if (lying) {
       pose = 'sleep';
-    }
+      y += 0.15;
+      h = 0;
+    } else if (a.kind === 'sleep' && !walking) visible = false;
     // Плавность: позиция следует за симуляцией, поворот — по кратчайшей дуге.
     const follow = 1 - Math.exp(-dt * 14);
     const jump = Math.hypot(x - v.x, z - v.z) > 3;
@@ -660,6 +688,7 @@ export class CityView {
     root.visible = visible;
     root.position.set(v.x, v.y, v.z);
     root.rotation.y = v.h;
+    root.rotation.x += ((lying ? -Math.PI / 2 : 0) - root.rotation.x) * Math.min(1, dt * 8);
     if (visible) animateChibi(v.ch, pose, t + k.id * 0.37, dt, walking ? Math.max(0.5, v.speed) : 0, k.profession);
   }
 }
@@ -730,3 +759,32 @@ function tickBuilding(g: THREE.Object3D, type: string, t: number, c: CityState):
 /** Сколько клеток открыто (для подсказок). */
 export const openRadius = (c: CityState): number => Math.min(MAP, TOWNS[townLevel(c)]!.radius);
 export { tileAt };
+
+/** Крыша и фасад при взгляде внутрь: такая прозрачность. */
+const CUT_ALPHA = 0.14;
+
+/** Прозрачность съёмной части здания (группа «cut»): контур и окна прячутся, тень не падает. */
+function applyCut(g: THREE.Object3D, alpha: number): void {
+  const cut = g.getObjectByName('cut');
+  if (!cut || cut.userData.alpha === alpha) return;
+  cut.userData.alpha = alpha;
+  const solid = alpha >= 0.999;
+  cut.traverse((o) => {
+    const m = o as THREE.Mesh;
+    if (!m.isMesh) return;
+    if (m.userData.outlineHull) {
+      m.visible = alpha > 0.9;
+      return;
+    }
+    if (m.name === 'cutShell') {
+      const mat = m.material as THREE.MeshStandardMaterial;
+      mat.opacity = alpha;
+      mat.transparent = !solid;
+      mat.depthWrite = solid;
+      m.castShadow = alpha > 0.5;
+      return;
+    }
+    // Окна и вывеска.
+    m.visible = alpha > 0.55;
+  });
+}

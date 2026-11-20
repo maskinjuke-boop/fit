@@ -3121,3 +3121,11 @@ button.hud-pill {
   top: calc(max(10px, env(safe-area-inset-top)) + 186px);
   bottom: auto;
 }
+.fab.on {
+  background: #ffe9a8;
+  box-shadow: 0 0 0 2px #ffb020, 0 4px 12px rgba(0, 0, 0, 0.2);
+}
+.city-fabs .fab {
+  min-width: 70px;
+  padding: 8px 8px;
+}

@@ -220,7 +220,7 @@ export function decide(c: CityState, k: CityCat): void {
   if (home && (h >= 22 || h < 6.5 || n.energy < 12)) {
     const wake = 6.5 + r() * 0.8;
     const left = h >= 22 ? 24 - h + wake : h < wake ? wake - h : 3;
-    goTo(c, k, home, 'sleep', Math.max(30, left * 60), 'inside');
+    goTo(c, k, home, 'sleep', Math.max(30, left * 60), 'bed');
     return;
   }
   // Голодная — поесть: в кафе (если по карману и есть место) или дома.
@@ -228,7 +228,7 @@ export function decide(c: CityState, k: CityCat): void {
     const cafe = nearestOf(c, k, (b) => b.type === 'cafe' && k.money >= (buildingById('cafe').ticket ?? 0) + 5);
     if (cafe && r() < 0.6 && goTo(c, k, cafe, 'eat', 40)) return;
     if (home) {
-      goTo(c, k, home, 'eat', 20, 'inside');
+      goTo(c, k, home, 'eat', 20, 'table');
       return;
     }
   }
