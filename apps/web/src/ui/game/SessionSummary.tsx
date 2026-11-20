@@ -4,17 +4,16 @@ import { eventText } from './text';
 
 export interface Session {
   reps: number;
-  xp: number;
   gold: number;
   events: GameEvent[];
 }
 
-const SHOWN: ReadonlyArray<GameEvent['kind']> = ['levelUp', 'statLevelUp', 'questDone', 'dailyDone', 'dailyBonus', 'streak', 'achievement', 'catSaved'];
+const SHOWN: ReadonlyArray<GameEvent['kind']> = ['offeringDone', 'limit'];
 
-/** Итог тренировки: повторы, опыт, золото и что произошло (уровни, квесты, задания). */
-export function SessionSummary({ session, onClose }: { session: Session; onClose(): void }) {
-  const { t, tf, lang } = useI18n();
-  const lines = session.events.filter((e) => SHOWN.includes(e.kind)).map((e) => eventText(t, tf, e, lang)).filter((x): x is string => !!x);
+/** Итог тренировки: повторы, монеты и подношение. */
+export function SessionSummary({ session, offering, onClose }: { session: Session; offering: string | null; onClose(): void }) {
+  const { t, tf } = useI18n();
+  const lines = session.events.filter((e) => SHOWN.includes(e.kind)).map((e) => eventText(t, tf, e)).filter((x): x is string => !!x);
   return (
     <div className="overlay">
       <div className="sheet">
@@ -25,17 +24,19 @@ export function SessionSummary({ session, onClose }: { session: Session; onClose
             <span className="muted small">{t('summaryReps')}</span>
           </div>
           <div>
-            <b>+{Math.round(session.xp)}</b>
-            <span className="muted small">{t('summaryXp')}</span>
-          </div>
-          <div>
-            <b>+{session.gold}</b>
+            <b>+{session.gold} ◈</b>
             <span className="muted small">{t('summaryGold')}</span>
           </div>
+          {offering && (
+            <div>
+              <b>{offering}</b>
+              <span className="muted small">{t('summaryOffering')}</span>
+            </div>
+          )}
         </div>
         {lines.length > 0 && (
           <ul className="summary-events">
-            {lines.map((l, i) => (
+            {[...new Set(lines)].map((l, i) => (
               <li key={i}>{l}</li>
             ))}
           </ul>

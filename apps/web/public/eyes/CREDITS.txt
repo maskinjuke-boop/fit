@@ -1,2 +1,0 @@
-Eye textures — MakeHuman system assets (makehumancommunity.org), CC0 1.0: brownlight/blue/green/grey eye materials,
-cropped around the iris (256×256); "dark" and "hazel" are recoloured variants of brownlight.

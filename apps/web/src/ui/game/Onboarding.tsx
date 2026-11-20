@@ -1,34 +1,20 @@
 import { useState, type ChangeEvent } from 'react';
-import { ARCHETYPES, COLORS, type Archetype, type FitnessLevel } from '../../game/config';
+import type { FitnessLevel } from '../../game/config';
 import { useGame } from '../../game/GameContext';
-import { DEFAULT_APPEARANCE, type Appearance } from '../../game/state';
 import { useI18n, type I18nKey } from '../../i18n';
-import { AppearanceEditor } from './AppearanceEditor';
-import { Hero3D } from './Hero3D';
+import { CatPortrait } from '../city/CatPortrait';
 
-/** Стартовая вещь по характеру — показываем её на портрете сразу при выборе. */
-const STARTER: Record<Archetype, { slot: 'head' | 'feet' | 'offhand'; id: string }> = {
-  guardian: { slot: 'head', id: 'cat_ears' },
-  ranger: { slot: 'feet', id: 'sneakers' },
-  mystic: { slot: 'offhand', id: 'tote_bag' },
-};
-
-type Step = 'welcome' | 'health' | 'hero' | 'setup';
+type Step = 'welcome' | 'health' | 'town' | 'setup';
 const FITNESS: readonly FitnessLevel[] = ['beginner', 'intermediate', 'advanced'];
 
-/** Онбординг (ТЗ, раздел 7): приватность, опросник о противопоказаниях и 16+, персонаж, нагрузка и турник. */
+/** Онбординг: о чём игра, опросник о противопоказаниях и 16+, название поселения, нагрузка и турник. */
 export function Onboarding() {
   const { t, lang, setLang } = useI18n();
-  const { createCharacter } = useGame();
+  const { createGame } = useGame();
   const [step, setStep] = useState<Step>('welcome');
   const [answers, setAnswers] = useState<Array<boolean | null>>([null, null, null]);
   const [adult, setAdult] = useState(false);
   const [name, setName] = useState('');
-  const [archetype, setArchetype] = useState<Archetype>('guardian');
-  const [color, setColor] = useState<string>(COLORS[0]);
-  const [appearance, setAppearance] = useState<Appearance>(DEFAULT_APPEARANCE);
-  const starter = STARTER[archetype];
-  const preview = { [starter.slot]: starter.id };
   const [fitness, setFitness] = useState<FitnessLevel>('beginner');
   const [hasBar, setHasBar] = useState<boolean | null>(null);
 
@@ -39,15 +25,10 @@ export function Onboarding() {
     <main className="onboarding">
       {step === 'welcome' && (
         <section className="ob-step">
-          <div className="ob-hero-art pair">
-            <Hero3D color={COLORS[0]} appearance={DEFAULT_APPEARANCE} equipped={{ head: 'sports_cap', body: 'hoodie', legs: 'jeans', feet: 'sneakers', weapon: 'coffee_cup', offhand: 'tote_bag' }} height={230} interactive={false} />
-            <Hero3D
-              color={COLORS[1]}
-              appearance={{ ...DEFAULT_APPEARANCE, figure: 'female', hair: 'ponytail', hairColor: 3, skin: 2 }}
-              equipped={{ head: 'cat_ears', body: 'crop_top', legs: 'pleated_skirt', feet: 'sneakers', offhand: 'crossbody_bag' }}
-              height={230}
-              interactive={false}
-            />
+          <div className="ob-cats">
+            <CatPortrait coat="ginger" profession="baker" items={['bow']} pose="idle" size={116} />
+            <CatPortrait coat="tuxedo" profession="painter" items={[]} pose="idle" size={116} />
+            <CatPortrait coat="calico" profession="florist" items={['scarf']} pose="dance" size={116} />
           </div>
           <h1>{t('ob.welcomeTitle')}</h1>
           <p>{t('ob.welcomeText')}</p>
@@ -92,46 +73,28 @@ export function Onboarding() {
             <button className="btn" onClick={() => setStep('welcome')}>
               {t('ob.back')}
             </button>
-            <button className="btn primary grow" disabled={!healthDone} onClick={() => setStep('hero')}>
+            <button className="btn primary grow" disabled={!healthDone} onClick={() => setStep('town')}>
               {t('ob.next')}
             </button>
           </div>
         </section>
       )}
 
-      {step === 'hero' && (
+      {step === 'town' && (
         <section className="ob-step">
-          <h1>{t('ob.heroTitle')}</h1>
-          <div className="ob-hero-art sticky">
-            <Hero3D color={color} appearance={appearance} equipped={preview} height={270} zoomable />
+          <h1>{t('ob.townTitle')}</h1>
+          <div className="ob-cats">
+            <CatPortrait coat="grey" profession="carpenter" items={[]} pose="hammer" size={170} />
           </div>
           <label className="field">
-            <span>{t('ob.name')}</span>
-            <input value={name} maxLength={20} placeholder={t('ob.namePlaceholder')} onChange={(e: ChangeEvent<HTMLInputElement>) => setName(e.target.value)} />
+            <span>{t('ob.townName')}</span>
+            <input value={name} maxLength={24} placeholder={t('ob.townPlaceholder')} onChange={(e: ChangeEvent<HTMLInputElement>) => setName(e.target.value)} />
           </label>
-          <p className="field-label">{t('ob.archetype')}</p>
-          <div className="choice-grid">
-            {ARCHETYPES.map((a) => (
-              <button key={a} className={`choice ${archetype === a ? 'on' : ''}`} onClick={() => setArchetype(a)}>
-                <b>{t(`arch.${a}` as I18nKey)}</b>
-                <span className="muted small">{t(`arch.${a}.desc` as I18nKey)}</span>
-                <span className="small accent">{t(`item.${STARTER[a].id}` as I18nKey)}</span>
-              </button>
-            ))}
-          </div>
-          <AppearanceEditor
-            appearance={appearance}
-            color={color}
-            onChange={(a, c) => {
-              setAppearance(a);
-              setColor(c);
-            }}
-          />
           <div className="ob-actions">
             <button className="btn" onClick={() => setStep('health')}>
               {t('ob.back')}
             </button>
-            <button className="btn primary grow" disabled={name.trim().length === 0} onClick={() => setStep('setup')}>
+            <button className="btn primary grow" onClick={() => setStep('setup')}>
               {t('ob.next')}
             </button>
           </div>
@@ -159,13 +122,13 @@ export function Onboarding() {
           </div>
           <p className="muted small">{t('ob.hasBarHint')}</p>
           <div className="ob-actions">
-            <button className="btn" onClick={() => setStep('hero')}>
+            <button className="btn" onClick={() => setStep('town')}>
               {t('ob.back')}
             </button>
             <button
               className="btn primary grow"
               disabled={hasBar === null}
-              onClick={() => createCharacter({ name: name.trim(), archetype, color, appearance, fitness: anyRisk ? 'beginner' : fitness, hasBar: hasBar ?? false })}
+              onClick={() => createGame({ name: name.trim() || (lang === 'ru' ? 'Мурлыкино' : 'Purrville'), fitness: anyRisk ? 'beginner' : fitness, hasBar: hasBar ?? false })}
             >
               {t('ob.create')}
             </button>

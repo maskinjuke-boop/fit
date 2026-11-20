@@ -1,5 +1,0 @@
-bicolor_cat.glb — «Bicolor Cat» by kenchoo (https://sketchfab.com/kenchoo)
-Source: https://sketchfab.com/3d-models/bicolor-cat-e623a618ca344a8393d7ba4d63ec23cf
-Based on «3d modelling my cat: Fripouille» by guillaume bolis (https://skfb.ly/6TKqH)
-License: Creative Commons Attribution 4.0 International — https://creativecommons.org/licenses/by/4.0/
-Changes: the file is unmodified; in the game the fur texture is recoloured per breed at runtime and the skeleton is posed procedurally.

@@ -158,19 +158,19 @@ export function TrackingScreen({ exercise, engine, onBack, onRep, overlay }: Tra
     };
 
     const handleGameEvents = (events: GameEvent[], now: number): void => {
-      let xp = 0;
-      let over = false;
+      let gold = 0;
       const fresh: Array<{ id: number; text: string; big: boolean }> = [];
       events.forEach((ev, i) => {
-        if (ev.kind === 'xp') {
-          xp += ev.amount;
-          over = over || ev.overLimit;
+        if (ev.kind === 'gold') {
+          gold += ev.amount;
           return;
         }
-        const text = eventText(tRef.current, tfRef.current, ev, langRef.current);
-        if (text) fresh.push({ id: now + i, text, big: ev.kind === 'levelUp' || ev.kind === 'questDone' || ev.kind === 'dailyBonus' || ev.kind === 'achievement' || ev.kind === 'catSaved' });
+        // Прогресс подношения показывает полоса сверху, баннер — только за завершение.
+        if (ev.kind === 'offering') return;
+        const text = eventText(tRef.current, tfRef.current, ev);
+        if (text) fresh.push({ id: now + i, text, big: ev.kind === 'offeringDone' });
       });
-      if (xp > 0) setXpGain({ amount: xp, over, id: now });
+      if (gold > 0) setXpGain({ amount: gold, over: false, id: now });
       if (fresh.length > 0) setBanners((b) => [...b, ...fresh].slice(-3));
     };
 
@@ -347,7 +347,7 @@ export function TrackingScreen({ exercise, engine, onBack, onRep, overlay }: Tra
         <div className="count-label">{t('reps')}</div>
         {xpGain && (
           <div key={xpGain.id} className={`xp-float ${xpGain.over ? 'over' : ''}`}>
-            +{xpGain.amount < 1 ? xpGain.amount.toFixed(1) : Math.round(xpGain.amount)} XP
+            +{Math.round(xpGain.amount)} ◈
           </div>
         )}
         <div className="stats">

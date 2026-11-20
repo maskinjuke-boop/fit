@@ -3,7 +3,7 @@ import { gameRu } from './game';
 export const ru = {
   ...gameRu,
   appTitle: 'Трекинг упражнений',
-  appSubtitle: 'Фитнес-симулятор жизни',
+  appSubtitle: 'Кошачий городок',
   privacy: 'Видео обрабатывается на телефоне и никуда не отправляется.',
   chooseExercise: 'Выберите упражнение',
   lite: 'облегчённый вариант',
