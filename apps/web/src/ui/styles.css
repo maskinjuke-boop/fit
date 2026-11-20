@@ -3129,3 +3129,56 @@ button.hud-pill {
   min-width: 70px;
   padding: 8px 8px;
 }
+.res-sort {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: -2px 0 8px;
+}
+.res-sort .link {
+  color: var(--muted);
+  text-decoration: none;
+}
+.res-sort .link.on {
+  color: var(--accent);
+  text-decoration: underline;
+}
+.res-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+.res-row {
+  width: 100%;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  padding: 8px 10px;
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  background: var(--surface-2);
+  text-align: left;
+  cursor: pointer;
+}
+.res-face {
+  font-size: 26px;
+}
+.res-main {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  gap: 1px;
+}
+.res-doing {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.res-side {
+  display: grid;
+  justify-items: end;
+  gap: 2px;
+  font-variant-numeric: tabular-nums;
+}

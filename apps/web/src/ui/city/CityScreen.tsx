@@ -27,7 +27,7 @@ import { CityView, setLabelName, type Tap } from './view';
 
 const XRAY_KEY = 'fitness-rpg.city-xray';
 
-type Sel = { kind: 'cat'; id: number } | { kind: 'building'; id: number } | { kind: 'build'; gx: number; gz: number } | { kind: 'offering' } | { kind: 'news' } | null;
+type Sel = { kind: 'cat'; id: number } | { kind: 'building'; id: number } | { kind: 'build'; gx: number; gz: number } | { kind: 'offering' } | { kind: 'news' } | { kind: 'residents' } | null;
 
 /** Короткий выбор языка: L('по-русски', 'in English'). */
 function useL(): (ru: string, en: string) => string {
@@ -220,9 +220,9 @@ export function CityScreen({ state, onTrain }: { state: GameState; onTrain(ex?: 
             <span className="hud-name">{c.name}</span>
             <span className="muted small">{town.name[lang]}</span>
           </button>
-          <span className="hud-pill" title={L('Жители', 'Residents')}>
-            🐱 {c.cats.length}
-          </span>
+          <button className="hud-pill" title={L('Жители', 'Residents')} onClick={() => setSel({ kind: 'residents' })}>
+            🐱 {c.cats.length} <span className="muted small">›</span>
+          </button>
           <span className="hud-pill gold">◈ {state.gold}</span>
         </div>
         <div className="hud-row">
@@ -253,9 +253,9 @@ export function CityScreen({ state, onTrain }: { state: GameState; onTrain(ex?: 
             <span>🏗️</span>
             <span>{L('Строить', 'Build')}</span>
           </button>
-          <button className="fab" onClick={() => setSel({ kind: 'news' })}>
-            <span>📜</span>
-            <span>{L('Новости', 'News')}</span>
+          <button className="fab" onClick={() => setSel({ kind: 'residents' })}>
+            <span>🐱</span>
+            <span>{L('Жители', 'Residents')}</span>
           </button>
           <button className={`fab ${xray ? 'on' : ''}`} onClick={toggleXray} aria-pressed={xray}>
             <span>{xray ? '🏠' : '👁️'}</span>
@@ -296,6 +296,17 @@ export function CityScreen({ state, onTrain }: { state: GameState; onTrain(ex?: 
             />
           )}
           {sel.kind === 'offering' && <OfferingCard state={state} onTrain={onTrain} />}
+          {sel.kind === 'residents' && (
+            <ResidentsCard
+              city={c}
+              onCat={(id) => {
+                const k = c.cats.find((x) => x.id === id);
+                if (k) view.current?.focus(k.x, k.z + 1);
+                setSel({ kind: 'cat', id });
+              }}
+              onNews={() => setSel({ kind: 'news' })}
+            />
+          )}
           {sel.kind === 'news' && <NewsCard city={c} onRename={(n) => game.city.rename(n)} />}
         </Sheet>
       )}
@@ -685,6 +696,104 @@ function OfferingCard({ state, onTrain }: { state: GameState; onTrain(ex?: Exerc
         })}
       </div>
       <p className="muted small">{L('Каждый засчитанный повтор любого упражнения ещё и приносит ◈ на стройку.', 'Every counted rep of any exercise also earns ◈ for building.')}</p>
+    </div>
+  );
+}
+
+// ─── Жители ────────────────────────────────────────────────────────────
+
+type ResFilter = 'all' | 'jobless' | 'sad' | 'rich';
+type ResSort = 'mood' | 'name' | 'job' | 'money';
+
+function ResidentsCard({ city, onCat, onNews }: { city: CityState; onCat(id: number): void; onNews(): void }) {
+  const { lang } = useI18n();
+  const L = useL();
+  const [filter, setFilter] = useState<ResFilter>('all');
+  const [sort, setSort] = useState<ResSort>('mood');
+  const cats = city.cats;
+  const jobless = cats.filter((k) => k.work === null).length;
+  const sad = cats.filter((k) => k.mood < 40).length;
+  const avg = cats.length ? Math.round(cats.reduce((a, k) => a + k.mood, 0) / cats.length) : 0;
+  const list = cats
+    .filter((k) => (filter === 'jobless' ? k.work === null : filter === 'sad' ? k.mood < 40 : filter === 'rich' ? k.money >= 100 : true))
+    .sort((a, b) =>
+      sort === 'mood'
+        ? b.mood - a.mood
+        : sort === 'money'
+          ? b.money - a.money
+          : sort === 'job'
+            ? professionById(a.profession).name[lang].localeCompare(professionById(b.profession).name[lang]) || a.id - b.id
+            : catName(a)[lang].localeCompare(catName(b)[lang]),
+    );
+  const FILTERS: ReadonlyArray<[ResFilter, string]> = [
+    ['all', `${L('Все', 'All')} ${cats.length}`],
+    ['jobless', `🔨 ${L('Без работы', 'Jobless')} ${jobless}`],
+    ['sad', `😿 ${L('Грустят', 'Sad')} ${sad}`],
+    ['rich', `◈ ${L('Копят 100+', 'Saving 100+')}`],
+  ];
+  const SORTS: ReadonlyArray<[ResSort, string]> = [
+    ['mood', L('настроение', 'mood')],
+    ['name', L('имя', 'name')],
+    ['job', L('профессия', 'trade')],
+    ['money', L('деньги', 'money')],
+  ];
+  return (
+    <div className="residents-card">
+      <h2>🐱 {L('Жители', 'Residents')}</h2>
+      <p className="muted small">
+        {L('Всего', 'Total')}: {cats.length} · {L('настроение в среднем', 'average mood')} {moodFace(avg)} {avg} · 🏠 {L('свободных мест', 'free beds')}: {freeBeds(city)}
+      </p>
+      <div className="seg-tabs">
+        {FILTERS.map(([id, label]) => (
+          <button key={id} className={filter === id ? 'on' : ''} onClick={() => setFilter(id)}>
+            {label}
+          </button>
+        ))}
+      </div>
+      <div className="res-sort muted small">
+        {L('Сортировка', 'Sort')}:
+        {SORTS.map(([id, label]) => (
+          <button key={id} className={`link ${sort === id ? 'on' : ''}`} onClick={() => setSort(id)}>
+            {label}
+          </button>
+        ))}
+      </div>
+      <ul className="res-list">
+        {list.map((k) => {
+          const p = professionById(k.profession);
+          return (
+            <li key={k.id}>
+              <button className="res-row" onClick={() => onCat(k.id)}>
+                <span className="res-face">{moodFace(k.mood)}</span>
+                <span className="res-main">
+                  <b>
+                    {catName(k)[lang]} <span className="muted">{k.sex === 'f' ? '♀' : '♂'}</span>
+                    {k.items.length > 0 && <span className="res-items"> {k.items.map((i) => itemDef(i).icon).join('')}</span>}
+                  </b>
+                  <span className="small">
+                    {p.icon} {p.name[lang]}
+                    {k.work === null && <span className="bad"> · {L('без работы', 'jobless')}</span>} · {ageText(catAgeDays(city, k), lang)}
+                  </span>
+                  <span className="muted small res-doing">{doingText(city, k)[lang]}</span>
+                </span>
+                <span className="res-side">
+                  <span className="small">{Math.round(k.mood)}</span>
+                  <span className="build-cost small">◈ {Math.floor(k.money)}</span>
+                </span>
+              </button>
+            </li>
+          );
+        })}
+        {list.length === 0 && <li className="muted">{cats.length ? L('Никого под этот фильтр.', 'Nobody matches this filter.') : L('Пока никого — купите пустой домик, и приедет кошка.', 'Nobody yet — buy an empty cottage and a cat will move in.')}</li>}
+      </ul>
+      {city.lost.length > 0 && (
+        <p className="muted small">
+          🕯️ {L('Погибли в пожарах', 'Lost in fires')}: {city.lost.length}.{' '}
+          <button className="link" onClick={onNews}>
+            {L('Память и новости', 'Memory and news')}
+          </button>
+        </p>
+      )}
     </div>
   );
 }
