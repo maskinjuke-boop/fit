@@ -57,14 +57,27 @@ class Kit {
   cutParts: G[] = [];
   cutWins: G[] = [];
   cutExtra: THREE.Object3D[] = [];
+  /** Мелкие детали без контура (черепица, обшивка, плитка, переплёты) — иначе контуры сливаются в чёрные полосы. */
+  fineParts: G[] = [];
+  cutFineParts: G[] = [];
   private cutting = false;
+  private fining = false;
   /** Общий сдвиг/поворот для группы деталей (см. at). */
   private base: THREE.Matrix4 | null = null;
   private M(m: THREE.Matrix4): THREE.Matrix4 {
     return this.base ? this.base.clone().multiply(m) : m;
   }
   add(geo: G, color: string, m: THREE.Matrix4): this {
-    (this.cutting ? this.cutParts : this.parts).push(paint(geo, color, this.M(m)));
+    const list = this.fining ? (this.cutting ? this.cutFineParts : this.fineParts) : this.cutting ? this.cutParts : this.parts;
+    list.push(paint(geo, color, this.M(m)));
+    return this;
+  }
+  /** Детали внутри fn рисуются без контура. */
+  fine(fn: () => void): this {
+    const prev = this.fining;
+    this.fining = true;
+    fn();
+    this.fining = prev;
     return this;
   }
   /** Светящаяся или особая деталь отдельной сеткой (лампа, огонь в очаге). */
@@ -140,6 +153,7 @@ class Kit {
       // Подложка.
       const [ux, uy] = at(L / 2, 0.02);
       this.cbox(L + 0.02, 0.04, len, shade(color, 0.7), ux, uy, 0, 0, 0, -side * th);
+      this.fining = true;
       for (let i = 0; i < rows; i += 1) {
         const [x, y] = at(((i + 0.5) * L) / rows, 0.065);
         for (let j = 0; j < segs; j += 1) {
@@ -148,6 +162,7 @@ class Kit {
           this.cbox(L / rows + 0.05, 0.035, sl - 0.02, c, x, y, zz, 0, 0, -side * (th - 0.07));
         }
       }
+      this.fining = false;
       // Наличники по скатам спереди и сзади.
       for (const ez of [-1, 1]) {
         const [fx, fy] = at(L / 2, 0.06);
@@ -177,17 +192,19 @@ class Kit {
     (this.cutting ? this.cutWins : this.wins).push(g.applyMatrix4(this.M(T(x, y, z + 0.012))));
     if (round) {
       this.ring(w / 2, 0.035, frame, x, y, z + 0.015);
-      this.cbox(0.025, w, 0.03, frame, x, y, z + 0.02).cbox(w, 0.025, 0.03, frame, x, y, z + 0.02);
+      this.fine(() => this.cbox(0.025, w, 0.03, frame, x, y, z + 0.02).cbox(w, 0.025, 0.03, frame, x, y, z + 0.02));
       return this;
     }
     this.cbox(w + 0.08, 0.045, 0.05, frame, x, y + h / 2 + 0.02, z + 0.02).cbox(0.045, h, 0.05, frame, x - w / 2 - 0.02, y, z + 0.02).cbox(0.045, h, 0.05, frame, x + w / 2 + 0.02, y, z + 0.02);
-    this.cbox(0.025, h, 0.03, frame, x, y, z + 0.02).cbox(w, 0.025, 0.03, frame, x, y + 0.02, z + 0.02);
+    this.fine(() => this.cbox(0.025, h, 0.03, frame, x, y, z + 0.02).cbox(w, 0.025, 0.03, frame, x, y + 0.02, z + 0.02));
     this.cbox(w + 0.14, 0.035, 0.1, frame, x, y - h / 2 - 0.03, z + 0.04);
     if (shutters)
       for (const sx of [-1, 1]) {
         const cx = x + sx * (w / 2 + w * 0.27 + 0.03);
         this.cbox(w * 0.5, h + 0.03, 0.025, shutters, cx, y, z + 0.015);
-        for (const dy of [-0.25, 0, 0.25]) this.cbox(w * 0.42, 0.018, 0.03, shade(shutters, 0.8), cx, y + dy * h, z + 0.02);
+        this.fine(() => {
+          for (const dy of [-0.25, 0, 0.25]) this.cbox(w * 0.42, 0.018, 0.03, shade(shutters, 0.8), cx, y + dy * h, z + 0.02);
+        });
       }
     return this;
   }
@@ -209,25 +226,33 @@ class Kit {
       nonIdx.forEach((w) => w.getAttribute('uv') && w.deleteAttribute('uv'));
       return new THREE.Mesh(mergeGeometries(nonIdx)!, MAT.window);
     };
+    if (this.fineParts.length) {
+      const m = new THREE.Mesh(mergeGeometries(this.fineParts)!, MAT.solid);
+      m.receiveShadow = true;
+      m.userData.noOutline = true;
+      g.add(m);
+    }
     if (this.wins.length) g.add(winMesh(this.wins));
     for (const e of this.extra) g.add(e);
-    if (this.cutParts.length || this.cutWins.length || this.cutExtra.length) {
+    if (this.cutParts.length || this.cutFineParts.length || this.cutWins.length || this.cutExtra.length) {
       // Своя копия материала: прозрачность у каждого здания своя.
       const cut = new THREE.Group();
       cut.name = 'cut';
-      if (this.cutParts.length) {
-        const mat = MAT.solid.clone();
-        const m = new THREE.Mesh(mergeGeometries(this.cutParts)!, mat);
+      const mat = MAT.solid.clone();
+      for (const [list, fine] of [[this.cutParts, false], [this.cutFineParts, true]] as const) {
+        if (!list.length) continue;
+        const m = new THREE.Mesh(mergeGeometries(list)!, mat);
         m.name = 'cutShell';
-        m.castShadow = true;
+        m.castShadow = !fine;
         m.receiveShadow = true;
+        if (fine) m.userData.noOutline = true;
         cut.add(m);
       }
       if (this.cutWins.length) cut.add(winMesh(this.cutWins));
       for (const e of this.cutExtra) cut.add(e);
       g.add(cut);
     }
-    addOutlines(g, { thickness: 0.024, color: '#3b2a26', maxFlat: 6 });
+    addOutlines(g, { thickness: 0.018, color: '#4a3631', maxFlat: 6 });
     return g;
   }
 }
@@ -313,19 +338,19 @@ function house(level: number, tint: number): THREE.Group {
 
   // ── Фундамент из камней, пол из досок.
   k.box(w + 0.12, 0.12, d + 0.12, '#cfc6b8', 0, 0.02, z0);
-  for (let x = -w / 2 + 0.1; x < w / 2; x += 0.2) k.box(0.17, 0.07, 0.03, Math.round(x * 5) % 2 ? '#b9b0a2' : '#ddd5c7', x, 0.04, fz + 0.075);
-  for (const sx of [-1, 1]) for (let z = bz + 0.1; z < fz; z += 0.2) k.box(0.03, 0.07, 0.17, Math.round(z * 5) % 2 ? '#b9b0a2' : '#ddd5c7', sx * (w / 2 + 0.075), 0.04, z);
+  k.fine(() => { for (let x = -w / 2 + 0.1; x < w / 2; x += 0.2) k.box(0.17, 0.07, 0.03, Math.round(x * 5) % 2 ? '#b9b0a2' : '#ddd5c7', x, 0.04, fz + 0.075); });
+  k.fine(() => { for (const sx of [-1, 1]) for (let z = bz + 0.1; z < fz; z += 0.2) k.box(0.03, 0.07, 0.17, Math.round(z * 5) % 2 ? '#b9b0a2' : '#ddd5c7', sx * (w / 2 + 0.075), 0.04, z); });
   k.box(w - 0.04, 0.02, d - 0.04, '#d8b07e', 0, 0.14, z0);
-  for (let i = 1; i < 7; i += 1) k.box(0.012, 0.005, d - 0.06, '#c49a6c', -w / 2 + (i * w) / 7, FLOOR, z0);
+  k.fine(() => { for (let i = 1; i < 7; i += 1) k.box(0.012, 0.005, d - 0.06, '#c49a6c', -w / 2 + (i * w) / 7, FLOOR, z0); });
 
   // ── Задняя и боковые стены: обшивка, углы, окна со ставнями.
   k.box(w, h, t, wall, 0, 0.12, bz + t / 2);
   k.box(t, h, d, wall, -w / 2 + t / 2, 0.12, z0).box(t, h, d, wall, w / 2 - t / 2, 0.12, z0);
   const siding = shade(wall, 0.9);
-  for (let y = 0.3; y < top - 0.05; y += 0.17) {
+  k.fine(() => { for (let y = 0.3; y < top - 0.05; y += 0.17) {
     k.box(0.012, 0.022, d, siding, -w / 2 - 0.006, y, z0).box(0.012, 0.022, d, siding, w / 2 + 0.006, y, z0);
     k.box(w, 0.022, 0.012, siding, 0, y, bz - 0.006);
-  }
+  } });
   for (const sx of [-1, 1]) k.box(0.09, h, 0.09, trim, sx * w / 2, 0.12, bz);
   // Карниз-пояс между этажами.
   if (level >= 3) {
@@ -339,7 +364,7 @@ function house(level: number, tint: number): THREE.Group {
   if (level >= 4) {
     const tx = -w / 2 - 0.3;
     k.cyl(0.42, 0.42, 2.5, wall, tx, 0.12, -0.55, 20);
-    for (let y = 0.4; y < 2.5; y += 0.25) k.ring(0.425, 0.012, siding, tx, y, -0.55, Math.PI / 2);
+    k.fine(() => { for (let y = 0.4; y < 2.5; y += 0.25) k.ring(0.425, 0.012, siding, tx, y, -0.55, Math.PI / 2); });
     k.cyl(0.47, 0.47, 0.08, trim, tx, 2.6, -0.55, 20).cone(0.58, 0.9, roof, tx, 2.66, -0.55, 20);
     k.window(tx, 1.6, -0.12, 0.26, 0.26, true, undefined, trim).window(tx, 0.8, -0.12, 0.24, 0.3, false, undefined, trim);
     k.cyl(0.015, 0.015, 0.5, '#555555', tx, 3.5, -0.55, 6).box(0.25, 0.15, 0.02, '#ff5d73', tx + 0.13, 3.82, -0.55);
@@ -421,13 +446,13 @@ function house(level: number, tint: number): THREE.Group {
   // ── Съёмная часть (вид внутрь): фасад с дверью и окнами, крыша, труба.
   k.cut(() => {
     k.box(w, h, t, wall, 0, 0.12, fz - t / 2);
-    for (let y = 0.3; y < top - 0.05; y += 0.17) k.box(w, 0.022, 0.012, siding, 0, y, fz + 0.006);
+    k.fine(() => { for (let y = 0.3; y < top - 0.05; y += 0.17) k.box(w, 0.022, 0.012, siding, 0, y, fz + 0.006); });
     for (const sx of [-1, 1]) k.box(0.09, h, 0.09, trim, sx * w / 2, 0.12, fz);
     if (level >= 3) k.box(w + 0.04, 0.06, 0.04, trim, 0, 1.2, fz + 0.02);
     // Дверь: рама, филёнки, круглое окошко, ручка, козырёк на кронштейнах и фонарь.
     k.box(0.52, 0.66, 0.05, trim, 0, 0.12, fz + 0.005);
     k.box(0.42, 0.56, 0.06, '#8b5a3c', 0, 0.12, fz + 0.01);
-    k.box(0.32, 0.18, 0.012, '#7a4c31', 0, 0.2, fz + 0.045).box(0.32, 0.12, 0.012, '#7a4c31', 0, 0.42, fz + 0.045);
+    k.fine(() => { k.box(0.32, 0.18, 0.012, '#7a4c31', 0, 0.2, fz + 0.045).box(0.32, 0.12, 0.012, '#7a4c31', 0, 0.42, fz + 0.045); });
     k.window(0, 0.6, fz + 0.03, 0.14, 0.14, true, undefined, trim);
     k.ball(0.025, '#f2c94c', 0.15, 0.4, fz + 0.06);
     for (const sx of [-1, 1]) {
@@ -460,7 +485,7 @@ function house(level: number, tint: number): THREE.Group {
     if (level >= 2) {
       const chx = w / 2 - 0.45;
       k.box(0.22, 0.62, 0.22, '#b5654a', chx, top + 0.05, -0.5).box(0.28, 0.06, 0.28, '#8a4a36', chx, top + 0.67, -0.5);
-      for (let y = 0.15; y < 0.6; y += 0.12) k.box(0.225, 0.012, 0.225, '#c97a5e', chx, top + y, -0.5);
+      k.fine(() => { for (let y = 0.15; y < 0.6; y += 0.12) k.box(0.225, 0.012, 0.225, '#c97a5e', chx, top + y, -0.5); });
     }
     if (level >= 3) {
       k.cyl(0.012, 0.012, 0.4, '#555b66', 0, top + rh, z0 - d / 4, 6);
@@ -798,7 +823,7 @@ function workshop(type: BuildingId, level: number, tint: number): THREE.Group {
   // Площадка, пол плиткой.
   k.box(3.3, 0.12, 3.1, '#d9cbb8', 0, 0, 0.05);
   const [t1, t2] = TILES[p];
-  for (let i = 0; i < 6; i += 1) for (let j = 0; j < 5; j += 1) k.box(0.465, 0.012, 0.47, (i + j) % 2 ? t1 : t2, -1.2 + i * 0.48, 0.12, -0.98 + j * 0.48);
+  k.fine(() => { for (let i = 0; i < 6; i += 1) for (let j = 0; j < 5; j += 1) k.box(0.465, 0.012, 0.47, (i + j) % 2 ? t1 : t2, -1.2 + i * 0.48, 0.12, -0.98 + j * 0.48); });
   // Задняя и боковые стены: деревянная панель снизу изнутри, балки по углам, окна по бокам.
   k.box(W, H, 0.14, wall, 0, 0.12, -D / 2);
   k.box(0.14, H, D, wall, -W / 2, 0.12, 0).box(0.14, H, D, wall, W / 2, 0.12, 0);
@@ -826,7 +851,7 @@ function workshop(type: BuildingId, level: number, tint: number): THREE.Group {
       // Плоская крыша первого этажа — терраса с дощатым полом и перилами.
       k.box(W + 0.3, 0.16, D + 0.2, shade(roofC, 0.8), 0, 0.12 + H, -0.05);
       k.box(W + 0.2, 0.02, D + 0.1, '#c9a678', 0, 0.28 + H, -0.05);
-      for (let i = 0; i < 10; i += 1) k.box(0.012, 0.005, D + 0.1, '#b08a5e', -W / 2 + 0.15 + i * 0.3, 0.3 + H, -0.05);
+      k.fine(() => { for (let i = 0; i < 10; i += 1) k.box(0.012, 0.005, D + 0.1, '#b08a5e', -W / 2 + 0.15 + i * 0.3, 0.3 + H, -0.05); });
       k.box(W + 0.2, 0.04, 0.04, '#fff7ec', 0, H + 0.58, D / 2 + 0.17);
       for (let i = -7; i <= 7; i += 1) k.box(0.03, 0.28, 0.03, '#fff7ec', i * 0.21, H + 0.3, D / 2 + 0.17);
       // Второй этаж: окна со ставнями, балкон с цветами, черепичная крыша, флажки.
@@ -863,7 +888,7 @@ function temple(): THREE.Group {
   k.cyl(1.95, 2.0, 0.12, '#d9d1c2', 0, 0, 0, 40).cyl(1.8, 1.85, 0.12, '#e8e1d4', 0, 0.12, 0, 40).cyl(1.62, 1.68, 0.12, '#f4efe6', 0, 0.24, 0, 40);
   for (let i = 0; i < 16; i += 1) {
     const a = (i / 16) * Math.PI * 2;
-    k.cbox(0.02, 0.01, 1.2, '#ddd4c4', Math.sin(a) * 0.95, 0.365, Math.cos(a) * 0.95, 0, a, 0);
+    k.fine(() => { k.cbox(0.02, 0.01, 1.2, '#ddd4c4', Math.sin(a) * 0.95, 0.365, Math.cos(a) * 0.95, 0, a, 0); });
   }
   k.ring(1.1, 0.02, '#ddd4c4', 0, 0.365, 0, Math.PI / 2);
   // Восемь колонн с базой и капителью.
@@ -872,7 +897,7 @@ function temple(): THREE.Group {
     const x = Math.sin(a) * 1.35;
     const z = Math.cos(a) * 1.35;
     k.cyl(0.17, 0.19, 0.1, '#e8e1d4', x, 0.36, z, 12).cyl(0.11, 0.13, 1.5, '#ffffff', x, 0.46, z, 12);
-    for (let j = 0; j < 4; j += 1) k.ring(0.12, 0.012, '#efe8dc', x, 0.7 + j * 0.35, z, Math.PI / 2);
+    k.fine(() => { for (let j = 0; j < 4; j += 1) k.ring(0.12, 0.012, '#efe8dc', x, 0.7 + j * 0.35, z, Math.PI / 2); });
     k.cyl(0.18, 0.13, 0.1, '#f2c14e', x, 1.96, z, 12);
   }
   // Карниз с зубчиками.
@@ -938,7 +963,7 @@ function paving(k: Kit, w: number, d: number, c1: string, c2: string, x = 0, z =
   k.box(w, 0.05, d, shade(c1, 0.9), x, 0, z);
   const nx = Math.round(w / cell);
   const nz = Math.round(d / cell);
-  for (let i = 0; i < nx; i += 1) for (let j = 0; j < nz; j += 1) k.box(w / nx - 0.03, 0.012, d / nz - 0.03, (i + j) % 2 ? c1 : c2, x - w / 2 + (i + 0.5) * (w / nx), 0.05, z - d / 2 + (j + 0.5) * (d / nz));
+  k.fine(() => { for (let i = 0; i < nx; i += 1) for (let j = 0; j < nz; j += 1) k.box(w / nx - 0.03, 0.012, d / nz - 0.03, (i + j) % 2 ? c1 : c2, x - w / 2 + (i + 0.5) * (w / nx), 0.05, z - d / 2 + (j + 0.5) * (d / nz)); });
 }
 /** Подстриженная изгородь вдоль x. */
 function hedge(k: Kit, x: number, z: number, len: number, color = '#4f9d4c'): void {
@@ -1156,7 +1181,7 @@ function amenityOrFun(type: BuildingId): THREE.Group {
         k.add(new THREE.DodecahedronGeometry(0.12 + (i % 3) * 0.03, 0), ['#b9b7b0', '#a8a49b', '#cfcac0'][i % 3]!, T(Math.sin(a) * 1.6, 0.06, -0.55 + Math.cos(a) * 1.28, 1, 0.6, 1, i, i * 0.7, 0));
       }
       k.box(1.9, 0.08, 0.5, '#b5835a', 0, 0.12, 0.25);
-      for (let i = 0; i < 6; i += 1) k.box(0.012, 0.005, 0.5, '#8b5a3c', -0.8 + i * 0.32, 0.2, 0.25);
+      k.fine(() => { for (let i = 0; i < 6; i += 1) k.box(0.012, 0.005, 0.5, '#8b5a3c', -0.8 + i * 0.32, 0.2, 0.25); });
       for (const x of [-0.85, 0.85]) k.box(0.08, 0.2, 0.08, '#8b5a3c', x, 0, 0.45).box(0.06, 0.4, 0.06, '#8b5a3c', x, 0.2, 0.47);
       k.box(1.76, 0.04, 0.04, '#8b5a3c', 0, 0.55, 0.47);
       for (let i = 0; i < 9; i += 1) {
@@ -1178,7 +1203,7 @@ function amenityOrFun(type: BuildingId): THREE.Group {
       paving(k, 3.4, 3.4, '#f2e6f6', '#e6d6ec');
       // Когтеточки с канатом, площадки с подушками, гамак, домик с крышей, висящие игрушки.
       k.cyl(0.13, 0.13, 2.2, '#e2c08f', 0, 0.05, -0.1, 12);
-      for (let y = 0.15; y < 2.1; y += 0.07) k.ring(0.135, 0.012, '#c9a77a', 0, y, -0.1, Math.PI / 2);
+      k.fine(() => { for (let y = 0.15; y < 2.1; y += 0.07) k.ring(0.135, 0.012, '#c9a77a', 0, y, -0.1, Math.PI / 2); });
       for (const [x, y, z, r] of [[-0.2, 0.7, 0.25, 0.42], [0.3, 1.3, -0.05, 0.38], [-0.25, 1.9, -0.2, 0.42]] as const) {
         k.cyl(r, r, 0.08, '#c77dd6', x, y - 0.08, z, 18).cyl(r * 0.92, r * 0.92, 0.03, '#e8c2f2', x, y, z, 18).ring(r * 0.9, 0.035, '#f6dcfb', x, y + 0.03, z, Math.PI / 2);
         k.cyl(0.04, 0.04, y - 0.15, '#e2c08f', x + (x > 0 ? 0.2 : -0.2), 0.05, z, 8);
@@ -1238,7 +1263,7 @@ function amenityOrFun(type: BuildingId): THREE.Group {
         const z = Math.cos(a) * 1.15;
         const c = ['#7fb6d9', '#ffd93d', '#9ad08d'][i % 3]!;
         tk.cyl(0.025, 0.025, 1.85, '#f2c14e', x, 0, z, 6);
-        for (let j = 0; j < 4; j += 1) tk.ring(0.03, 0.01, '#ffffff', x, 0.3 + j * 0.4, z, Math.PI / 2);
+        tk.fine(() => { for (let j = 0; j < 4; j += 1) tk.ring(0.03, 0.01, '#ffffff', x, 0.3 + j * 0.4, z, Math.PI / 2); });
         // Рыбка-лошадка с хвостом и глазками.
         tk.ball(0.18, c, x, 0.55, z, 1, 0.8, 1.5).cone(0.12, 0.2, c, x - Math.cos(a) * 0.3, 0.55, z + Math.sin(a) * 0.3, 4);
         tk.ball(0.025, '#2a2a2a', x + Math.cos(a) * 0.1 + Math.sin(a) * 0.15, 0.62, z - Math.sin(a) * 0.1 + Math.cos(a) * 0.15);
