@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import type { Coat, ItemId, Profession } from '../../game/city/types';
+import type { CityCat, Coat, ItemId, Profession } from '../../game/city/types';
 import { addOutlines } from '../game/three/outline';
 
 /**
@@ -132,6 +132,100 @@ function itemParts(items: readonly ItemId[], look: CoatLook): { head: THREE.Buff
   return { head, body };
 }
 
+// ─── Одежда ────────────────────────────────────────────────────────────
+
+/** Что надето: рабочая форма (только на работе), обычная одежда, пижама (во сне). */
+export type Outfit = 'work' | 'casual' | 'sleep';
+
+/** Рубашка-оболочка поверх тельца (верх тела до пояса). */
+const shell = (color: string, len = 1.9, grow = 1.07): THREE.BufferGeometry => paint(new THREE.SphereGeometry(0.125 * grow, 20, 12, 0, Math.PI * 2, 0, len), color, T(0, 0.1, 0, 1, 1.08, 0.93));
+/** Рукавчик на плече лапки. */
+const sleeve = (color: string): THREE.BufferGeometry => paint(new THREE.CylinderGeometry(0.041, 0.044, 0.05, 12), color, T(0, -0.02, 0));
+/** Точка на поверхности тельца спереди (узоры, пуговицы). */
+const onBody = (r: number, color: string, x: number, y: number, z = 0.123): THREE.BufferGeometry => paint(sphere(r, 8, 6), color, T(x, y, z, 1, 1, 0.45));
+
+/** Обычная одежда — у каждой кошки своя (цвет и фасон по номеру). */
+const CASUAL = ['#7fb6d9', '#ff9fb8', '#9ad08d', '#ffcf6b', '#c7a4ff', '#ff8a7a', '#6fd0c4', '#f6efe4'];
+function casualParts(seed: number): { body: THREE.BufferGeometry[]; sleeve: string; head: THREE.BufferGeometry[] } {
+  const c = CASUAL[(seed * 3) % CASUAL.length]!;
+  const d = shadeHex(c, 0.82);
+  const style = seed % 4;
+  const body = [shell(c, 1.75)];
+  const head: THREE.BufferGeometry[] = [];
+  if (style === 0) {
+    // Футболка с воротничком и кармашком.
+    body.push(paint(new THREE.TorusGeometry(0.075, 0.012, 6, 20), '#ffffff', T(0, 0.225, 0.01, 1, 1, 0.9, Math.PI / 2 - 0.2)), paint(new THREE.BoxGeometry(0.035, 0.03, 0.01), d, T(0.045, 0.16, 0.122)));
+  } else if (style === 1) {
+    // Тельняшка в полоску.
+    for (let i = 0; i < 3; i += 1) body.push(paint(new THREE.TorusGeometry(0.129 - Math.abs(i - 1) * 0.012, 0.009, 6, 24), '#ffffff', T(0, 0.08 + i * 0.045, 0, 1, 1, 0.93, Math.PI / 2)));
+  } else if (style === 2) {
+    // Свитер с сердечком и горлом.
+    body.push(paint(new THREE.TorusGeometry(0.08, 0.02, 8, 20), d, T(0, 0.228, 0, 1, 1, 0.9, Math.PI / 2)));
+    body.push(onBody(0.022, '#ff4f86', -0.014, 0.15), onBody(0.022, '#ff4f86', 0.014, 0.15), paint(new THREE.ConeGeometry(0.027, 0.035, 8), '#ff4f86', T(0, 0.128, 0.122, 1, 1, 0.45, Math.PI)));
+  } else {
+    // Рубашка на пуговках и кепка-панамка.
+    for (let i = 0; i < 3; i += 1) body.push(onBody(0.009, '#ffffff', 0, 0.09 + i * 0.04, 0.128));
+    body.push(paint(new THREE.TorusGeometry(0.075, 0.012, 6, 20), d, T(0, 0.225, 0.01, 1, 1, 0.9, Math.PI / 2 - 0.2)));
+    head.push(paint(sphere(0.13, 16, 8), d, T(0, 0.12, -0.01, 1.05, 0.5, 1.05)), paint(new THREE.CylinderGeometry(0.1, 0.1, 0.01, 16, 1, false, -Math.PI / 2, Math.PI), d, T(0, 0.11, 0.08, 1, 1, 0.8, -0.15)));
+  }
+  return { body, sleeve: c, head };
+}
+
+/** Рабочая форма по профессии: фартук, жилет или блуза (шапка — отдельно, hatFor). */
+function workParts(p: Profession): { body: THREE.BufferGeometry[]; sleeve: string | null } {
+  const apron = (c: string, pocket = true): THREE.BufferGeometry[] => {
+    const out = [paint(sphere(0.096, 16, 12), c, T(0, 0.08, 0.078, 1, 1.12, 0.5)), paint(new THREE.TorusGeometry(0.119, 0.009, 6, 24), c, T(0, 0.1, 0, 1, 1, 0.93, Math.PI / 2))];
+    out.push(paint(new THREE.TorusGeometry(0.07, 0.007, 4, 18, Math.PI), c, T(0, 0.18, 0.02, 1, 1, 1, -0.3)));
+    if (pocket) out.push(paint(new THREE.BoxGeometry(0.05, 0.03, 0.01), shadeHex(c, 0.85), T(0.035, 0.06, 0.122)));
+    return out;
+  };
+  switch (p) {
+    case 'baker':
+      return { body: [shell('#ffffff', 1.9), ...apron('#f3efe6')], sleeve: '#ffffff' };
+    case 'confectioner':
+      return { body: [shell('#fff0f6', 1.9), ...apron('#ffc4dc'), onBody(0.01, '#ff4f86', -0.03, 0.12, 0.128), onBody(0.01, '#7fb6d9', 0.02, 0.07, 0.128)], sleeve: '#fff0f6' };
+    case 'potter':
+      return { body: [...apron('#a9865f'), onBody(0.016, '#7a5a3a', -0.03, 0.05, 0.126), onBody(0.012, '#7a5a3a', 0.04, 0.11, 0.124)], sleeve: null };
+    case 'carpenter':
+      // Кожаный фартук и пояс с инструментом.
+      return { body: [...apron('#8b5e34'), paint(new THREE.TorusGeometry(0.124, 0.014, 6, 24), '#5c3a20', T(0, 0.05, 0, 1, 1, 0.93, Math.PI / 2)), paint(new THREE.BoxGeometry(0.02, 0.06, 0.02), '#c49a6c', T(-0.1, 0.03, 0.06)), paint(new THREE.BoxGeometry(0.04, 0.02, 0.02), '#8a8f99', T(-0.1, 0.065, 0.06))], sleeve: null };
+    case 'florist':
+      return { body: [...apron('#6dbb5e'), paint(sphere(0.016, 8, 6), '#ff7eb6', T(0.035, 0.085, 0.13))], sleeve: null };
+    case 'fisher':
+      // Жёлтый непромокаемый жилет со светлыми полосками.
+      return { body: [shell('#ffd23f', 1.85, 1.08), paint(new THREE.TorusGeometry(0.133, 0.01, 6, 24), '#f6f6f6', T(0, 0.08, 0, 1, 1, 0.93, Math.PI / 2)), paint(new THREE.TorusGeometry(0.128, 0.01, 6, 24), '#f6f6f6', T(0, 0.14, 0, 1, 1, 0.93, Math.PI / 2))], sleeve: '#ffd23f' };
+    case 'tailor':
+      return { body: [shell('#ffffff', 1.9), paint(new THREE.SphereGeometry(0.135, 20, 12, Math.PI * 0.62, Math.PI * 1.76, 0, 1.85), '#9b7fd6', T(0, 0.1, 0, 1, 1.08, 0.93)), ...[0, 1, 2].map((i) => onBody(0.008, '#f7c638', 0.03, 0.08 + i * 0.04, 0.128))], sleeve: '#ffffff' };
+    case 'painter':
+      // Блуза в пятнах краски.
+      return { body: [shell('#f4f1ea', 1.95, 1.09), onBody(0.018, '#ff6b6b', -0.05, 0.1, 0.13), onBody(0.014, '#5c8fd6', 0.04, 0.15, 0.128), onBody(0.016, '#ffd93d', 0.02, 0.05, 0.13), onBody(0.012, '#7cbf6b', -0.02, 0.17, 0.125)], sleeve: '#f4f1ea' };
+  }
+}
+
+/** Пижама в горошек и ночной колпак с помпоном. */
+function sleepParts(seed: number): { body: THREE.BufferGeometry[]; head: THREE.BufferGeometry[]; sleeve: string } {
+  const c = ['#bcd8ff', '#ffd6e8', '#d9f2c9'][seed % 3]!;
+  const body = [shell(c, 2.2)];
+  for (let i = 0; i < 6; i += 1) body.push(onBody(0.012, '#ffffff', Math.sin(i * 2.4) * 0.06, 0.06 + (i % 3) * 0.05, 0.124));
+  const head = [paint(new THREE.ConeGeometry(0.1, 0.24, 14), c, T(0.03, 0.2, -0.03, 1, 1, 1, -0.35, 0, -0.45)), paint(new THREE.TorusGeometry(0.095, 0.02, 6, 18), '#ffffff', T(0, 0.1, -0.005, 1, 1, 1, Math.PI / 2 - 0.25, 0, 0)), paint(sphere(0.035, 8, 6), '#ffffff', T(0.14, 0.27, -0.12))];
+  return { body, head, sleeve: c };
+}
+
+/** Что надето на кошке по её занятию: форма — на рабочем месте, пижама — в кровати, иначе своя одежда. */
+export function catOutfit(k: Pick<CityCat, 'act'>): Outfit {
+  const settled = !k.act.path?.length;
+  if (settled && k.act.kind === 'work') return 'work';
+  if (settled && k.act.kind === 'sleep') return 'sleep';
+  return 'casual';
+}
+
+/** Надеть одежду: показывает нужный комплект, остальные прячет. */
+export function setOutfit(ch: Chibi, o: Outfit): void {
+  if (ch.outfit === o) return;
+  ch.outfit = o;
+  for (const [k, list] of Object.entries(ch.outfits)) for (const m of list) m.visible = k === o;
+}
+
 // ─── Модель ────────────────────────────────────────────────────────────
 
 export interface Chibi {
@@ -154,6 +248,9 @@ export interface Chibi {
   blinkAt: number;
   twitchAt: number;
   key: string;
+  /** Комплекты одежды (сетки на тельце, голове и лапках) и что надето сейчас. */
+  outfits: Record<Outfit, THREE.Object3D[]>;
+  outfit: Outfit | null;
 }
 
 type PropId = 'hammer' | 'rod' | 'brush' | 'whisk' | 'can' | 'needle' | 'rolling' | 'clay' | 'bun';
@@ -220,16 +317,29 @@ export function buildChibi(coat: Coat, profession: Profession, items: readonly I
   const torso = new THREE.Group();
   torso.position.y = 0.12;
   root.add(torso);
-  const apron = profession === 'baker' ? '#ffffff' : profession === 'confectioner' ? '#ffc4dc' : profession === 'potter' ? '#a9865f' : profession === 'carpenter' ? '#8b5e34' : null;
-  // Животик (или фартук по профессии).
-  const bodyParts = [paint(sphere(0.125, 20, 16), L.base, T(0, 0.1, 0, 1, 1.08, 0.93)), paint(sphere(0.09, 16, 12), apron ?? L.light, T(0, 0.085, 0.075, 0.95, 1.05, 0.5))];
-  if (apron) bodyParts.push(paint(new THREE.TorusGeometry(0.118, 0.009, 6, 24), apron, T(0, 0.1, 0, 1, 1, 0.93, Math.PI / 2)), paint(new THREE.BoxGeometry(0.05, 0.03, 0.01), shadeHex(apron, 0.85), T(0.035, 0.06, 0.12)));
+  // Животик.
+  const bodyParts = [paint(sphere(0.125, 20, 16), L.base, T(0, 0.1, 0, 1, 1.08, 0.93)), paint(sphere(0.09, 16, 12), L.light, T(0, 0.085, 0.075, 0.95, 1.05, 0.5))];
   if (L.bib) bodyParts.push(paint(sphere(0.08, 14, 10), L.light, T(0, 0.16, 0.065, 0.9, 0.9, 0.6)));
   if (L.patches) bodyParts.push(paint(sphere(0.07, 12, 10), L.patches[0], T(-0.06, 0.15, -0.07, 1, 0.8, 0.8)), paint(sphere(0.06, 12, 10), L.patches[1], T(0.07, 0.07, -0.08, 1, 0.8, 0.8)));
   if (L.stripes) for (let i = 0; i < 3; i += 1) bodyParts.push(paint(new THREE.TorusGeometry(0.11 - i * 0.008, 0.012, 6, 16, Math.PI * 0.8), L.dark, T(0, 0.14 - i * 0.045, -0.015, 1, 1.05, 1, Math.PI / 2 + 0.1, 0, Math.PI * 1.1)));
   const items3 = itemParts(items, L);
-  bodyParts.push(...items3.body);
   torso.add(meshOf(bodyParts, FUR));
+  // Одежда: три комплекта, виден один (setOutfit). Вещи с рынка (шарф, бубенчик) — поверх любой.
+  const outfits: Record<Outfit, THREE.Object3D[]> = { work: [], casual: [], sleep: [] };
+  const wear = (o: Outfit, parent: THREE.Object3D, parts: THREE.BufferGeometry[]): void => {
+    if (!parts.length) return;
+    const m = meshOf(parts, FUR);
+    m.visible = false;
+    parent.add(m);
+    outfits[o].push(m);
+  };
+  const work = workParts(profession);
+  const casual = casualParts(seed);
+  const pj = sleepParts(seed);
+  wear('work', torso, work.body);
+  wear('casual', torso, casual.body);
+  wear('sleep', torso, pj.body);
+  if (items3.body.length) torso.add(meshOf(items3.body, FUR));
 
   // Лапки-ручки от плеч.
   const arm = (side: number): THREE.Group => {
@@ -241,6 +351,11 @@ export function buildChibi(coat: Coat, profession: Profession, items: readonly I
   };
   const armL = arm(-1);
   const armR = arm(1);
+  for (const a of [armL, armR]) {
+    if (work.sleeve) wear('work', a, [sleeve(work.sleeve)]);
+    wear('casual', a, [sleeve(casual.sleeve)]);
+    wear('sleep', a, [sleeve(pj.sleeve)]);
+  }
   armL.rotation.z = -0.25;
   armR.rotation.z = 0.25;
   torso.add(armL, armR);
@@ -262,8 +377,11 @@ export function buildChibi(coat: Coat, profession: Profession, items: readonly I
   headParts.push(paint(sphere(0.019, 10, 8), '#ff8aa0', T(0, hc - 0.03, 0.172, 1.25, 0.8, 0.8)));
   if (L.stripes) for (let i = -1; i <= 1; i += 1) headParts.push(paint(new THREE.BoxGeometry(0.014, 0.05, 0.014), L.dark, T(i * 0.03, hc + 0.105, 0.11, 1, 1, 1, -0.75, 0, i * 0.15)));
   if (L.patches) headParts.push(paint(sphere(0.07, 12, 10), L.patches[0], T(-0.08, hc + 0.07, 0.07, 1, 0.9, 0.7)), paint(sphere(0.055, 12, 10), L.patches[1], T(0.09, hc + 0.09, 0.05, 1, 0.9, 0.7)));
-  headParts.push(...hatFor(profession).map((g) => g.applyMatrix4(T(0, hc, 0))), ...items3.head.map((g) => g.applyMatrix4(T(0, hc, 0))));
+  headParts.push(...items3.head.map((g) => g.applyMatrix4(T(0, hc, 0))));
   head.add(meshOf(headParts, FUR));
+  wear('work', head, hatFor(profession).map((g) => g.applyMatrix4(T(0, hc, 0))));
+  wear('casual', head, casual.head.map((g) => g.applyMatrix4(T(0, hc, 0))));
+  wear('sleep', head, pj.head.map((g) => g.applyMatrix4(T(0, hc, 0))));
   // Ушки — отдельно (подёргиваются).
   const ear = (side: number): THREE.Mesh => {
     const earC = L.points ? L.dark : coat === 'calico' ? (side < 0 ? L.patches![0] : L.patches![1]) : L.base;
@@ -326,7 +444,8 @@ export function buildChibi(coat: Coat, profession: Profession, items: readonly I
     const m = o as THREE.Mesh;
     if (m.isMesh && !m.userData.outlineHull) m.castShadow = m.material !== BLUSH && m.material !== FLAT;
   });
-  const ch: Chibi = { root, torso, head, legL, legR, armL, armR, tail, eyes, earL, earR, props: {}, gait: seed, blinkAt: 2 + seed % 3, twitchAt: 4 + (seed * 1.7) % 5, key: `${coat}|${profession}|${items.join(',')}` };
+  const ch: Chibi = { root, torso, head, legL, legR, armL, armR, tail, eyes, earL, earR, props: {}, gait: seed, blinkAt: 2 + seed % 3, twitchAt: 4 + (seed * 1.7) % 5, key: `${coat}|${profession}|${items.join(',')}`, outfits, outfit: null };
+  setOutfit(ch, 'casual');
   return ch;
 }
 

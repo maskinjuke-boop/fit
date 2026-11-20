@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react';
 import * as THREE from 'three';
 import type { Coat, ItemId, Profession } from '../../game/city/types';
 import { setupRenderer } from '../game/three/studio';
-import { animateChibi, buildChibi, disposeChibi, type Chibi, type ChibiPose } from './chibi';
+import { animateChibi, buildChibi, disposeChibi, setOutfit, type Chibi, type ChibiPose, type Outfit } from './chibi';
 
 /**
  * Портрет кошки (сводка, онбординг). Все портреты рисует один общий WebGL-рендерер
@@ -72,7 +72,7 @@ function loop(now: number): void {
   }
 }
 
-export function CatPortrait({ coat, profession, items, pose = 'idle', size = 140, seed = 1 }: { coat: Coat; profession: Profession; items: readonly ItemId[]; pose?: ChibiPose; size?: number; seed?: number }) {
+export function CatPortrait({ coat, profession, items, pose = 'idle', size = 140, seed = 1, outfit = 'casual' }: { coat: Coat; profession: Profession; items: readonly ItemId[]; pose?: ChibiPose; size?: number; seed?: number; outfit?: Outfit }) {
   const ref = useRef<HTMLCanvasElement>(null);
   const itemKey = items.join(',');
   useEffect(() => {
@@ -82,6 +82,7 @@ export function CatPortrait({ coat, profession, items, pose = 'idle', size = 140
     try {
       const ch = buildChibi(coat, profession, itemKey ? (itemKey.split(',') as ItemId[]) : [], seed);
       ch.root.rotation.y = 0.35;
+      setOutfit(ch, outfit);
       entry = { canvas, ch, pose, profession, phase: seed * 0.71 };
       entries.add(entry);
       if (!raf) raf = requestAnimationFrame(loop);
@@ -93,6 +94,6 @@ export function CatPortrait({ coat, profession, items, pose = 'idle', size = 140
       entries.delete(entry);
       disposeChibi(entry.ch);
     };
-  }, [coat, profession, itemKey, pose, seed]);
+  }, [coat, profession, itemKey, pose, seed, outfit]);
   return <canvas ref={ref} className="cat-portrait" style={{ width: size, height: size }} />;
 }

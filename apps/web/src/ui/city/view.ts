@@ -7,7 +7,7 @@ import type { CityCat, CityState } from '../../game/city/types';
 import { setupRenderer } from '../game/three/studio';
 import { Ambient, lightPool, type Emitter } from './ambient';
 import { MAT, buildingModel, chimneyOf, fireModel, modelKey } from './buildings';
-import { animateChibi, buildChibi, disposeChibi, type Chibi, type ChibiPose } from './chibi';
+import { animateChibi, buildChibi, catOutfit, disposeChibi, setOutfit, type Chibi, type ChibiPose } from './chibi';
 import { buildGround, disposeGround } from './nature';
 
 /**
@@ -623,6 +623,8 @@ export class CityView {
     root.position.set(v.x, v.y, v.z);
     root.rotation.y = v.h;
     root.rotation.x += ((lying ? -Math.PI / 2 : 0) - root.rotation.x) * Math.min(1, dt * 8);
+    // Рабочая форма — только на рабочем месте; во сне — пижама; в остальное время — своя одежда.
+    setOutfit(v.ch, catOutfit(k));
     if (visible) animateChibi(v.ch, pose, t + k.id * 0.37, dt, walking ? Math.max(0.5, v.speed) : 0, k.profession);
   }
 }

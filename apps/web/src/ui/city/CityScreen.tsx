@@ -22,7 +22,7 @@ import { useI18n, type I18nKey } from '../../i18n';
 import type { ExerciseId } from '../../tracking/exercise';
 import { CatPortrait } from './CatPortrait';
 import { ageText, clockText, coatText, countdown, levelName, moodFace, plural, toMidnight } from './cityText';
-import type { ChibiPose } from './chibi';
+import { catOutfit, type ChibiPose } from './chibi';
 import { CityView, setLabelName, type Tap } from './view';
 
 const XRAY_KEY = 'fitness-rpg.city-xray';
@@ -366,7 +366,7 @@ function CatCard({ city, id, follow, onFollow, onBuilding }: { city: CityState; 
   return (
     <div className="cat-card">
       <div className="cat-head">
-        <CatPortrait coat={k.coat} profession={k.profession} items={k.items} pose={pose} size={118} seed={k.id} />
+        <CatPortrait coat={k.coat} profession={k.profession} items={k.items} pose={pose} size={118} seed={k.id} outfit={catOutfit(k)} />
         <div className="cat-title">
           <h2>
             {catName(k)[lang]} <span className="muted">{k.sex === 'f' ? '♀' : '♂'}</span>

@@ -26,9 +26,9 @@ export function Onboarding() {
       {step === 'welcome' && (
         <section className="ob-step">
           <div className="ob-cats">
-            <CatPortrait coat="ginger" profession="baker" items={['bow']} pose="idle" size={116} />
-            <CatPortrait coat="tuxedo" profession="painter" items={[]} pose="idle" size={116} />
-            <CatPortrait coat="calico" profession="florist" items={['scarf']} pose="dance" size={116} />
+            <CatPortrait coat="ginger" profession="baker" items={['bow']} pose="idle" size={116} outfit="work" />
+            <CatPortrait coat="tuxedo" profession="painter" items={[]} pose="idle" size={116} outfit="work" />
+            <CatPortrait coat="calico" profession="florist" items={['scarf']} pose="dance" size={116} outfit="work" />
           </div>
           <h1>{t('ob.welcomeTitle')}</h1>
           <p>{t('ob.welcomeText')}</p>
@@ -84,7 +84,7 @@ export function Onboarding() {
         <section className="ob-step">
           <h1>{t('ob.townTitle')}</h1>
           <div className="ob-cats">
-            <CatPortrait coat="grey" profession="carpenter" items={[]} pose="hammer" size={170} />
+            <CatPortrait coat="grey" profession="carpenter" items={[]} pose="hammer" size={170} outfit="work" />
           </div>
           <label className="field">
             <span>{t('ob.townName')}</span>
