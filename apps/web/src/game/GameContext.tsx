@@ -229,6 +229,7 @@ export function GameProvider({ children }: { children: ReactNode }) {
       },
       reset: () => {
         clearGame();
+        setDayEvents([]);
         commit(null);
       },
       adminEnabled,

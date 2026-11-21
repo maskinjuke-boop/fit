@@ -307,7 +307,7 @@ export function CityScreen({ state, onTrain }: { state: GameState; onTrain(ex?: 
               onNews={() => setSel({ kind: 'news' })}
             />
           )}
-          {sel.kind === 'news' && <NewsCard city={c} onRename={(n) => game.city.rename(n)} />}
+          {sel.kind === 'news' && <NewsCard city={c} onRename={(n) => game.city.rename(n)} onReset={() => game.reset()} />}
         </Sheet>
       )}
       {/* Подсказка под HUD о свободных местах для новых кошек. */}
@@ -800,10 +800,11 @@ function ResidentsCard({ city, onCat, onNews }: { city: CityState; onCat(id: num
 
 // ─── Новости ───────────────────────────────────────────────────────────
 
-function NewsCard({ city, onRename }: { city: CityState; onRename(name: string): void }) {
+function NewsCard({ city, onRename, onReset }: { city: CityState; onRename(name: string): void; onReset(): void }) {
   const { lang } = useI18n();
   const L = useL();
   const [name, setName] = useState(city.name);
+  const [confirm, setConfirm] = useState(false);
   const lv = townLevel(city);
   const next = TOWNS[lv + 1];
   return (
@@ -841,6 +842,30 @@ function NewsCard({ city, onRename }: { city: CityState; onRename(name: string):
           <p className="muted small">{city.lost.map((x) => catName(x)[lang]).join(', ')}</p>
         </>
       )}
+      <div className="reset-zone">
+        {!confirm ? (
+          <button className="btn danger" onClick={() => setConfirm(true)}>
+            🔄 {L('Сбросить прогресс', 'Reset progress')}
+          </button>
+        ) : (
+          <>
+            <p className="small">
+              {L(
+                `Город «${city.name}», все кошки, дома, деньги и вся история исчезнут навсегда. Игра начнётся заново.`,
+                `The town “${city.name}”, all cats, houses, money and all history will be gone for good. The game starts over.`,
+              )}
+            </p>
+            <div className="row">
+              <button className="btn grow" onClick={() => setConfirm(false)}>
+                {L('Отмена', 'Cancel')}
+              </button>
+              <button className="btn danger grow" onClick={onReset}>
+                {L('Да, начать заново', 'Yes, start over')}
+              </button>
+            </div>
+          </>
+        )}
+      </div>
     </div>
   );
 }
