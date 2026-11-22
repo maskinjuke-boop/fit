@@ -715,7 +715,11 @@ function applyCut(g: THREE.Object3D, alpha: number): void {
     if (m.name === 'cutShell') {
       const mat = m.material as THREE.MeshStandardMaterial;
       mat.opacity = alpha;
-      mat.transparent = !solid;
+      // Смена прозрачности меняет шейдер (OPAQUE): без needsUpdate крыша так и остаётся сплошной.
+      if (mat.transparent !== !solid) {
+        mat.transparent = !solid;
+        mat.needsUpdate = true;
+      }
       mat.depthWrite = solid;
       m.castShadow = alpha > 0.5;
       return;
